@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
-from agent_smith.ai.env_keys import get_env_api_key
+from agent_smith.ai.env_keys import get_env_api_key, get_google_vertex_config
 from agent_smith.ai.events import AssistantMessageEventStream
 from agent_smith.ai.registry import get_api_provider
-from agent_smith.ai.types import Api, Context, Model, SimpleStreamOptions, StreamOptions
+from agent_smith.ai.types import (
+    Api,
+    AssistantMessage,
+    Context,
+    Model,
+    SimpleStreamOptions,
+    StreamOptions,
+)
 
 
 def _has_explicit_api_key(api_key: str | None) -> bool:
@@ -15,7 +22,10 @@ def _has_explicit_api_key(api_key: str | None) -> bool:
 def _with_env_api_key(model: Model, options: StreamOptions | None) -> StreamOptions | None:
     if options and _has_explicit_api_key(options.api_key):
         return options
-    api_key = get_env_api_key(model.provider)
+    env = options.env if options else None
+    if model.provider == "google" and get_google_vertex_config(env):
+        return options
+    api_key = get_env_api_key(model.provider, env)
     if not api_key:
         return options
     if options is None:
@@ -43,9 +53,7 @@ async def complete(
     model: Model,
     context: Context,
     options: StreamOptions | None = None,
-) -> "AssistantMessage":
-    from agent_smith.ai.types import AssistantMessage
-
+) -> AssistantMessage:
     s = stream(model, context, options)
     return await s.result()
 
@@ -63,6 +71,6 @@ async def complete_simple(
     model: Model,
     context: Context,
     options: SimpleStreamOptions | None = None,
-) -> "AssistantMessage":
+) -> AssistantMessage:
     s = stream_simple(model, context, options)
     return await s.result()

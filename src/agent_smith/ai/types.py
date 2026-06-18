@@ -23,6 +23,7 @@ ThinkingLevel = Literal["minimal", "low", "medium", "high", "xhigh"]
 ModelThinkingLevel = Literal["off", "minimal", "low", "medium", "high", "xhigh"]
 StopReason = Literal["stop", "length", "toolUse", "error", "aborted"]
 CacheRetention = Literal["none", "short", "long"]
+ProviderEnv = dict[str, str]
 
 
 # --- Content blocks ---
@@ -172,6 +173,13 @@ class Model(BaseModel):
     cost: ModelCost = Field(default_factory=ModelCost)
     context_window: int = Field(default=128_000, alias="contextWindow")
     max_tokens: int = Field(default=16_384, alias="maxTokens")
+    headers: dict[str, str] | None = None
+    provider_options: dict[str, Any] | None = Field(default=None, alias="providerOptions")
+    compat: dict[str, Any] | None = None
+    thinking_level_map: dict[ModelThinkingLevel, str | None] | None = Field(
+        default=None,
+        alias="thinkingLevelMap",
+    )
     litellm_model: str | None = Field(
         default=None,
         description="LiteLLM model id override (e.g. openai/gpt-4o-mini)",
@@ -182,14 +190,6 @@ class Model(BaseModel):
     def resolve_litellm_model(self) -> str:
         if self.litellm_model:
             return self.litellm_model
-        if self.provider == "openai":
-            return f"openai/{self.id}"
-        if self.provider == "anthropic":
-            return f"anthropic/{self.id}"
-        if self.provider == "google":
-            return f"gemini/{self.id}"
-        if self.provider == "openrouter":
-            return f"openrouter/{self.id}"
         return self.id
 
 
@@ -204,8 +204,11 @@ class StreamOptions(BaseModel):
     session_id: str | None = Field(default=None, alias="sessionId")
     timeout_ms: int | None = Field(default=None, alias="timeoutMs")
     max_retries: int | None = Field(default=None, alias="maxRetries")
+    max_retry_delay_ms: int | None = Field(default=None, alias="maxRetryDelayMs")
     headers: dict[str, str] | None = None
     metadata: dict[str, Any] | None = None
+    env: ProviderEnv | None = None
+    provider_options: dict[str, Any] | None = Field(default=None, alias="providerOptions")
 
     model_config = {"populate_by_name": True, "extra": "allow"}
 

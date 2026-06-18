@@ -2,7 +2,16 @@
 
 from agent_smith.ai.api import complete, complete_simple, stream, stream_simple
 from agent_smith.ai.events import AssistantMessageEventStream, create_assistant_message_event_stream
-from agent_smith.ai.models import get_model, get_models, get_providers
+from agent_smith.ai.models import (
+    clear_models,
+    get_model,
+    get_models,
+    get_providers,
+    load_models_from_file,
+    make_litellm_model,
+    register_model,
+    register_models,
+)
 from agent_smith.ai.types import (
     AssistantMessage,
     AssistantMessageEvent,
@@ -45,9 +54,14 @@ __all__ = [
     "complete",
     "complete_simple",
     "create_assistant_message_event_stream",
+    "clear_models",
     "get_model",
     "get_models",
     "get_providers",
+    "load_models_from_file",
+    "make_litellm_model",
+    "register_model",
+    "register_models",
     "stream",
     "stream_simple",
     "register_litellm_provider",

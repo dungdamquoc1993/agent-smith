@@ -6,6 +6,28 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 
 ---
 
+## [Unreleased]
+
+### Changed - Harden unified AI layer v1
+
+- Tach model catalog khoi code sang [`models.catalog.json`](../src/agent_smith/ai/models.catalog.json), giu lookup cu `get_model` / `get_models` / `get_providers` va them API registry model (`register_model`, `register_models`, `clear_models`, `load_models_from_file`, `make_litellm_model`).
+- Mo rong `Model` va `StreamOptions` voi metadata / passthrough options (`headers`, `providerOptions`, `compat`, `thinkingLevelMap`, `env`, `maxRetryDelayMs`) de provider/model moi it can sua runtime hon.
+- Harden LiteLLM adapter: forward provider options, ho tro ad-hoc model, map reasoning theo `thinkingLevelMap`, doc cache usage, set `responseId` / `responseModel`, sua tool-call index va tranh emit `thinking_end` hai lan.
+- Cai thien provider registry: luu `source_id`, unregister dung source, va validate mismatch `model.api` voi provider api.
+- Uu tien Google Vertex service-account JSON khi co `GOOGLE_APPLICATION_CREDENTIALS`; Gemini API key chi dung khi khong co Vertex config hoac caller truyen `api_key` ro rang.
+- Cap nhat `.env.example` de ghi ro hai mode Google auth: `GEMINI_API_KEY` hoac `GOOGLE_APPLICATION_CREDENTIALS` + project/location.
+
+### Added - AI layer tests
+
+- Them unit tests cho catalog/registry va LiteLLM adapter mock khong can network, gom passthrough options, ad-hoc model, Google Vertex auth precedence, tool-call ordering va thinking stream.
+
+### Verified locally
+
+```text
+poetry run ruff check src tests --output-format=concise
+poetry run pytest -q                              # 12 passed
+```
+
 ## [0.1.0] - 2026-06-18
 
 Milestone dau tien: Python project base, unified AI layer, va core Postgres tables theo plan *Agent Smith - Python Base + Unified AI Layer + Core Tables*.

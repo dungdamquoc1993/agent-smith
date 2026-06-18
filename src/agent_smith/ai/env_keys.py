@@ -12,8 +12,17 @@ from agent_smith.ai.types import Provider
 _PROVIDER_ENV_KEYS: dict[str, list[str]] = {
     "openai": ["OPENAI_API_KEY"],
     "anthropic": ["ANTHROPIC_API_KEY"],
+    "amazon-bedrock": ["AWS_ACCESS_KEY_ID"],
+    "cerebras": ["CEREBRAS_API_KEY"],
+    "deepseek": ["DEEPSEEK_API_KEY"],
+    "fireworks": ["FIREWORKS_API_KEY"],
     "google": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+    "groq": ["GROQ_API_KEY"],
+    "huggingface": ["HUGGINGFACE_API_KEY", "HF_TOKEN"],
+    "mistral": ["MISTRAL_API_KEY"],
     "openrouter": ["OPENROUTER_API_KEY"],
+    "together": ["TOGETHER_API_KEY"],
+    "xai": ["XAI_API_KEY"],
 }
 
 
@@ -33,6 +42,10 @@ def get_env_api_key(provider: Provider, env: Mapping[str, str] | None = None) ->
         if value and value.strip():
             return value.strip()
     return None
+
+
+def register_provider_env_keys(provider: Provider, keys: list[str]) -> None:
+    _PROVIDER_ENV_KEYS[provider] = keys
 
 
 def _read_vertex_project(credentials_path: str) -> str | None:
