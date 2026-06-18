@@ -25,11 +25,14 @@ poetry run alembic upgrade head
 ## Demo unified AI layer
 
 ```powershell
-# Faux provider (offline, no API key)
-poetry run python examples/demo_ai.py --provider faux
-
-# OpenAI live (requires OPENAI_API_KEY in .env)
+# OpenAI (requires OPENAI_API_KEY in .env)
 poetry run python examples/demo_ai.py --provider openai
+
+# Google Gemini via Vertex (service account in .gcp/ or GEMINI_API_KEY)
+poetry run python examples/demo_ai.py --provider google
+
+# Both
+poetry run python examples/demo_ai.py --provider all
 ```
 
 ## Tests

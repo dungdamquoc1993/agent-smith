@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 # --- API / Provider identifiers ---
 
-KnownApi = Literal["litellm", "faux"]
+KnownApi = Literal["litellm"]
 Api = str  # KnownApi | custom
 
 KnownProvider = Literal[
@@ -16,7 +16,6 @@ KnownProvider = Literal[
     "anthropic",
     "google",
     "openrouter",
-    "faux",
 ]
 Provider = str  # KnownProvider | custom
 

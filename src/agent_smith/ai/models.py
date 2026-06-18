@@ -6,17 +6,6 @@ from agent_smith.ai.types import Model, ModelCost, Provider
 
 _CATALOG: list[Model] = [
     Model(
-        id="faux-1",
-        name="Faux Model 1",
-        api="faux",
-        provider="faux",
-        reasoning=True,
-        input=["text"],
-        cost=ModelCost(),
-        context_window=128_000,
-        max_tokens=16_384,
-    ),
-    Model(
         id="gpt-4o-mini",
         name="GPT-4o Mini",
         api="litellm",

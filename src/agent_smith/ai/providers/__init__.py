@@ -1,1 +1,1 @@
-"""Faux provider package."""
+"""LLM API providers."""

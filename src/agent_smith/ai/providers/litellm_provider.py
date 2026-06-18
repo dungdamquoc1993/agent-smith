@@ -9,6 +9,7 @@ from typing import Any
 
 import litellm
 
+from agent_smith.ai.env_keys import get_env_api_key, get_google_vertex_config
 from agent_smith.ai.events import AssistantMessageEventStream, create_assistant_message_event_stream
 from agent_smith.ai.registry import register_api_provider
 from agent_smith.ai.types import (
@@ -121,6 +122,24 @@ def _tools_to_litellm(tools: list[Tool] | None) -> list[dict[str, Any]] | None:
     ]
 
 
+def _resolve_litellm_model(model: Model) -> str:
+    if model.provider == "google" and get_google_vertex_config() and not get_env_api_key(model.provider):
+        return f"vertex_ai/{model.id}"
+    return model.resolve_litellm_model()
+
+
+def _apply_provider_auth(model: Model, kwargs: dict[str, Any], opts: StreamOptions) -> None:
+    if opts.api_key:
+        kwargs["api_key"] = opts.api_key
+        return
+
+    if model.provider == "google":
+        vertex = get_google_vertex_config()
+        if vertex:
+            kwargs["vertex_project"] = vertex["vertex_project"]
+            kwargs["vertex_location"] = vertex["vertex_location"]
+
+
 def _empty_assistant(model: Model) -> AssistantMessage:
     return AssistantMessage(
         api=model.api,
@@ -189,7 +208,7 @@ class LitellmApiProvider:
 
         try:
             kwargs: dict[str, Any] = {
-                "model": model.resolve_litellm_model(),
+                "model": _resolve_litellm_model(model),
                 "messages": _context_to_litellm_messages(context),
                 "stream": True,
                 "stream_options": {"include_usage": True},
@@ -200,8 +219,7 @@ class LitellmApiProvider:
                 kwargs["temperature"] = opts.temperature
             if opts.max_tokens is not None:
                 kwargs["max_tokens"] = opts.max_tokens
-            if opts.api_key:
-                kwargs["api_key"] = opts.api_key
+            _apply_provider_auth(model, kwargs, opts)
             if opts.timeout_ms:
                 kwargs["timeout"] = opts.timeout_ms / 1000
             if opts.max_retries is not None:
