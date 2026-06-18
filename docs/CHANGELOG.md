@@ -21,11 +21,20 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 
 - Them unit tests cho catalog/registry va LiteLLM adapter mock khong can network, gom passthrough options, ad-hoc model, Google Vertex auth precedence, tool-call ordering va thinking stream.
 
+### Added - Agent loop v1
+
+- Port low-level `agent-loop` cua pi sang package moi [`agent_smith.agent`](../src/agent_smith/agent/), giu runtime loop stateless/persistence-free va chua dua DB/session/harness vao v1.
+- Them public API `agent_loop`, `agent_loop_continue`, `run_agent_loop`, `run_agent_loop_continue` voi `AgentEventStream` ho tro `async for` va `await .result()`.
+- Them agent-level types (`AgentContext`, `AgentLoopConfig`, `AgentTool`, `AgentToolResult`, hook contexts/events) va tool execution sequential/parallel.
+- Tach implementation agent loop thanh package nho hon: runner, streaming, tools, utils de de doc va de bao tri.
+- Them validate tool arguments bang JSON Schema qua dependency `jsonschema`; validation/tool errors duoc encode thanh error tool result thay vi lam crash loop.
+- Them unit tests cho event lifecycle, continue validation, multi-turn tool calls, parallel ordering, blocked/missing/invalid tools va `after_tool_call` override.
+
 ### Verified locally
 
 ```text
 poetry run ruff check src tests --output-format=concise
-poetry run pytest -q                              # 12 passed
+poetry run pytest -q                              # 17 passed
 ```
 
 ## [0.1.0] - 2026-06-18
