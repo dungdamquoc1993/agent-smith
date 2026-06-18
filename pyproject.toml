@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "agent-smith"
+version = "0.1.0"
+description = "Enterprise agent runtime - unified AI layer and control plane"
+authors = ["Agent Smith Team"]
+readme = "README.md"
+packages = [{ include = "agent_smith", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+litellm = "1.44.28"  # pinned: newer versions break on Windows long-path installs
+pydantic = "^2.10.0"
+pydantic-settings = "^2.7.0"
+sqlalchemy = { version = "^2.0.36", extras = ["asyncio"] }
+asyncpg = "^0.30.0"
+alembic = "^1.14.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.0"
+pytest-asyncio = "^0.25.0"
+ruff = "^0.9.0"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
