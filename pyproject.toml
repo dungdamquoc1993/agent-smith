@@ -26,6 +26,7 @@ alembic = "^1.14.0"
 google-auth = "^2.55.0"
 google-cloud-aiplatform = "^1.158.0"
 jsonschema = "^4.26.0"
+cryptography = "<49"  # 49+ drops macOS x86_64 wheels; Intel Macs would need a Rust build
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"
