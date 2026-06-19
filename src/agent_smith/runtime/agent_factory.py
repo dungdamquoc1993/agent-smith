@@ -1,0 +1,231 @@
+"""Compile agent definitions into harness runtime options."""
+
+from __future__ import annotations
+
+import inspect
+from collections.abc import Callable
+from typing import TypeAlias
+
+from agent_smith.agent.harness import AgentHarness, AgentHarnessOptions
+from agent_smith.agent.harness.compaction import CompactionSettings
+from agent_smith.agent.harness.types import (
+    AgentHarnessResources,
+    AgentHarnessSession,
+    AgentHarnessStreamOptions,
+    GetAgentHarnessAuthFn,
+)
+from agent_smith.agent.types import StreamFn
+from agent_smith.ai.models import get_model
+from agent_smith.ai.types import MaybeAwaitable, Model
+from agent_smith.resources import AgentDefinition, ResourceResolver
+from agent_smith.runtime.tool_registry import ToolRegistry, UnknownToolError
+from agent_smith.runtime.types import AgentRuntimeSpec
+
+ModelResolver: TypeAlias = Callable[[AgentDefinition], MaybeAwaitable[Model | None]]
+
+
+class AgentFactoryError(Exception):
+    pass
+
+
+class AgentFactory:
+    def __init__(
+        self,
+        *,
+        resource_resolver: ResourceResolver,
+        tool_registry: ToolRegistry,
+        default_model: Model,
+        model_resolver: ModelResolver | None = None,
+        stream_fn: StreamFn | None = None,
+        get_api_key_and_headers: GetAgentHarnessAuthFn | None = None,
+        stream_options: AgentHarnessStreamOptions | dict | None = None,
+        compaction_settings: CompactionSettings | None = None,
+    ) -> None:
+        self.resource_resolver = resource_resolver
+        self.tool_registry = tool_registry
+        self.default_model = default_model
+        self.model_resolver = model_resolver
+        self.stream_fn = stream_fn
+        self.get_api_key_and_headers = get_api_key_and_headers
+        self.stream_options = (
+            AgentHarnessStreamOptions.model_validate(stream_options)
+            if isinstance(stream_options, dict)
+            else stream_options
+        )
+        self.compaction_settings = compaction_settings
+
+    async def build_runtime_spec(self, definition: AgentDefinition | str) -> AgentRuntimeSpec:
+        resolved_definition = await self._resolve_definition(definition)
+        resolved_resources = await self.resource_resolver.resolve()
+        resources = self._select_harness_resources(
+            resolved_definition,
+            resolved_resources.harness_resources,
+        )
+        try:
+            active_tool_names = self.tool_registry.resolve_active_names(
+                tools_allow=resolved_definition.tools_allow,
+                tools_deny=resolved_definition.tools_deny,
+            )
+        except UnknownToolError as exc:
+            raise AgentFactoryError(str(exc)) from exc
+        tools = self.tool_registry.list_tools(active_tool_names)
+        mcp_server_configs = {
+            name: resolved_resources.mcp_server_configs[name]
+            for name in self._require_names(
+                resolved_definition.mcp_servers,
+                resolved_resources.mcp_server_configs.keys(),
+                "MCP server config",
+            )
+        }
+        return AgentRuntimeSpec(
+            definition=resolved_definition,
+            model=await self._resolve_model(resolved_definition),
+            system_prompt=resolved_definition.system_prompt,
+            resources=resources,
+            tools=tools,
+            active_tool_names=active_tool_names,
+            thinking_level=resolved_definition.thinking_level,
+            max_turns=resolved_definition.max_turns,
+            permission_mode=resolved_definition.permission_mode,
+            mcp_server_configs=mcp_server_configs,
+        )
+
+    async def create_options(
+        self,
+        definition: AgentDefinition | str,
+        *,
+        session: AgentHarnessSession,
+        stream_fn: StreamFn | None = None,
+        get_api_key_and_headers: GetAgentHarnessAuthFn | None = None,
+        stream_options: AgentHarnessStreamOptions | dict | None = None,
+        compaction_settings: CompactionSettings | None = None,
+    ) -> AgentHarnessOptions:
+        spec = await self.build_runtime_spec(definition)
+        resolved_stream_options = (
+            AgentHarnessStreamOptions.model_validate(stream_options)
+            if isinstance(stream_options, dict)
+            else stream_options or self.stream_options
+        )
+        return AgentHarnessOptions(
+            session=session,
+            model=spec.model,
+            thinking_level=spec.thinking_level,
+            system_prompt=spec.system_prompt,
+            resources=spec.resources,
+            tools=spec.tools,
+            active_tool_names=spec.active_tool_names,
+            stream_fn=stream_fn or self.stream_fn,
+            get_api_key_and_headers=get_api_key_and_headers or self.get_api_key_and_headers,
+            stream_options=resolved_stream_options,
+            compaction_settings=compaction_settings or self.compaction_settings,
+        )
+
+    async def create_harness(
+        self,
+        definition: AgentDefinition | str,
+        *,
+        session: AgentHarnessSession,
+        stream_fn: StreamFn | None = None,
+        get_api_key_and_headers: GetAgentHarnessAuthFn | None = None,
+        stream_options: AgentHarnessStreamOptions | dict | None = None,
+        compaction_settings: CompactionSettings | None = None,
+    ) -> AgentHarness:
+        return AgentHarness(
+            await self.create_options(
+                definition,
+                session=session,
+                stream_fn=stream_fn,
+                get_api_key_and_headers=get_api_key_and_headers,
+                stream_options=stream_options,
+                compaction_settings=compaction_settings,
+            )
+        )
+
+    async def _resolve_definition(self, definition: AgentDefinition | str) -> AgentDefinition:
+        if isinstance(definition, AgentDefinition):
+            return definition
+        resolved = await self.resource_resolver.get_agent_definition(definition)
+        if resolved is None:
+            raise AgentFactoryError(f"Unknown agent definition: {definition}")
+        return resolved
+
+    async def _resolve_model(self, definition: AgentDefinition) -> Model:
+        if self.model_resolver:
+            resolved = await _maybe_await(self.model_resolver(definition))
+            if resolved is not None:
+                return resolved
+
+        model_ref = definition.model
+        if model_ref is None:
+            return self.default_model
+        if isinstance(model_ref, str):
+            if model_ref in {self.default_model.id, self.default_model.name}:
+                return self.default_model
+            resolved = get_model(self.default_model.provider, model_ref)
+            if resolved:
+                return resolved
+            raise AgentFactoryError(f"Unknown model: {self.default_model.provider}/{model_ref}")
+
+        provider = model_ref.provider or self.default_model.provider
+        if provider == self.default_model.provider and model_ref.model_id in {
+            self.default_model.id,
+            self.default_model.name,
+        }:
+            return self.default_model
+        resolved = get_model(provider, model_ref.model_id)
+        if resolved:
+            return resolved
+        raise AgentFactoryError(f"Unknown model: {provider}/{model_ref.model_id}")
+
+    def _select_harness_resources(
+        self,
+        definition: AgentDefinition,
+        resources: AgentHarnessResources,
+    ) -> AgentHarnessResources:
+        skills = resources.skills or []
+        prompt_templates = resources.prompt_templates or []
+
+        if definition.skills:
+            skill_names = {skill.name: skill for skill in skills}
+            selected_skills = [
+                skill_names[name]
+                for name in self._require_names(definition.skills, skill_names.keys(), "skill")
+            ]
+        else:
+            selected_skills = list(skills)
+
+        if definition.prompt_templates:
+            template_names = {template.name: template for template in prompt_templates}
+            selected_templates = [
+                template_names[name]
+                for name in self._require_names(
+                    definition.prompt_templates,
+                    template_names.keys(),
+                    "prompt template",
+                )
+            ]
+        else:
+            selected_templates = list(prompt_templates)
+
+        return AgentHarnessResources(
+            skills=selected_skills,
+            prompt_templates=selected_templates,
+        )
+
+    def _require_names(
+        self,
+        requested: list[str],
+        available: set[str] | list[str] | dict[str, object],
+        label: str,
+    ) -> list[str]:
+        available_names = set(available)
+        missing = [name for name in requested if name not in available_names]
+        if missing:
+            raise AgentFactoryError(f"Unknown {label}: {', '.join(missing)}")
+        return list(requested)
+
+
+async def _maybe_await(value: MaybeAwaitable[Model | None]) -> Model | None:
+    if inspect.isawaitable(value):
+        return await value
+    return value

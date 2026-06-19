@@ -18,6 +18,8 @@ from agent_smith.db.models import (  # noqa: F401
     ExternalIdentity,
     LocalCredential,
     Principal,
+    Resource,
+    ResourceVersion,
     Session,
     SessionEntry,
 )

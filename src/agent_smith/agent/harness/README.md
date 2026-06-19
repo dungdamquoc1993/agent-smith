@@ -82,6 +82,12 @@ Sau full compact, `session.build_context()` project lại history qua `build_pro
 
 Helper format: `resources.py` (`format_skill_invocation`, `format_skills_for_system_prompt`, …).
 
+`AgentHarnessResources` là **resolved snapshot** cho một run/turn, không phải source of truth.
+Harness không đọc filesystem, không query Postgres resource tables, và không tự quản lý vòng đời
+skill/template/agent config. Catalog/versioning/backend nằm ngoài harness, qua
+`agent_smith.resources`; việc compile agent definition thành `AgentHarnessOptions` nằm ở
+`agent_smith.runtime`.
+
 ## Session
 
 Harness nhận `AgentHarnessSession` (thường là `Session` từ repo memory/postgres). Mọi message assistant/tool ghi qua event handler; mutation model/tools trong lúc chạy queue vào `_pending_session_writes` rồi flush.

@@ -42,6 +42,10 @@ agent/
     └── resources.py    ← format skill / prompt template
 ```
 
+Catalog/resource stores và agent definition assembly nằm ngoài package này:
+`agent_smith.resources` resolve definitions thành snapshot, còn `agent_smith.runtime`
+compile `AgentDefinition` thành `AgentHarnessOptions`.
+
 ## Hai lớp orchestration
 
 | | **agent_loop** | **harness** |
