@@ -11,6 +11,7 @@ Muc tieu cua folder nay la tach cac y lon thanh nhieu file nho de tiep tuc thao 
 4. [Capabilities And Tools](04-capabilities-and-tools.md)
 5. [Identity, Auth, Policy](05-identity-auth-policy.md)
 6. [Architecture, Decisions, Open Questions](06-architecture-decisions-open-questions.md)
+7. [Agent Task Runtime Phase 3](07-agent-task-runtime-phase3.md)
 
 ## Current Direction
 
