@@ -30,11 +30,20 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 - Them validate tool arguments bang JSON Schema qua dependency `jsonschema`; validation/tool errors duoc encode thanh error tool result thay vi lam crash loop.
 - Them unit tests cho event lifecycle, continue validation, multi-turn tool calls, parallel ordering, blocked/missing/invalid tools va `after_tool_call` override.
 
+### Added - Harness resource/runtime plane
+
+- Them `agent_smith.resources` lam catalog/config layer tach khoi harness runtime: `ResourceStore`, `ResourceResolver`, `MemoryResourceStore`, `FilesystemResourceStore`, `PostgresResourceStore`, va cac kind `skill`, `prompt_template`, `agent_definition`, `mcp_server_config`.
+- Them `agent_smith.runtime` de compile `AgentDefinition` thanh `AgentHarnessOptions` qua `AgentFactory`, cung `ToolRegistry` de resolve concrete `AgentTool` objects.
+- Them Postgres resource catalog generic voi migration `002_resource_catalog`: bang `resources` va `resource_versions`, versioned JSONB content, soft delete, disabled resources, va scope-level uniqueness.
+- Giu `AgentHarness.resources` la resolved snapshot; harness/session khong import resource DB models va khong quan ly resource lifecycle.
+- Them unit tests cho memory/filesystem/Postgres resource stores, resolver priority/mapping, va agent factory validation.
+
 ### Verified locally
 
 ```text
-poetry run ruff check src tests --output-format=concise
-poetry run pytest -q                              # 17 passed
+.venv/bin/python -m ruff check src tests
+.venv/bin/python -m pytest tests/test_resources_runtime.py tests/test_agent_harness.py -q
+.venv/bin/python -m pytest -q                     # 1 live Google provider test failed; local harness/resource tests passed
 ```
 
 ## [0.1.0] - 2026-06-18
