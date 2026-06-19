@@ -17,5 +17,6 @@ Bat dau tu:
 - [04 - Capabilities And Tools](agent-smith-idea/04-capabilities-and-tools.md)
 - [05 - Identity, Auth, Policy](agent-smith-idea/05-identity-auth-policy.md)
 - [06 - Architecture, Decisions, Open Questions](agent-smith-idea/06-architecture-decisions-open-questions.md)
+- [07 - Agent Task Runtime Phase 3](agent-smith-idea/07-agent-task-runtime-phase3.md)
 
 File nay chi con la entrypoint de tranh doc bi phinh qua lon.
