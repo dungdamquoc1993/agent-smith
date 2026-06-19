@@ -10,6 +10,7 @@ packages = [
     { include = "db", from = "src" },
     { include = "resources", from = "src" },
     { include = "runtime", from = "src" },
+    { include = "tools", from = "src" },
     { include = "config.py", from = "src" },
 ]
 
