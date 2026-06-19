@@ -85,6 +85,11 @@ class MemorySessionRepo:
             id=session_id,
             principal_id=options.get("principal_id"),
             title=options.get("title"),
+            kind=options.get("kind", "main"),
+            parent_session_id=options.get("parent_session_id"),
+            agent_name=options.get("agent_name"),
+            origin_task_id=options.get("origin_task_id"),
+            provenance=dict(options.get("provenance") or {}),
         )
         storage = MemorySessionStorage(metadata)
         self._storages[metadata.id] = storage
@@ -108,10 +113,19 @@ class MemorySessionRepo:
         source_storage = source_session.get_storage()
         if not isinstance(source_storage, MemorySessionStorage):
             raise TypeError("MemorySessionRepo can only fork memory sessions")
+        source_metadata = await source_session.get_metadata()
         metadata = SessionMetadata(
             id=str(options.get("id") or uuid.uuid4()),
-            principal_id=options.get("principal_id") or (await source_session.get_metadata()).principal_id,
+            principal_id=options.get("principal_id") or source_metadata.principal_id,
             title=options.get("title"),
+            kind=options.get("kind", source_metadata.kind),
+            parent_session_id=options.get(
+                "parent_session_id",
+                source_metadata.parent_session_id,
+            ),
+            agent_name=options.get("agent_name", source_metadata.agent_name),
+            origin_task_id=options.get("origin_task_id", source_metadata.origin_task_id),
+            provenance=dict(options.get("provenance", source_metadata.provenance) or {}),
         )
         leaf_id = options.get("entry_id")
         storage = source_storage.clone(metadata, leaf_id=leaf_id)

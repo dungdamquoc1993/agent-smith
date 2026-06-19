@@ -134,6 +134,43 @@ async def test_memory_session_replays_branch_context() -> None:
 
 
 @pytest.mark.asyncio
+async def test_memory_session_metadata_tracks_provenance_and_fork_overrides() -> None:
+    repo = MemorySessionRepo()
+    main = await repo.create(principal_id="principal-1", title="main")
+    main_metadata = await main.get_metadata()
+
+    assert main_metadata.kind == "main"
+    assert main_metadata.provenance == {}
+
+    child = await repo.create(
+        principal_id="principal-1",
+        title="child",
+        kind="sub_agent",
+        parent_session_id=main_metadata.id,
+        agent_name="reviewer",
+        origin_task_id="task-1",
+        provenance={"mode": "sync"},
+    )
+    reopened = await repo.open(await child.get_metadata())
+    child_metadata = await reopened.get_metadata()
+
+    assert child_metadata.kind == "sub_agent"
+    assert child_metadata.parent_session_id == main_metadata.id
+    assert child_metadata.agent_name == "reviewer"
+    assert child_metadata.origin_task_id == "task-1"
+    assert child_metadata.provenance == {"mode": "sync"}
+
+    fork = await repo.fork(await child.get_metadata(), provenance={"mode": "async"})
+    fork_metadata = await fork.get_metadata()
+
+    assert fork_metadata.kind == "sub_agent"
+    assert fork_metadata.parent_session_id == main_metadata.id
+    assert fork_metadata.agent_name == "reviewer"
+    assert fork_metadata.origin_task_id == "task-1"
+    assert fork_metadata.provenance == {"mode": "async"}
+
+
+@pytest.mark.asyncio
 async def test_postgres_session_repo_roundtrip_when_database_is_configured() -> None:
     database_url = getenv("AGENT_SMITH_TEST_DATABASE_URL")
     if not database_url:
@@ -160,10 +197,30 @@ async def test_postgres_session_repo_roundtrip_when_database_is_configured() -> 
         await session.append_message(_user("hi"))
 
         reopened = await repo.open(await session.get_metadata())
+        reopened_metadata = await reopened.get_metadata()
         context = await reopened.build_context()
 
+        assert reopened_metadata.kind == "main"
+        assert reopened_metadata.provenance == {}
         assert context.messages[0].role == "user"
         assert context.messages[0].content == "hi"
+
+        child = await repo.create(
+            principal_id=str(principal_id),
+            title="child",
+            kind="sub_agent",
+            parent_session_id=reopened_metadata.id,
+            agent_name="reviewer",
+            origin_task_id="task-1",
+            provenance={"mode": "sync"},
+        )
+        child_metadata = await (await repo.open(await child.get_metadata())).get_metadata()
+
+        assert child_metadata.kind == "sub_agent"
+        assert child_metadata.parent_session_id == reopened_metadata.id
+        assert child_metadata.agent_name == "reviewer"
+        assert child_metadata.origin_task_id == "task-1"
+        assert child_metadata.provenance == {"mode": "sync"}
     finally:
         await engine.dispose()
 

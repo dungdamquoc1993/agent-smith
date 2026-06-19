@@ -8,7 +8,12 @@ from tasks.errors import (
 )
 from tasks.memory_task_output_store import MemoryTaskOutputStore
 from tasks.memory_task_runtime import MemoryTaskRuntime
-from tasks.runners.agent import AgentTaskResult, AgentTaskRunner, AgentTaskRunnerError
+from tasks.runners.agent import (
+    AgentChildSessionRequest,
+    AgentTaskResult,
+    AgentTaskRunner,
+    AgentTaskRunnerError,
+)
 from tasks.types import (
     AbortSignal,
     TaskContext,
@@ -30,6 +35,7 @@ __all__ = [
     "AgentTaskResult",
     "AgentTaskRunner",
     "AgentTaskRunnerError",
+    "AgentChildSessionRequest",
     "TaskAlreadyFinishedError",
     "TaskContext",
     "TaskErrorInfo",

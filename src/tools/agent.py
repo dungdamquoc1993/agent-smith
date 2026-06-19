@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
+from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -18,6 +20,7 @@ from tools._task_serialization import (
 
 AGENT_TOOL_NAME = "agent"
 AgentToolMode = Literal["sync", "async"]
+AgentToolParentMetadata = Mapping[str, Any] | Callable[[], Mapping[str, Any]]
 
 
 class AgentToolInput(BaseModel):
@@ -34,18 +37,27 @@ def create_agent_tool(
     *,
     default_mode: AgentToolMode = "sync",
     sync_timeout_seconds: float | None = None,
+    parent_metadata: AgentToolParentMetadata | None = None,
 ) -> AgentTool:
     if default_mode not in {"sync", "async"}:
         raise ValueError("default_mode must be sync or async")
 
     async def execute(tool_call_id, args, signal=None, on_update=None):
-        _ = tool_call_id, on_update
+        _ = on_update
         payload = AgentToolInput.model_validate(args)
         mode = payload.mode or default_mode
+        resolved_parent_metadata = _resolve_parent_metadata(parent_metadata)
+        depth = resolved_parent_metadata.get(
+            "agentDepth",
+            resolved_parent_metadata.get("agent_depth", 0),
+        )
         metadata = {
+            **resolved_parent_metadata,
             "agentName": payload.agent_name,
-            "agentDepth": 0,
+            "agentDepth": depth,
             "mode": mode,
+            "description": payload.description,
+            "parentToolCallId": tool_call_id,
         }
         spawned = await task_runtime.spawn(
             kind="agent",
@@ -145,3 +157,12 @@ def create_agent_tool(
         execute=execute,
         execution_mode="sequential",
     )
+
+
+def _resolve_parent_metadata(
+    parent_metadata: AgentToolParentMetadata | None,
+) -> dict[str, Any]:
+    if parent_metadata is None:
+        return {}
+    value = parent_metadata() if callable(parent_metadata) else parent_metadata
+    return dict(value or {})

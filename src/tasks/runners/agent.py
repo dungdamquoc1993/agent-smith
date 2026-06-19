@@ -10,18 +10,33 @@ from typing import Any, Literal, TypeAlias
 from pydantic import BaseModel, Field
 
 from agent.harness.types import AgentHarnessSession
-from ai.types import AssistantMessage, TextContent
+from ai.types import AssistantMessage, JsonValue, TextContent
 from runtime import AgentFactory
 from tasks.types import TaskContext
-
-AgentSessionFactory: TypeAlias = Callable[
-    [str],
-    AgentHarnessSession | Awaitable[AgentHarnessSession],
-]
 
 
 class AgentTaskRunnerError(Exception):
     """Raised when an agent task cannot be started or completed."""
+
+
+class AgentChildSessionRequest(BaseModel):
+    task_id: str = Field(alias="taskId")
+    agent_name: str = Field(alias="agentName")
+    agent_depth: int = Field(alias="agentDepth")
+    principal_id: str | None = Field(default=None, alias="principalId")
+    parent_session_id: str | None = Field(default=None, alias="parentSessionId")
+    parent_tool_call_id: str | None = Field(default=None, alias="parentToolCallId")
+    description: str | None = None
+    mode: Literal["sync", "async"] | None = None
+    provenance: dict[str, JsonValue] = Field(default_factory=dict)
+
+    model_config = {"populate_by_name": True}
+
+
+AgentSessionFactory: TypeAlias = Callable[
+    [AgentChildSessionRequest],
+    AgentHarnessSession | Awaitable[AgentHarnessSession],
+]
 
 
 class AgentTaskResult(BaseModel):
@@ -75,7 +90,13 @@ class AgentTaskRunner:
             }
         )
 
-        child_session = await self._create_child_session(task_context.task_id)
+        session_request = self._create_child_session_request(
+            task_context=task_context,
+            agent_name=agent_name,
+            agent_depth=next_depth,
+            parent_metadata=parent_metadata,
+        )
+        child_session = await self._create_child_session(session_request)
         child_metadata = await child_session.get_metadata()
         await task_context.set_result_metadata({"sessionId": child_metadata.id})
         harness = await self.agent_factory.create_harness(agent_name, session=child_session)
@@ -110,8 +131,44 @@ class AgentTaskRunner:
         await task_context.append_output(f"Completed agent {agent_name}.\n{final_text}\n")
         return result
 
-    async def _create_child_session(self, task_id: str) -> AgentHarnessSession:
-        value = self.session_factory(task_id)
+    def _create_child_session_request(
+        self,
+        *,
+        task_context: TaskContext,
+        agent_name: str,
+        agent_depth: int,
+        parent_metadata: Mapping[str, Any] | None,
+    ) -> AgentChildSessionRequest:
+        provenance = _mapping_value(parent_metadata, "provenance")
+        if provenance is not None and not isinstance(provenance, Mapping):
+            raise AgentTaskRunnerError("parent_metadata.provenance must be a mapping")
+        mode = _string_value(parent_metadata, "mode")
+        if mode is not None and mode not in {"sync", "async"}:
+            raise AgentTaskRunnerError("parent_metadata.mode must be sync or async")
+        return AgentChildSessionRequest(
+            task_id=task_context.task_id,
+            agent_name=agent_name,
+            agent_depth=agent_depth,
+            principal_id=_string_value(parent_metadata, "principalId", "principal_id"),
+            parent_session_id=_string_value(
+                parent_metadata,
+                "parentSessionId",
+                "parent_session_id",
+                "sessionId",
+                "session_id",
+            ),
+            parent_tool_call_id=_string_value(
+                parent_metadata,
+                "parentToolCallId",
+                "parent_tool_call_id",
+            ),
+            description=_string_value(parent_metadata, "description"),
+            mode=mode,
+            provenance=dict(provenance or {}),
+        )
+
+    async def _create_child_session(self, request: AgentChildSessionRequest) -> AgentHarnessSession:
+        value = self.session_factory(request)
         if inspect.isawaitable(value):
             return await value
         return value
@@ -176,3 +233,19 @@ async def _count_assistant_turns(session: AgentHarnessSession) -> int:
         for entry in entries
         if entry.type == "message" and entry.message is not None and entry.message.role == "assistant"
     )
+
+
+def _mapping_value(metadata: Mapping[str, Any] | None, *keys: str) -> Any:
+    if not metadata:
+        return None
+    for key in keys:
+        if key in metadata:
+            return metadata[key]
+    return None
+
+
+def _string_value(metadata: Mapping[str, Any] | None, *keys: str) -> str | None:
+    value = _mapping_value(metadata, *keys)
+    if value is None:
+        return None
+    return str(value)

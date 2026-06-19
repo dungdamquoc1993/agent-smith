@@ -16,6 +16,9 @@ This package contains concrete tools that can be registered with
 | `create_web_fetch_tool()` | `web_fetch` | Fetch HTTP/HTTPS content and return extracted text. |
 | `create_web_search_tool()` | `web_search` | Search through configured Tavily or Brave providers. |
 | `create_skills_tool()` | `skills` | List, load, create, update, and delete skill resources. |
+| `create_agent_tool()` | `agent` | Spawn a named sub-agent task sync or async. |
+| `create_task_output_tool()` | `task_output` | Read or wait for task output/result snapshots. |
+| `create_task_stop_tool()` | `task_stop` | Stop a running task. |
 | `create_base_tool_registry()` | n/a | Convenience helper that assembles the base tool bundle. |
 
 ## Registry Assembly
@@ -44,6 +47,11 @@ tool_registry = create_base_tool_registry(
 )
 ```
 
+Task tools are added only when `task_runtime` is provided; `agent` is added only
+when both `task_runtime` and `agent_runner` are provided. Pass
+`agent_parent_metadata` to propagate parent session/principal provenance into
+sub-agent tasks.
+
 ## Resource Behavior
 
 - `todo_write` is intentionally stateless. The caller passes the full list each time.
@@ -53,6 +61,8 @@ tool_registry = create_base_tool_registry(
   turn can use the loaded instructions.
 - Filesystem resources are read-only; create/update/delete should use memory,
   Postgres, or another writable `ResourceStore`.
+- `agent` task metadata includes `parentToolCallId`; child session persistence is
+  controlled by the injected `AgentTaskRunner.session_factory`.
 
 ## Web Search Configuration
 

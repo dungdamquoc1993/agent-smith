@@ -12,15 +12,21 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 
 - Them package [`tasks`](../src/tasks/) lam runtime core in-memory cho background/sub-agent work: `MemoryTaskRuntime`, `TaskRecord`, `TaskContext`, typed errors va `MemoryTaskOutputStore`.
 - Them [`AgentTaskRunner`](../src/tasks/runners/agent.py) de chay sub-agent qua `AgentFactory` voi child `AgentHarnessSession`, recursion guard, abort propagation va result metadata.
+- Them `AgentChildSessionRequest` de truyen provenance (`principalId`, `parentSessionId`, `parentToolCallId`, `mode`, `description`) vao child session factory.
 - Them runtime task tools trong [`tools`](../src/tools/): `agent` de spawn/chay sub-agent sync/async, `task_output` de doc/cho output, va `task_stop` de dung task dang chay.
 - Them `agents` tool de list/read/create/update/delete `agent_definition` resources, tach rieng khoi runtime spawn tool `agent`.
-- Mo rong `create_base_tool_registry(...)` de optional-register `agents`, `agent`, `task_output`, va `task_stop` khi caller truyen store/runtime/runner tuong ung.
+- Mo rong `create_base_tool_registry(...)` de optional-register `agents`, `agent`, `task_output`, va `task_stop` khi caller truyen store/runtime/runner tuong ung; `agent_parent_metadata` forward parent session/principal context vao sub-agent tasks.
 - Them root overview [`PHASE3_AGENT_TASK_RUNTIME.md`](../PHASE3_AGENT_TASK_RUNTIME.md) de doc nhanh luong implementation va cac file lien quan.
+
+### Added - Session provenance
+
+- Them migration `003_session_provenance`: `sessions.kind`, `parent_session_id`, `agent_name`, `origin_task_id`, va `provenance` JSONB de phan biet main/sub-agent session va trace parent task/session.
+- Mo rong `SessionMetadata`, `MemorySessionRepo`, va `PostgresSessionRepo` de roundtrip session provenance; main session mac dinh `kind="main"`.
 
 ### Added - Agent task runtime tests
 
 - Them tests cho task runtime lifecycle, agent runner, runtime task tools, va agent config CRUD.
-- Full local suite hien tai: `poetry run pytest` -> `79 passed, 2 skipped`.
+- Full local suite hien tai: `poetry run pytest` -> `79 passed, 4 skipped`.
 
 ### Added - Base agent tools
 
@@ -75,7 +81,7 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 poetry run ruff check src tests                   # pass
 poetry run pytest tests/test_base_tools.py        # 18 passed
 poetry run pytest                                 # 1 live Google provider test failed; tools/resource tests passed
-poetry run pytest                                 # 79 passed, 2 skipped
+poetry run pytest                                 # 79 passed, 4 skipped
 ```
 
 ## [0.1.0] - 2026-06-18

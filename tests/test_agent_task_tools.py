@@ -25,7 +25,13 @@ from ai.types import (
 )
 from resources import MemoryResourceStore, ResourceResolver
 from runtime import AgentFactory, ToolRegistry
-from tasks import AgentTaskRunner, MemoryTaskRuntime, TaskContext, UnknownTaskError
+from tasks import (
+    AgentChildSessionRequest,
+    AgentTaskRunner,
+    MemoryTaskRuntime,
+    TaskContext,
+    UnknownTaskError,
+)
 from tools import (
     AGENT_TOOL_NAME,
     TASK_OUTPUT_TOOL_NAME,
@@ -122,7 +128,7 @@ def _factory(store: MemoryResourceStore, *, stream_fn=None) -> AgentFactory:
 def _runner(runtime_store: MemoryResourceStore, *, stream_fn=None) -> AgentTaskRunner:
     return AgentTaskRunner(
         agent_factory=_factory(runtime_store, stream_fn=stream_fn),
-        session_factory=lambda task_id: MemorySessionRepo().create(id=f"child-{task_id}"),
+        session_factory=lambda request: MemorySessionRepo().create(id=f"child-{request.task_id}"),
         abort_poll_seconds=0.01,
     )
 
@@ -159,6 +165,67 @@ async def test_agent_tool_sync_runs_sub_agent_to_final_response() -> None:
     assert "Started agent reviewer." in result.details["output"]["text"]
     assert "Completed agent reviewer." in result.details["output"]["text"]
     assert result.details["task"]["status"] == "completed"
+    assert result.details["task"]["metadata"]["parentToolCallId"] == "agent-1"
+    assert result.details["task"]["metadata"]["description"] == "Review change"
+
+
+@pytest.mark.asyncio
+async def test_agent_tool_merges_parent_metadata_into_task_and_session_request() -> None:
+    store = MemoryResourceStore([_agent_resource()])
+    runtime = MemoryTaskRuntime()
+    captured_requests: list[AgentChildSessionRequest] = []
+
+    def stream_fn(model: Model, context: Context, options: SimpleStreamOptions | None = None):
+        _ = model, context, options
+        return _stream_for(_assistant("Done."))
+
+    async def session_factory(request: AgentChildSessionRequest):
+        captured_requests.append(request)
+        return await MemorySessionRepo().create(id=f"child-{request.task_id}")
+
+    runner = AgentTaskRunner(
+        agent_factory=_factory(store, stream_fn=stream_fn),
+        session_factory=session_factory,
+        abort_poll_seconds=0.01,
+    )
+    tool = create_agent_tool(
+        runtime,
+        runner,
+        parent_metadata=lambda: {
+            "agentDepth": 1,
+            "principalId": "principal-1",
+            "parentSessionId": "main-session-1",
+            "provenance": {"scope": "main"},
+        },
+    )
+
+    result = await tool.execute(
+        "agent-call-1",
+        {
+            "agent_name": "reviewer",
+            "description": "Review change",
+            "prompt": "Review this",
+            "mode": "sync",
+        },
+        None,
+        None,
+    )
+
+    metadata = result.details["task"]["metadata"]
+    assert metadata["agentDepth"] == 1
+    assert metadata["parentToolCallId"] == "agent-call-1"
+    assert metadata["principalId"] == "principal-1"
+    assert metadata["parentSessionId"] == "main-session-1"
+    assert metadata["provenance"] == {"scope": "main"}
+
+    request = captured_requests[0]
+    assert request.agent_depth == 2
+    assert request.principal_id == "principal-1"
+    assert request.parent_session_id == "main-session-1"
+    assert request.parent_tool_call_id == "agent-call-1"
+    assert request.description == "Review change"
+    assert request.mode == "sync"
+    assert request.provenance == {"scope": "main"}
 
 
 @pytest.mark.asyncio
