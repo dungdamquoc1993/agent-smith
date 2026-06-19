@@ -1,0 +1,66 @@
+"""Session event-tree models."""
+
+from __future__ import annotations
+
+import enum
+import uuid
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from db.base import Base
+
+
+class SessionEntryType(str, enum.Enum):
+    message = "message"
+    model_change = "model_change"
+    thinking_level_change = "thinking_level_change"
+    active_tools_change = "active_tools_change"
+    compaction = "compaction"
+    branch_summary = "branch_summary"
+    custom = "custom"
+    custom_message = "custom_message"
+    label = "label"
+    session_info = "session_info"
+    leaf = "leaf"
+
+
+class Session(Base):
+    __tablename__ = "sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    principal_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("principals.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    current_leaf_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    entries: Mapped[list["SessionEntry"]] = relationship(back_populates="session")
+
+
+class SessionEntry(Base):
+    __tablename__ = "session_entries"
+    __table_args__ = (Index("ix_session_entries_session_parent", "session_id", "parent_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("session_entries.id", ondelete="SET NULL"), nullable=True
+    )
+    type: Mapped[SessionEntryType] = mapped_column(Enum(SessionEntryType, name="session_entry_type"), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    principal_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("principals.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    session: Mapped[Session] = relationship(back_populates="entries")

@@ -4,7 +4,14 @@ version = "0.1.0"
 description = "Enterprise agent runtime - unified AI layer and control plane"
 authors = ["Agent Smith Team"]
 readme = "README.md"
-packages = [{ include = "agent_smith", from = "src" }]
+packages = [
+    { include = "agent", from = "src" },
+    { include = "ai", from = "src" },
+    { include = "db", from = "src" },
+    { include = "resources", from = "src" },
+    { include = "runtime", from = "src" },
+    { include = "config.py", from = "src" },
+]
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -16,6 +23,7 @@ asyncpg = "^0.30.0"
 alembic = "^1.14.0"
 google-auth = "^2.55.0"
 google-cloud-aiplatform = "^1.158.0"
+jsonschema = "^4.26.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"

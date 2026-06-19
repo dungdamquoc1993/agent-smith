@@ -12,8 +12,8 @@ import time
 # Allow running without install
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from agent_smith.ai import Context, UserMessage, get_model, stream
-from agent_smith.ai.env_keys import is_provider_configured
+from ai import Context, UserMessage, get_model, stream
+from ai.env_keys import is_provider_configured
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 GCP_CREDENTIALS = os.path.join(ROOT, ".gcp", "gen-lang-client-0054778016-27f8eccd342d.json")
@@ -87,7 +87,7 @@ async def main() -> None:
     )
     args = parser.parse_args()
 
-    from agent_smith.ai import bootstrap_providers
+    from ai import bootstrap_providers
 
     bootstrap_providers()
 

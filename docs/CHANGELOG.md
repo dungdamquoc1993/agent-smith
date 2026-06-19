@@ -6,6 +6,46 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 
 ---
 
+## [Unreleased]
+
+### Changed - Harden unified AI layer v1
+
+- Tach model catalog khoi code sang [`models.catalog.json`](../src/agent_smith/ai/models.catalog.json), giu lookup cu `get_model` / `get_models` / `get_providers` va them API registry model (`register_model`, `register_models`, `clear_models`, `load_models_from_file`, `make_litellm_model`).
+- Mo rong `Model` va `StreamOptions` voi metadata / passthrough options (`headers`, `providerOptions`, `compat`, `thinkingLevelMap`, `env`, `maxRetryDelayMs`) de provider/model moi it can sua runtime hon.
+- Harden LiteLLM adapter: forward provider options, ho tro ad-hoc model, map reasoning theo `thinkingLevelMap`, doc cache usage, set `responseId` / `responseModel`, sua tool-call index va tranh emit `thinking_end` hai lan.
+- Cai thien provider registry: luu `source_id`, unregister dung source, va validate mismatch `model.api` voi provider api.
+- Uu tien Google Vertex service-account JSON khi co `GOOGLE_APPLICATION_CREDENTIALS`; Gemini API key chi dung khi khong co Vertex config hoac caller truyen `api_key` ro rang.
+- Cap nhat `.env.example` de ghi ro hai mode Google auth: `GEMINI_API_KEY` hoac `GOOGLE_APPLICATION_CREDENTIALS` + project/location.
+
+### Added - AI layer tests
+
+- Them unit tests cho catalog/registry va LiteLLM adapter mock khong can network, gom passthrough options, ad-hoc model, Google Vertex auth precedence, tool-call ordering va thinking stream.
+
+### Added - Agent loop v1
+
+- Port low-level `agent-loop` cua pi sang package moi [`agent_smith.agent`](../src/agent_smith/agent/), giu runtime loop stateless/persistence-free va chua dua DB/session/harness vao v1.
+- Them public API `agent_loop`, `agent_loop_continue`, `run_agent_loop`, `run_agent_loop_continue` voi `AgentEventStream` ho tro `async for` va `await .result()`.
+- Them agent-level types (`AgentContext`, `AgentLoopConfig`, `AgentTool`, `AgentToolResult`, hook contexts/events) va tool execution sequential/parallel.
+- Tach implementation agent loop thanh package nho hon: runner, streaming, tools, utils de de doc va de bao tri.
+- Them validate tool arguments bang JSON Schema qua dependency `jsonschema`; validation/tool errors duoc encode thanh error tool result thay vi lam crash loop.
+- Them unit tests cho event lifecycle, continue validation, multi-turn tool calls, parallel ordering, blocked/missing/invalid tools va `after_tool_call` override.
+
+### Added - Harness resource/runtime plane
+
+- Them `agent_smith.resources` lam catalog/config layer tach khoi harness runtime: `ResourceStore`, `ResourceResolver`, `MemoryResourceStore`, `FilesystemResourceStore`, `PostgresResourceStore`, va cac kind `skill`, `prompt_template`, `agent_definition`, `mcp_server_config`.
+- Them `agent_smith.runtime` de compile `AgentDefinition` thanh `AgentHarnessOptions` qua `AgentFactory`, cung `ToolRegistry` de resolve concrete `AgentTool` objects.
+- Them Postgres resource catalog generic voi migration `002_resource_catalog`: bang `resources` va `resource_versions`, versioned JSONB content, soft delete, disabled resources, va scope-level uniqueness.
+- Giu `AgentHarness.resources` la resolved snapshot; harness/session khong import resource DB models va khong quan ly resource lifecycle.
+- Them unit tests cho memory/filesystem/Postgres resource stores, resolver priority/mapping, va agent factory validation.
+
+### Verified locally
+
+```text
+.venv/bin/python -m ruff check src tests
+.venv/bin/python -m pytest tests/test_resources_runtime.py tests/test_agent_harness.py -q
+.venv/bin/python -m pytest -q                     # 1 live Google provider test failed; local harness/resource tests passed
+```
+
 ## [0.1.0] - 2026-06-18
 
 Milestone dau tien: Python project base, unified AI layer, va core Postgres tables theo plan *Agent Smith - Python Base + Unified AI Layer + Core Tables*.
