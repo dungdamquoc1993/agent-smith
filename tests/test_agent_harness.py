@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from agent_smith.agent import (
     AgentHarness,
+    AgentHarnessPromptOptions,
     AgentHarnessResources,
     AgentTool,
     AgentToolResult,
@@ -35,6 +36,7 @@ from agent_smith.ai.types import (
     AssistantMessageEventToolcallEnd,
     AssistantMessageEventToolcallStart,
     Context,
+    ImageContent,
     Model,
     SimpleStreamOptions,
     TextContent,
@@ -183,6 +185,32 @@ def test_resources_format_skill_and_template() -> None:
 
 
 @pytest.mark.asyncio
+async def test_harness_prompt_accepts_prompt_options_model_with_images() -> None:
+    repo = MemorySessionRepo()
+    session = await repo.create(principal_id="principal-1")
+    seen_content: list[Any] = []
+
+    def stream_fn(model: Model, context: Context, options: SimpleStreamOptions | None = None):
+        _ = model, options
+        last = context.messages[-1]
+        assert isinstance(last, UserMessage)
+        seen_content.append(last.content)
+        return _stream_for(_assistant([TextContent(text="done")]))
+
+    harness = AgentHarness(session=session, model=_model(), stream_fn=stream_fn)
+    await harness.prompt(
+        "describe",
+        AgentHarnessPromptOptions(
+            images=[ImageContent(data="aW1hZ2U=", mime_type="image/png")],
+        ),
+    )
+
+    assert isinstance(seen_content[0], list)
+    assert seen_content[0][0].text == "describe"
+    assert seen_content[0][1].mime_type == "image/png"
+
+
+@pytest.mark.asyncio
 async def test_harness_prompt_persists_messages_and_provider_hook_options() -> None:
     repo = MemorySessionRepo()
     session = await repo.create(principal_id="principal-1")
@@ -315,3 +343,64 @@ async def test_harness_executes_tool_and_applies_tool_hooks() -> None:
         "assistant",
     ]
     assert context.messages[2].content[0].text == "patched"
+
+
+@pytest.mark.asyncio
+async def test_harness_pending_mutations_flush_after_turn() -> None:
+    repo = MemorySessionRepo()
+    session = await repo.create(principal_id="principal-1")
+    harness: AgentHarness | None = None
+
+    def stream_fn(model: Model, context: Context, options: SimpleStreamOptions | None = None):
+        _ = model, context, options
+        stream = create_assistant_message_event_stream()
+
+        async def produce() -> None:
+            assert harness is not None
+            await harness.set_thinking_level("high")
+            await harness.set_active_tools([])
+            message = _assistant([TextContent(text="done")])
+            stream.push(AssistantMessageEventStart(partial=message.model_copy(update={"content": []})))
+            stream.push(AssistantMessageEventDone(reason="stop", message=message))
+
+        stream.set_producer(produce())
+        return stream
+
+    tool = AgentTool(
+        name="noop",
+        label="Noop",
+        description="Noop",
+        parameters={"type": "object", "properties": {}},
+        execute=lambda tool_call_id, params, signal=None, on_update=None: AgentToolResult(
+            content=[TextContent(text="noop")]
+        ),
+    )
+    harness = AgentHarness(session=session, model=_model(), tools=[tool], stream_fn=stream_fn)
+
+    await harness.prompt("hello")
+    entries = await session.get_entries()
+    context = await session.build_context()
+
+    assert [entry.type for entry in entries] == [
+        "message",
+        "message",
+        "thinking_level_change",
+        "active_tools_change",
+    ]
+    assert context.thinking_level == "high"
+    assert context.active_tool_names == []
+
+
+@pytest.mark.asyncio
+async def test_session_custom_entry_accepts_json_like_payload() -> None:
+    repo = MemorySessionRepo()
+    session = await repo.create(principal_id="principal-1")
+
+    entry_id = await session.append_custom_entry(
+        "checkpoint",
+        {"score": 1, "tags": ["typed", "json"], "ok": True},
+    )
+
+    entry = await session.get_entry(entry_id)
+    assert entry is not None
+    assert entry.data == {"score": 1, "tags": ["typed", "json"], "ok": True}

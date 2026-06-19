@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any
 
-from agent_smith.ai.types import AssistantMessage, TextContent, ToolCall, ToolResultMessage
+from agent_smith.ai.types import AssistantMessage, HookPayload, JsonValue, TextContent, ToolCall, ToolResultMessage
 from agent_smith.agent.agent_loop.utils import call, call_maybe, emit, is_aborted, now_ms
 from agent_smith.agent.types import (
+    AbortSignal,
     AfterToolCallContext,
     AfterToolCallResult,
     AgentContext,
@@ -38,7 +38,7 @@ class ExecutedToolCallBatch:
 class PreparedToolCall:
     tool_call: AgentToolCall
     tool: AgentTool
-    args: Any
+    args: JsonValue
 
 
 @dataclass
@@ -64,7 +64,7 @@ async def execute_tool_calls(
     current_context: AgentContext,
     assistant_message: AssistantMessage,
     config: AgentLoopConfig,
-    signal: Any | None,
+    signal: AbortSignal | None,
     emit_event: AgentEventSink,
 ) -> ExecutedToolCallBatch:
     tool_calls = get_tool_calls(assistant_message)
@@ -98,7 +98,7 @@ async def execute_tool_calls_sequential(
     assistant_message: AssistantMessage,
     tool_calls: list[AgentToolCall],
     config: AgentLoopConfig,
-    signal: Any | None,
+    signal: AbortSignal | None,
     emit_event: AgentEventSink,
 ) -> ExecutedToolCallBatch:
     finalized_calls: list[FinalizedToolCallOutcome] = []
@@ -150,7 +150,7 @@ async def execute_tool_calls_parallel(
     assistant_message: AssistantMessage,
     tool_calls: list[AgentToolCall],
     config: AgentLoopConfig,
-    signal: Any | None,
+    signal: AbortSignal | None,
     emit_event: AgentEventSink,
 ) -> ExecutedToolCallBatch:
     finalized_entries: list[FinalizedToolCallOutcome | asyncio.Task[FinalizedToolCallOutcome]] = []
@@ -215,7 +215,7 @@ async def run_prepared_tool_call(
     assistant_message: AssistantMessage,
     preparation: PreparedToolCall,
     config: AgentLoopConfig,
-    signal: Any | None,
+    signal: AbortSignal | None,
     emit_event: AgentEventSink,
 ) -> FinalizedToolCallOutcome:
     executed = await execute_prepared_tool_call(preparation, signal, emit_event)
@@ -236,7 +236,7 @@ async def prepare_tool_call(
     assistant_message: AssistantMessage,
     tool_call: AgentToolCall,
     config: AgentLoopConfig,
-    signal: Any | None,
+    signal: AbortSignal | None,
 ) -> PreparedToolCall | ImmediateToolCallOutcome:
     tool = find_tool(current_context.tools, tool_call.name)
     if tool is None:
@@ -294,13 +294,13 @@ async def prepare_tool_call_arguments(tool: AgentTool, tool_call: AgentToolCall)
 
 async def execute_prepared_tool_call(
     prepared: PreparedToolCall,
-    signal: Any | None,
+    signal: AbortSignal | None,
     emit_event: AgentEventSink,
 ) -> ExecutedToolCallOutcome:
     update_tasks: list[asyncio.Task[None]] = []
     accepting_updates = True
 
-    def on_update(partial_result: AgentToolResult | dict[str, Any]) -> None:
+    def on_update(partial_result: AgentToolResult | dict[str, HookPayload]) -> None:
         nonlocal accepting_updates
         if not accepting_updates:
             return
@@ -342,7 +342,7 @@ async def finalize_executed_tool_call(
     prepared: PreparedToolCall,
     executed: ExecutedToolCallOutcome,
     config: AgentLoopConfig,
-    signal: Any | None,
+    signal: AbortSignal | None,
 ) -> FinalizedToolCallOutcome:
     result = executed.result
     is_error = executed.is_error
@@ -373,10 +373,10 @@ async def finalize_executed_tool_call(
 def apply_after_tool_call_result(
     result: AgentToolResult,
     is_error: bool,
-    after_result: AfterToolCallResult | dict[str, Any],
+    after_result: AfterToolCallResult | dict[str, HookPayload],
 ) -> tuple[AgentToolResult, bool]:
     after = coerce_after_tool_call_result(after_result)
-    updates: dict[str, Any] = {}
+    updates: dict[str, HookPayload] = {}
     if "content" in after.model_fields_set:
         updates["content"] = after.content
     if "details" in after.model_fields_set:
@@ -451,14 +451,14 @@ def find_tool(tools: list[AgentTool] | None, name: str) -> AgentTool | None:
     return next((tool for tool in tools or [] if tool.name == name), None)
 
 
-def coerce_tool_result(result: AgentToolResult | dict[str, Any]) -> AgentToolResult:
+def coerce_tool_result(result: AgentToolResult | dict[str, HookPayload]) -> AgentToolResult:
     if isinstance(result, AgentToolResult):
         return result
     return AgentToolResult.model_validate(result)
 
 
 def coerce_before_tool_call_result(
-    result: BeforeToolCallResult | dict[str, Any],
+    result: BeforeToolCallResult | dict[str, HookPayload],
 ) -> BeforeToolCallResult:
     if isinstance(result, BeforeToolCallResult):
         return result
@@ -466,7 +466,7 @@ def coerce_before_tool_call_result(
 
 
 def coerce_after_tool_call_result(
-    result: AfterToolCallResult | dict[str, Any],
+    result: AfterToolCallResult | dict[str, HookPayload],
 ) -> AfterToolCallResult:
     if isinstance(result, AfterToolCallResult):
         return result

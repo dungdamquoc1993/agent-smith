@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from agent_smith.ai.types import ToolResultMessage
 from agent_smith.agent.agent_loop.streaming import stream_assistant_response
 from agent_smith.agent.agent_loop.tools import execute_tool_calls, get_tool_calls
@@ -16,6 +14,7 @@ from agent_smith.agent.agent_loop.utils import (
 )
 from agent_smith.agent.events import AgentEventStream, create_agent_event_stream
 from agent_smith.agent.types import (
+    AbortSignal,
     AgentContext,
     AgentEndEvent,
     AgentEventSink,
@@ -36,7 +35,7 @@ def agent_loop(
     prompts: list[AgentMessage],
     context: AgentContext,
     config: AgentLoopConfig,
-    signal: Any | None = None,
+    signal: AbortSignal | None = None,
     stream_fn: StreamFn | None = None,
 ) -> AgentEventStream:
     stream = create_agent_event_stream()
@@ -62,7 +61,7 @@ def agent_loop(
 def agent_loop_continue(
     context: AgentContext,
     config: AgentLoopConfig,
-    signal: Any | None = None,
+    signal: AbortSignal | None = None,
     stream_fn: StreamFn | None = None,
 ) -> AgentEventStream:
     validate_continue_context(context)
@@ -90,7 +89,7 @@ async def run_agent_loop(
     context: AgentContext,
     config: AgentLoopConfig,
     emit_event: AgentEventSink,
-    signal: Any | None = None,
+    signal: AbortSignal | None = None,
     stream_fn: StreamFn | None = None,
 ) -> list[AgentMessage]:
     new_messages = list(prompts)
@@ -114,7 +113,7 @@ async def run_agent_loop_continue(
     context: AgentContext,
     config: AgentLoopConfig,
     emit_event: AgentEventSink,
-    signal: Any | None = None,
+    signal: AbortSignal | None = None,
     stream_fn: StreamFn | None = None,
 ) -> list[AgentMessage]:
     validate_continue_context(context)
@@ -143,7 +142,7 @@ async def run_loop(
     initial_context: AgentContext,
     new_messages: list[AgentMessage],
     initial_config: AgentLoopConfig,
-    signal: Any | None,
+    signal: AbortSignal | None,
     emit_event: AgentEventSink,
     stream_fn: StreamFn | None,
 ) -> None:

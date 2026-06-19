@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from typing import Any
 
 from agent_smith.ai import complete_simple
+from agent_smith.ai.events import AssistantMessageEventStream
 from agent_smith.ai.types import (
     AssistantMessage,
     Context,
+    HookPayload,
     ImageContent,
     Model,
     SimpleStreamOptions,
@@ -19,6 +21,7 @@ from agent_smith.ai.types import (
 from agent_smith.agent.agent_loop import run_agent_loop
 from agent_smith.agent.agent_loop.utils import call, now_ms
 from agent_smith.agent.harness.compaction import (
+    CompactionPreparation,
     CompactionResult,
     CompactionSettings,
     SUMMARIZATION_SYSTEM_PROMPT,
@@ -33,7 +36,7 @@ from agent_smith.agent.harness.resources import (
     format_prompt_template_invocation,
     format_skill_invocation,
 )
-from agent_smith.agent.harness.session.session import Session
+from agent_smith.agent.harness.session.types import PendingSessionWrite
 from agent_smith.agent.harness.types import (
     AbortEvent,
     AbortResult,
@@ -41,7 +44,9 @@ from agent_smith.agent.harness.types import (
     AgentHarnessError,
     AgentHarnessEvent,
     AgentHarnessOptions,
+    AgentHarnessPromptOptions,
     AgentHarnessResources,
+    AgentHarnessSession,
     AgentHarnessStreamOptions,
     AgentHarnessStreamOptionsPatch,
     BeforeAgentStartEvent,
@@ -50,6 +55,7 @@ from agent_smith.agent.harness.types import (
     BeforeProviderRequestResult,
     ContextEvent,
     ContextResult,
+    HarnessHandler,
     ModelUpdateEvent,
     QueueUpdateEvent,
     ResourcesUpdateEvent,
@@ -64,14 +70,17 @@ from agent_smith.agent.harness.types import (
     ToolResultEvent,
     ToolResultPatch,
     ToolsUpdateEvent,
+    TurnState,
 )
 from agent_smith.agent.types import (
+    AbortSignal,
     AfterToolCallContext,
     AgentContext,
     AgentEvent,
     AgentLoopConfig,
     AgentLoopTurnUpdate,
     AgentMessage,
+    AgentTool,
     BeforeToolCallContext,
     MessageEndEvent,
     StreamFn,
@@ -169,7 +178,7 @@ class AgentHarness:
         resolved = AgentHarnessOptions.model_validate(data)
 
         self.env: Any | None = data.get("env")
-        self.session: Session = resolved.session
+        self.session: AgentHarnessSession = resolved.session
         self.model: Model = resolved.model
         self.thinking_level = resolved.thinking_level
         self.system_prompt = resolved.system_prompt
@@ -188,27 +197,32 @@ class AgentHarness:
         self.phase = "idle"
         self._run_signal: asyncio.Event | None = None
         self._run_task: asyncio.Task[Any] | None = None
-        self._pending_session_writes: list[dict[str, Any]] = []
+        self._pending_session_writes: list[PendingSessionWrite] = []
         self._steer_queue: list[AgentMessage] = []
         self._follow_up_queue: list[AgentMessage] = []
         self._next_turn_queue: list[AgentMessage] = []
-        self._handlers: dict[str, set[Callable[[AgentHarnessEvent], Any]]] = {}
+        self._handlers: dict[str, set[HarnessHandler]] = {}
         self._auto_compact_failures = 0
         self._is_compacting = False
 
         self._validate_tool_names(self.active_tool_names)
 
-    async def prompt(self, text: str, options: dict[str, Any] | None = None) -> AssistantMessage:
+    async def prompt(
+        self,
+        text: str,
+        options: AgentHarnessPromptOptions | dict[str, Any] | None = None,
+    ) -> AssistantMessage:
         if self.phase != "idle":
             raise AgentHarnessError("busy", "AgentHarness is busy")
         self.phase = "turn"
         self._run_signal = asyncio.Event()
         try:
             turn_state = await self._create_turn_state()
+            prompt_options = self._resolve_prompt_options(options)
             return await self._execute_turn(
                 turn_state,
                 text,
-                options.get("images") if options else None,
+                prompt_options.images if prompt_options else None,
             )
         except AgentHarnessError:
             self.phase = "idle"
@@ -248,20 +262,35 @@ class AgentHarness:
         resolved_settings = self._resolve_compaction_settings(settings)
         return await self._compact("manual", custom_instructions, resolved_settings)
 
-    async def steer(self, text: str, options: dict[str, Any] | None = None) -> None:
+    async def steer(
+        self,
+        text: str,
+        options: AgentHarnessPromptOptions | dict[str, Any] | None = None,
+    ) -> None:
         if self.phase == "idle":
             raise AgentHarnessError("invalid_state", "Cannot steer while idle")
-        self._steer_queue.append(create_user_message(text, options.get("images") if options else None))
+        resolved_options = self._resolve_prompt_options(options)
+        self._steer_queue.append(create_user_message(text, resolved_options.images if resolved_options else None))
         await self._emit_queue_update()
 
-    async def follow_up(self, text: str, options: dict[str, Any] | None = None) -> None:
+    async def follow_up(
+        self,
+        text: str,
+        options: AgentHarnessPromptOptions | dict[str, Any] | None = None,
+    ) -> None:
         if self.phase == "idle":
             raise AgentHarnessError("invalid_state", "Cannot follow up while idle")
-        self._follow_up_queue.append(create_user_message(text, options.get("images") if options else None))
+        resolved_options = self._resolve_prompt_options(options)
+        self._follow_up_queue.append(create_user_message(text, resolved_options.images if resolved_options else None))
         await self._emit_queue_update()
 
-    async def next_turn(self, text: str, options: dict[str, Any] | None = None) -> None:
-        self._next_turn_queue.append(create_user_message(text, options.get("images") if options else None))
+    async def next_turn(
+        self,
+        text: str,
+        options: AgentHarnessPromptOptions | dict[str, Any] | None = None,
+    ) -> None:
+        resolved_options = self._resolve_prompt_options(options)
+        self._next_turn_queue.append(create_user_message(text, resolved_options.images if resolved_options else None))
         await self._emit_queue_update()
 
     async def append_message(self, message: AgentMessage) -> None:
@@ -294,7 +323,7 @@ class AgentHarness:
 
     async def set_tools(
         self,
-        tools: list[Any],
+        tools: list[AgentTool],
         active_tool_names: list[str] | None = None,
     ) -> None:
         previous_tool_names = list(self.tools.keys())
@@ -378,7 +407,7 @@ class AgentHarness:
         if self._run_task:
             await self._run_task
 
-    def subscribe(self, listener: Callable[[AgentHarnessEvent], Any | Awaitable[Any]]) -> Callable[[], None]:
+    def subscribe(self, listener: HarnessHandler) -> Callable[[], None]:
         self._handlers.setdefault(SUBSCRIBER_EVENT_TYPE, set()).add(listener)
 
         def unsubscribe() -> None:
@@ -389,7 +418,7 @@ class AgentHarness:
     def on(
         self,
         event_type: str,
-        handler: Callable[[AgentHarnessEvent], Any | Awaitable[Any]],
+        handler: HarnessHandler,
     ) -> Callable[[], None]:
         self._handlers.setdefault(event_type, set()).add(handler)
 
@@ -400,7 +429,7 @@ class AgentHarness:
 
     async def _execute_turn(
         self,
-        turn_state: dict[str, Any],
+        turn_state: TurnState,
         text: str,
         images: list[ImageContent] | None = None,
     ) -> AssistantMessage:
@@ -426,10 +455,10 @@ class AgentHarness:
         turn_state = await self._maybe_auto_compact(turn_state, messages)
         active_turn_state = turn_state
 
-        def get_turn_state() -> dict[str, Any]:
+        def get_turn_state() -> TurnState:
             return active_turn_state
 
-        def set_turn_state(next_turn_state: dict[str, Any]) -> None:
+        def set_turn_state(next_turn_state: TurnState) -> None:
             nonlocal active_turn_state
             active_turn_state = next_turn_state
 
@@ -458,7 +487,7 @@ class AgentHarness:
                 return message
         raise AgentHarnessError("invalid_state", "AgentHarness prompt completed without an assistant message")
 
-    async def _create_turn_state(self) -> dict[str, Any]:
+    async def _create_turn_state(self) -> TurnState:
         context = await self.session.build_context()
         active_tools = [
             self.tools[name]
@@ -504,9 +533,9 @@ class AgentHarness:
 
     async def _maybe_auto_compact(
         self,
-        turn_state: dict[str, Any],
+        turn_state: TurnState,
         extra_messages: list[AgentMessage] | None = None,
-    ) -> dict[str, Any]:
+    ) -> TurnState:
         settings = self.compaction_settings
         if not settings.enabled or self._is_compacting:
             return turn_state
@@ -592,7 +621,7 @@ class AgentHarness:
 
     async def _generate_compaction_summary(
         self,
-        preparation: Any,
+        preparation: CompactionPreparation,
         custom_instructions: str | None,
     ) -> str:
         prompt = summarization_prompt(preparation)
@@ -634,7 +663,7 @@ class AgentHarness:
             )
         return _assistant_text(response)
 
-    def _create_context(self, turn_state: dict[str, Any], system_prompt: str | None = None) -> AgentContext:
+    def _create_context(self, turn_state: TurnState, system_prompt: str | None = None) -> AgentContext:
         return AgentContext(
             system_prompt=system_prompt or turn_state["system_prompt"],
             messages=list(turn_state["messages"]),
@@ -643,18 +672,24 @@ class AgentHarness:
 
     def _create_loop_config(
         self,
-        get_turn_state: Callable[[], dict[str, Any]],
-        set_turn_state: Callable[[dict[str, Any]], None],
+        get_turn_state: Callable[[], TurnState],
+        set_turn_state: Callable[[TurnState], None],
     ) -> AgentLoopConfig:
         turn_state = get_turn_state()
         reasoning = None if turn_state["thinking_level"] == "off" else turn_state["thinking_level"]
 
-        async def transform_context(messages: list[AgentMessage], _signal: Any | None) -> list[AgentMessage]:
+        async def transform_context(
+            messages: list[AgentMessage],
+            _signal: AbortSignal | None,
+        ) -> list[AgentMessage]:
             compacted = microcompact_messages(messages, self.compaction_settings.microcompact)
             result = await self._emit_hook(ContextEvent(messages=compacted), ContextResult)
             return result.messages if result else compacted
 
-        async def before_tool_call(context: BeforeToolCallContext, _signal: Any | None) -> dict[str, Any] | None:
+        async def before_tool_call(
+            context: BeforeToolCallContext,
+            _signal: AbortSignal | None,
+        ) -> dict[str, HookPayload] | None:
             result = await self._emit_hook(
                 ToolCallEvent(
                     tool_call_id=context.tool_call.id,
@@ -665,7 +700,10 @@ class AgentHarness:
             )
             return result.model_dump(exclude_none=True) if result else None
 
-        async def after_tool_call(context: AfterToolCallContext, _signal: Any | None) -> dict[str, Any] | None:
+        async def after_tool_call(
+            context: AfterToolCallContext,
+            _signal: AbortSignal | None,
+        ) -> dict[str, HookPayload] | None:
             result = await self._emit_hook(
                 ToolResultEvent(
                     tool_call_id=context.tool_call.id,
@@ -701,8 +739,12 @@ class AgentHarness:
             get_follow_up_messages=self._drain_follow_up_queue,
         )
 
-    def _create_stream_fn(self, get_turn_state: Callable[[], dict[str, Any]]) -> StreamFn:
-        async def stream_fn(model: Model, context: Any, options: SimpleStreamOptions | None = None) -> Any:
+    def _create_stream_fn(self, get_turn_state: Callable[[], TurnState]) -> StreamFn:
+        async def stream_fn(
+            model: Model,
+            context: Context,
+            options: SimpleStreamOptions | None = None,
+        ) -> AssistantMessageEventStream:
             turn_state = get_turn_state()
             auth = await self._get_auth(model)
             request_options = await self._emit_before_provider_request(
@@ -803,6 +845,16 @@ class AgentHarness:
             elif write_type == "session_info":
                 await self.session.append_session_name(write.get("name") or "")
 
+    def _resolve_prompt_options(
+        self,
+        options: AgentHarnessPromptOptions | dict[str, Any] | None,
+    ) -> AgentHarnessPromptOptions | None:
+        if options is None:
+            return None
+        if isinstance(options, AgentHarnessPromptOptions):
+            return options
+        return AgentHarnessPromptOptions.model_validate(options)
+
     async def _emit_queue_update(self) -> None:
         await self._emit_own(
             QueueUpdateEvent(
@@ -833,7 +885,7 @@ class AgentHarness:
     def _validate_tool_names(
         self,
         tool_names: list[str],
-        tools: dict[str, Any] | None = None,
+        tools: dict[str, AgentTool] | None = None,
     ) -> None:
         if len(set(tool_names)) != len(tool_names):
             raise AgentHarnessError("invalid_argument", "Duplicate active tool name(s)")
@@ -859,7 +911,11 @@ class AgentHarness:
     waitForIdle = wait_for_idle
 
 
-async def _default_stream_fn(model: Model, context: Any, options: SimpleStreamOptions | None = None) -> Any:
+async def _default_stream_fn(
+    model: Model,
+    context: Context,
+    options: SimpleStreamOptions | None = None,
+) -> AssistantMessageEventStream:
     from agent_smith.ai import stream_simple
 
     return stream_simple(model, context, options)

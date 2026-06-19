@@ -7,7 +7,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, Iterable, Literal
 
-from agent_smith.ai.types import Api, Model, ModelCost, Provider
+from agent_smith.ai.types import Api, JsonObject, Model, ModelCost, Provider
 
 ModelInput = Literal["text", "image"]
 
@@ -72,8 +72,8 @@ def make_litellm_model(
     context_window: int = 128_000,
     max_tokens: int = 16_384,
     headers: dict[str, str] | None = None,
-    provider_options: dict[str, Any] | None = None,
-    compat: dict[str, Any] | None = None,
+    provider_options: JsonObject | None = None,
+    compat: JsonObject | None = None,
     thinking_level_map: dict[str, str | None] | None = None,
 ) -> Model:
     return Model(

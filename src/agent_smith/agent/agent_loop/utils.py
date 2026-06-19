@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from agent_smith.agent.types import (
+    AbortSignal,
     AgentEvent,
     AgentEventSink,
     AgentLoopTurnUpdate,
@@ -53,7 +54,7 @@ def next_reasoning(current: str | None, thinking_level: str | None) -> str | Non
     return thinking_level
 
 
-def is_aborted(signal: Any | None) -> bool:
+def is_aborted(signal: AbortSignal | None) -> bool:
     if signal is None:
         return False
     aborted = getattr(signal, "aborted", None)

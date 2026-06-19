@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from typing import Any, Literal
+from collections.abc import Callable
+from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -12,8 +12,12 @@ from agent_smith.ai.types import (
     AssistantMessage,
     AssistantMessageEvent,
     Context,
+    HookPayload,
     ImageContent,
+    JsonObject,
+    JsonValue,
     Message,
+    MaybeAwaitable,
     Model,
     ModelThinkingLevel,
     SimpleStreamOptions,
@@ -28,28 +32,24 @@ AgentToolCall = ToolCall
 ToolExecutionMode = Literal["sequential", "parallel"]
 
 
-class SignalLike:
-    """Small structural base for abort-like objects."""
-
-    aborted: bool
-
+class AbortSignal(Protocol):
     def is_set(self) -> bool: ...
-
-
-AgentToolUpdateCallback = Callable[["AgentToolResult"], None]
-AgentToolExecute = Callable[
-    [str, Any, Any | None, AgentToolUpdateCallback | None],
-    Awaitable[Any] | Any,
-]
-PrepareArguments = Callable[[Any], Any]
 
 
 class AgentToolResult(BaseModel):
     content: list[TextContent | ImageContent]
-    details: Any | None = None
+    details: HookPayload | None = None
     terminate: bool | None = None
 
     model_config = {"populate_by_name": True}
+
+
+AgentToolUpdateCallback = Callable[[AgentToolResult | dict[str, HookPayload]], None]
+AgentToolExecute = Callable[
+    [str, JsonValue, AbortSignal | None, AgentToolUpdateCallback | None],
+    MaybeAwaitable[AgentToolResult | dict[str, HookPayload]],
+]
+PrepareArguments = Callable[[JsonObject], MaybeAwaitable[JsonObject]]
 
 
 class AgentTool(Tool):
@@ -90,7 +90,7 @@ class BeforeToolCallResult(BaseModel):
 
 class AfterToolCallResult(BaseModel):
     content: list[TextContent | ImageContent] | None = None
-    details: Any | None = None
+    details: HookPayload | None = None
     is_error: bool | None = Field(default=None, alias="isError")
     terminate: bool | None = None
 
@@ -120,7 +120,7 @@ PrepareNextTurnContext = ShouldStopAfterTurnContext
 class BeforeToolCallContext(BaseModel):
     assistant_message: AssistantMessage = Field(alias="assistantMessage")
     tool_call: AgentToolCall = Field(alias="toolCall")
-    args: Any
+    args: JsonValue
     context: AgentContext
 
     model_config = {"populate_by_name": True, "arbitrary_types_allowed": True}
@@ -133,34 +133,34 @@ class AfterToolCallContext(BeforeToolCallContext):
     model_config = {"populate_by_name": True, "arbitrary_types_allowed": True}
 
 
-ConvertToLlmFn = Callable[[list[AgentMessage]], list[Message] | Awaitable[list[Message]]]
+ConvertToLlmFn = Callable[[list[AgentMessage]], MaybeAwaitable[list[Message]]]
 TransformContextFn = Callable[
-    [list[AgentMessage], Any | None],
-    list[AgentMessage] | Awaitable[list[AgentMessage]],
+    [list[AgentMessage], AbortSignal | None],
+    MaybeAwaitable[list[AgentMessage]],
 ]
-GetApiKeyFn = Callable[[str], str | None | Awaitable[str | None]]
+GetApiKeyFn = Callable[[str], MaybeAwaitable[str | None]]
 ShouldStopAfterTurnFn = Callable[
     [ShouldStopAfterTurnContext],
-    bool | Awaitable[bool],
+    MaybeAwaitable[bool],
 ]
 PrepareNextTurnFn = Callable[
     [PrepareNextTurnContext],
-    AgentLoopTurnUpdate | dict[str, Any] | None | Awaitable[AgentLoopTurnUpdate | dict[str, Any] | None],
+    MaybeAwaitable[AgentLoopTurnUpdate | dict[str, HookPayload] | None],
 ]
-GetMessagesFn = Callable[[], list[AgentMessage] | Awaitable[list[AgentMessage]]]
+GetMessagesFn = Callable[[], MaybeAwaitable[list[AgentMessage]]]
 BeforeToolCallFn = Callable[
-    [BeforeToolCallContext, Any | None],
-    BeforeToolCallResult | dict[str, Any] | None | Awaitable[BeforeToolCallResult | dict[str, Any] | None],
+    [BeforeToolCallContext, AbortSignal | None],
+    MaybeAwaitable[BeforeToolCallResult | dict[str, HookPayload] | None],
 ]
 AfterToolCallFn = Callable[
-    [AfterToolCallContext, Any | None],
-    AfterToolCallResult | dict[str, Any] | None | Awaitable[AfterToolCallResult | dict[str, Any] | None],
+    [AfterToolCallContext, AbortSignal | None],
+    MaybeAwaitable[AfterToolCallResult | dict[str, HookPayload] | None],
 ]
 StreamFn = Callable[
     [Model, Context, SimpleStreamOptions | None],
-    AssistantMessageEventStream | Awaitable[AssistantMessageEventStream],
+    MaybeAwaitable[AssistantMessageEventStream],
 ]
-AgentEventSink = Callable[["AgentEvent"], None | Awaitable[None]]
+AgentEventSink = Callable[["AgentEvent"], MaybeAwaitable[None]]
 
 
 class AgentLoopConfig(SimpleStreamOptions):
@@ -258,7 +258,7 @@ class ToolExecutionStartEvent(BaseModel):
     type: Literal["tool_execution_start"] = "tool_execution_start"
     tool_call_id: str = Field(alias="toolCallId")
     tool_name: str = Field(alias="toolName")
-    args: Any
+    args: JsonValue
 
     model_config = {"populate_by_name": True}
 
@@ -267,7 +267,7 @@ class ToolExecutionUpdateEvent(BaseModel):
     type: Literal["tool_execution_update"] = "tool_execution_update"
     tool_call_id: str = Field(alias="toolCallId")
     tool_name: str = Field(alias="toolName")
-    args: Any
+    args: JsonValue
     partial_result: AgentToolResult = Field(alias="partialResult")
 
     model_config = {"populate_by_name": True}

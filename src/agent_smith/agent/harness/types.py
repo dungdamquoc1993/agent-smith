@@ -2,26 +2,32 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from typing import Any, Literal
+from collections.abc import Callable
+from typing import Literal, Protocol, TypedDict, runtime_checkable
 
 from pydantic import BaseModel, Field
 
 from agent_smith.ai.types import (
     CacheRetention,
+    HookPayload,
     ImageContent,
+    JsonObject,
+    JsonValue,
+    MaybeAwaitable,
     Model,
     ModelThinkingLevel,
+    ProviderPayload,
     TextContent,
 )
-from agent_smith.agent.types import AgentEvent, AgentMessage, AgentTool
+from agent_smith.agent.types import AgentEvent, AgentMessage, AgentTool, StreamFn
 from agent_smith.agent.harness.compaction import CompactionPreparation, CompactionSettings
+from agent_smith.agent.harness.session.types import SessionContext, SessionMetadata, SessionTreeEntry
 
 
 class Result(BaseModel):
     ok: bool
-    value: Any | None = None
-    error: Any | None = None
+    value: HookPayload | None = None
+    error: HookPayload | None = None
 
 
 class AgentHarnessError(Exception):
@@ -66,7 +72,7 @@ class AgentHarnessStreamOptions(BaseModel):
     max_retries: int | None = Field(default=None, alias="maxRetries")
     max_retry_delay_ms: int | None = Field(default=None, alias="maxRetryDelayMs")
     headers: dict[str, str] | None = None
-    metadata: dict[str, Any] | None = None
+    metadata: JsonObject | None = None
     cache_retention: CacheRetention | None = Field(default=None, alias="cacheRetention")
 
     model_config = {"populate_by_name": True, "extra": "allow"}
@@ -74,7 +80,7 @@ class AgentHarnessStreamOptions(BaseModel):
 
 class AgentHarnessStreamOptionsPatch(AgentHarnessStreamOptions):
     headers: dict[str, str | None] | None = None
-    metadata: dict[str, Any | None] | None = None
+    metadata: dict[str, JsonValue | None] | None = None
 
 
 class AgentHarnessAuth(BaseModel):
@@ -86,6 +92,55 @@ class AgentHarnessAuth(BaseModel):
 
 class AgentHarnessPromptOptions(BaseModel):
     images: list[ImageContent] | None = None
+
+
+@runtime_checkable
+class AgentHarnessSession(Protocol):
+    async def get_metadata(self) -> SessionMetadata: ...
+
+    async def build_context(self) -> SessionContext: ...
+
+    async def get_branch(self, from_id: str | None = None) -> list[SessionTreeEntry]: ...
+
+    async def get_entry(self, entry_id: str) -> SessionTreeEntry | None: ...
+
+    async def get_entries(self) -> list[SessionTreeEntry]: ...
+
+    async def append_message(self, message: AgentMessage) -> str: ...
+
+    async def append_model_change(self, provider: str, model_id: str) -> str: ...
+
+    async def append_thinking_level_change(self, thinking_level: str) -> str: ...
+
+    async def append_active_tools_change(self, active_tool_names: list[str]) -> str: ...
+
+    async def append_compaction(
+        self,
+        summary: str,
+        first_kept_entry_id: str,
+        tokens_before: int,
+        details: HookPayload | None = None,
+        from_hook: bool | None = None,
+    ) -> str: ...
+
+    async def append_session_name(self, name: str) -> str: ...
+
+
+@runtime_checkable
+class SystemPromptFn(Protocol):
+    def __call__(
+        self,
+        *,
+        session: AgentHarnessSession,
+        model: Model,
+        thinking_level: ModelThinkingLevel,
+        active_tools: list[AgentTool],
+        resources: "AgentHarnessResources",
+    ) -> MaybeAwaitable[str]: ...
+
+
+AgentHarnessAuthInput = AgentHarnessAuth | dict[str, HookPayload]
+GetAgentHarnessAuthFn = Callable[[Model], MaybeAwaitable[AgentHarnessAuthInput | None]]
 
 
 class AbortResult(BaseModel):
@@ -153,7 +208,7 @@ class BeforeProviderRequestEvent(BaseModel):
 class BeforeProviderPayloadEvent(BaseModel):
     type: Literal["before_provider_payload"] = "before_provider_payload"
     model: Model
-    payload: Any
+    payload: ProviderPayload
 
 
 class AfterProviderResponseEvent(BaseModel):
@@ -166,7 +221,7 @@ class ToolCallEvent(BaseModel):
     type: Literal["tool_call"] = "tool_call"
     tool_call_id: str = Field(alias="toolCallId")
     tool_name: str = Field(alias="toolName")
-    input: dict[str, Any]
+    input: JsonObject
 
     model_config = {"populate_by_name": True}
 
@@ -175,9 +230,9 @@ class ToolResultEvent(BaseModel):
     type: Literal["tool_result"] = "tool_result"
     tool_call_id: str = Field(alias="toolCallId")
     tool_name: str = Field(alias="toolName")
-    input: dict[str, Any]
+    input: JsonObject
     content: list[TextContent | ImageContent]
-    details: Any | None = None
+    details: HookPayload | None = None
     is_error: bool = Field(alias="isError")
 
     model_config = {"populate_by_name": True}
@@ -230,7 +285,7 @@ class SessionBeforeCompactEvent(BaseModel):
 
 class SessionCompactEvent(BaseModel):
     type: Literal["session_compact"] = "session_compact"
-    compaction_entry: Any = Field(alias="compactionEntry")
+    compaction_entry: SessionTreeEntry | None = Field(alias="compactionEntry")
     trigger: Literal["manual", "auto"]
     from_hook: bool = Field(alias="fromHook")
 
@@ -280,7 +335,7 @@ class BeforeProviderRequestResult(BaseModel):
 
 
 class BeforeProviderPayloadResult(BaseModel):
-    payload: Any
+    payload: ProviderPayload
 
 
 class ToolCallResult(BaseModel):
@@ -290,7 +345,7 @@ class ToolCallResult(BaseModel):
 
 class ToolResultPatch(BaseModel):
     content: list[TextContent | ImageContent] | None = None
-    details: Any | None = None
+    details: HookPayload | None = None
     is_error: bool | None = Field(default=None, alias="isError")
     terminate: bool | None = None
 
@@ -300,13 +355,25 @@ class ToolResultPatch(BaseModel):
 class SessionBeforeCompactResult(BaseModel):
     cancel: bool | None = None
     summary: str | None = None
-    details: dict[str, Any] | None = None
+    details: JsonObject | None = None
+
+
+class TurnState(TypedDict):
+    messages: list[AgentMessage]
+    resources: AgentHarnessResources
+    stream_options: AgentHarnessStreamOptions
+    session_id: str
+    system_prompt: str
+    model: Model
+    thinking_level: ModelThinkingLevel
+    tools: list[AgentTool]
+    active_tools: list[AgentTool]
 
 
 class AgentHarnessOptions(BaseModel):
-    session: Any
+    session: AgentHarnessSession
     model: Model
-    system_prompt: str | Callable[..., str | Awaitable[str]] | None = Field(
+    system_prompt: str | SystemPromptFn | None = Field(
         default=None,
         alias="systemPrompt",
         exclude=True,
@@ -316,13 +383,13 @@ class AgentHarnessOptions(BaseModel):
         default=None,
         alias="streamOptions",
     )
-    get_api_key_and_headers: Callable[[Model], AgentHarnessAuth | dict[str, Any] | None | Awaitable[Any]] | None = (
+    get_api_key_and_headers: GetAgentHarnessAuthFn | None = (
         Field(default=None, alias="getApiKeyAndHeaders", exclude=True)
     )
     tools: list[AgentTool] | None = None
     active_tool_names: list[str] | None = Field(default=None, alias="activeToolNames")
     thinking_level: ModelThinkingLevel = Field(default="off", alias="thinkingLevel")
-    stream_fn: Callable[..., Any] | None = Field(default=None, alias="streamFn", exclude=True)
+    stream_fn: StreamFn | None = Field(default=None, alias="streamFn", exclude=True)
     compaction_settings: CompactionSettings | None = Field(
         default=None,
         alias="compactionSettings",
@@ -334,4 +401,4 @@ class AgentHarnessOptions(BaseModel):
     }
 
 
-HarnessHandler = Callable[[AgentHarnessEvent], Any | Awaitable[Any]]
+HarnessHandler = Callable[[AgentHarnessEvent], MaybeAwaitable[HookPayload]]

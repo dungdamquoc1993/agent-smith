@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import copy
 import json
-from typing import Any
 
 from jsonschema import ValidationError, validators
 
-from agent_smith.ai.types import ToolCall
+from agent_smith.ai.types import JsonObject, ToolCall
 from agent_smith.agent.types import AgentTool
 
 
@@ -17,7 +16,7 @@ def _format_path(error: ValidationError) -> str:
     return path or "root"
 
 
-def validate_tool_arguments(tool: AgentTool, tool_call: ToolCall) -> Any:
+def validate_tool_arguments(tool: AgentTool, tool_call: ToolCall) -> JsonObject:
     """Validate a tool call against its JSON Schema and return cloned arguments."""
 
     args = copy.deepcopy(tool_call.arguments)

@@ -9,6 +9,7 @@ from agent_smith.ai import stream_simple
 from agent_smith.ai.types import AssistantMessage, Context, SimpleStreamOptions
 from agent_smith.agent.agent_loop.utils import call, call_maybe, emit
 from agent_smith.agent.types import (
+    AbortSignal,
     AgentContext,
     AgentEventSink,
     AgentLoopConfig,
@@ -34,7 +35,7 @@ UPDATE_EVENT_TYPES = {
 async def stream_assistant_response(
     context: AgentContext,
     config: AgentLoopConfig,
-    signal: Any | None,
+    signal: AbortSignal | None,
     emit_event: AgentEventSink,
     stream_fn: StreamFn | None,
 ) -> AssistantMessage:

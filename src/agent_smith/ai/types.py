@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from collections.abc import Awaitable
+from typing import Any, Literal, TypeAlias, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue as PydanticJsonValue
 
 # --- API / Provider identifiers ---
 
@@ -24,6 +25,13 @@ ModelThinkingLevel = Literal["off", "minimal", "low", "medium", "high", "xhigh"]
 StopReason = Literal["stop", "length", "toolUse", "error", "aborted"]
 CacheRetention = Literal["none", "short", "long"]
 ProviderEnv = dict[str, str]
+JsonPrimitive: TypeAlias = str | int | float | bool | None
+JsonValue: TypeAlias = PydanticJsonValue
+JsonObject: TypeAlias = dict[str, JsonValue]
+ProviderPayload: TypeAlias = Any
+HookPayload: TypeAlias = Any
+T = TypeVar("T")
+MaybeAwaitable: TypeAlias = T | Awaitable[T]
 
 
 # --- Content blocks ---
@@ -58,7 +66,7 @@ class ToolCall(BaseModel):
     type: Literal["toolCall"] = "toolCall"
     id: str
     name: str
-    arguments: dict[str, Any] = Field(default_factory=dict)
+    arguments: JsonObject = Field(default_factory=dict)
     thought_signature: str | None = Field(default=None, alias="thoughtSignature")
 
     model_config = {"populate_by_name": True}
@@ -123,7 +131,7 @@ class ToolResultMessage(BaseModel):
     tool_call_id: str = Field(alias="toolCallId")
     tool_name: str = Field(alias="toolName")
     content: list[ToolResultContentBlock]
-    details: Any | None = None
+    details: HookPayload | None = None
     is_error: bool = Field(default=False, alias="isError")
     timestamp: int
 
@@ -139,7 +147,7 @@ Message = UserMessage | AssistantMessage | ToolResultMessage
 class Tool(BaseModel):
     name: str
     description: str
-    parameters: dict[str, Any]  # JSON Schema
+    parameters: JsonObject  # JSON Schema
 
 
 class Context(BaseModel):
@@ -174,8 +182,8 @@ class Model(BaseModel):
     context_window: int = Field(default=128_000, alias="contextWindow")
     max_tokens: int = Field(default=16_384, alias="maxTokens")
     headers: dict[str, str] | None = None
-    provider_options: dict[str, Any] | None = Field(default=None, alias="providerOptions")
-    compat: dict[str, Any] | None = None
+    provider_options: JsonObject | None = Field(default=None, alias="providerOptions")
+    compat: JsonObject | None = None
     thinking_level_map: dict[ModelThinkingLevel, str | None] | None = Field(
         default=None,
         alias="thinkingLevelMap",
@@ -206,9 +214,9 @@ class StreamOptions(BaseModel):
     max_retries: int | None = Field(default=None, alias="maxRetries")
     max_retry_delay_ms: int | None = Field(default=None, alias="maxRetryDelayMs")
     headers: dict[str, str] | None = None
-    metadata: dict[str, Any] | None = None
+    metadata: JsonObject | None = None
     env: ProviderEnv | None = None
-    provider_options: dict[str, Any] | None = Field(default=None, alias="providerOptions")
+    provider_options: JsonObject | None = Field(default=None, alias="providerOptions")
 
     model_config = {"populate_by_name": True, "extra": "allow"}
 

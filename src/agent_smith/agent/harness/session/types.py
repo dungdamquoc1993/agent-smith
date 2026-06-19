@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, NotRequired, Protocol, TypedDict
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from agent_smith.agent.types import AgentMessage
+from agent_smith.ai.types import HookPayload, JsonValue
 
 if TYPE_CHECKING:
     from agent_smith.agent.harness.session.session import Session
@@ -66,11 +67,11 @@ class SessionTreeEntry(BaseModel):
     summary: str | None = None
     first_kept_entry_id: str | None = Field(default=None, alias="firstKeptEntryId")
     tokens_before: int | None = Field(default=None, alias="tokensBefore")
-    details: Any | None = None
+    details: HookPayload | None = None
     from_hook: bool | None = Field(default=None, alias="fromHook")
     custom_type: str | None = Field(default=None, alias="customType")
-    data: Any | None = None
-    content: Any | None = None
+    data: JsonValue | None = None
+    content: HookPayload | None = None
     display: bool | None = None
     target_id: str | None = Field(default=None, alias="targetId")
     label: str | None = None
@@ -79,7 +80,39 @@ class SessionTreeEntry(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-PendingSessionWrite = dict[str, Any]
+class PendingMessageWrite(TypedDict):
+    type: Literal["message"]
+    message: AgentMessage
+
+
+class PendingModelChangeWrite(TypedDict):
+    type: Literal["model_change"]
+    provider: str
+    model_id: str
+
+
+class PendingThinkingLevelChangeWrite(TypedDict):
+    type: Literal["thinking_level_change"]
+    thinking_level: str
+
+
+class PendingActiveToolsChangeWrite(TypedDict):
+    type: Literal["active_tools_change"]
+    active_tool_names: list[str]
+
+
+class PendingSessionInfoWrite(TypedDict):
+    type: Literal["session_info"]
+    name: NotRequired[str]
+
+
+PendingSessionWrite = (
+    PendingMessageWrite
+    | PendingModelChangeWrite
+    | PendingThinkingLevelChangeWrite
+    | PendingActiveToolsChangeWrite
+    | PendingSessionInfoWrite
+)
 
 
 class SessionStorage(Protocol):

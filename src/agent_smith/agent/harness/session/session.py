@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from agent_smith.ai.types import HookPayload, JsonValue
 from agent_smith.agent.types import AgentMessage
 from agent_smith.agent.harness.session.types import (
     SessionContext,
@@ -75,7 +76,7 @@ class Session:
         summary: str,
         first_kept_entry_id: str,
         tokens_before: int,
-        details: Any | None = None,
+        details: HookPayload | None = None,
         from_hook: bool | None = None,
     ) -> str:
         return await self._append_typed_entry(
@@ -89,7 +90,7 @@ class Session:
             }
         )
 
-    async def append_custom_entry(self, custom_type: str, data: Any | None = None) -> str:
+    async def append_custom_entry(self, custom_type: str, data: JsonValue | None = None) -> str:
         return await self._append_typed_entry(
             {"type": "custom", "customType": custom_type, "data": data}
         )
@@ -97,9 +98,9 @@ class Session:
     async def append_custom_message_entry(
         self,
         custom_type: str,
-        content: Any,
+        content: HookPayload,
         display: bool,
-        details: Any | None = None,
+        details: HookPayload | None = None,
     ) -> str:
         return await self._append_typed_entry(
             {
