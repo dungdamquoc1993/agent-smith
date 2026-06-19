@@ -1,5 +1,7 @@
 # Session
 
+← [Harness](../README.md) · [Agent (overview)](../../README.md)
+
 Module quản lý **session tree** của harness: lịch sử hội thoại dạng cây append-only, có thể fork/branch.
 
 ## Luồng tổng quan
