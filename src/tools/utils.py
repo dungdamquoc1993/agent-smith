@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from typing import Any
 
 from agent.types import AgentTool
 from resources import ResourceResolver, ResourceStore
@@ -37,6 +38,7 @@ def create_base_tool_registry(
     agents_resolver: ResourceResolver | None = None,
     task_runtime: TaskRuntime | None = None,
     agent_runner: AgentTaskRunner | None = None,
+    agent_parent_metadata: Mapping[str, Any] | Callable[[], Mapping[str, Any]] | None = None,
 ) -> ToolRegistry:
     tools: list[AgentTool] = [
         create_sleep_tool(max_seconds=sleep_max_seconds),
@@ -61,7 +63,13 @@ def create_base_tool_registry(
     if agents_store is not None:
         tools.append(create_agents_tool(agents_store, resolver=agents_resolver))
     if task_runtime is not None and agent_runner is not None:
-        tools.append(create_agent_tool(task_runtime, agent_runner))
+        tools.append(
+            create_agent_tool(
+                task_runtime,
+                agent_runner,
+                parent_metadata=agent_parent_metadata,
+            )
+        )
     if task_runtime is not None:
         tools.extend(
             [

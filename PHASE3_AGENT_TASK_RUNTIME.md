@@ -25,10 +25,10 @@ Read these first:
 - [`src/tasks/types.py`](src/tasks/types.py) defines the public contracts:
   `TaskRuntime`, `TaskRecord`, `TaskContext`, `TaskOutputSnapshot`, task kinds,
   statuses, and result typing.
-- [`src/tasks/memory.py`](src/tasks/memory.py) implements `MemoryTaskRuntime`.
+- [`src/tasks/memory_task_runtime.py`](src/tasks/memory_task_runtime.py) implements `MemoryTaskRuntime`.
   It owns task records, `asyncio.Task` handles, abort events, status transitions,
   wait/stop/read APIs, and snapshot isolation.
-- [`src/tasks/output.py`](src/tasks/output.py) implements `MemoryTaskOutputStore`
+- [`src/tasks/memory_task_output_store.py`](src/tasks/memory_task_output_store.py) implements `MemoryTaskOutputStore`
   and the `TaskOutputStore` protocol.
 - [`src/tasks/errors.py`](src/tasks/errors.py) defines runtime errors:
   `UnknownTaskError`, `TaskAlreadyFinishedError`, and `TaskTimeoutError`.
@@ -65,19 +65,23 @@ Important current limits:
 Read next:
 
 - [`src/tasks/runners/agent.py`](src/tasks/runners/agent.py) implements
-  `AgentTaskRunner`, `AgentTaskResult`, and `AgentTaskRunnerError`.
+  `AgentTaskRunner`, `AgentChildSessionRequest`, `AgentTaskResult`, and
+  `AgentTaskRunnerError`.
 - [`src/tasks/runners/__init__.py`](src/tasks/runners/__init__.py) exports runner
   symbols.
 
 `AgentTaskRunner` is not a tool. It is the callable runner used by the tool
 layer. It receives a `TaskContext`, creates a child session through an injected
-`session_factory`, builds a child harness through `AgentFactory`, and calls
-`harness.prompt(prompt)`.
+`session_factory(AgentChildSessionRequest)`, builds a child harness through
+`AgentFactory`, and calls `harness.prompt(prompt)`.
 
 Key behavior:
 
 - Child agent runs in a separate `AgentHarnessSession`.
 - `parent_metadata.agentDepth` is used as a recursion guard.
+- `parent_metadata` can also carry session provenance such as `principalId`,
+  `parentSessionId`, `parentToolCallId`, `description`, `mode`, and
+  `provenance`.
 - Runner writes useful progress to `TaskContext.append_output(...)`.
 - Runner writes `agentName`, `agentDepth`, `sessionId`, `stopReason`, and `turns`
   into task result metadata.
@@ -171,6 +175,9 @@ task_runtime provided
 
 task_runtime + agent_runner provided
   -> add agent, task_output, task_stop
+
+agent_parent_metadata provided
+  -> forwarded to the agent tool and then to AgentChildSessionRequest
 ```
 
 ## Existing Resource/Runtime Dependencies
@@ -192,7 +199,7 @@ the flow:
 ## Recommended Reading Order
 
 1. [`src/tasks/types.py`](src/tasks/types.py)
-2. [`src/tasks/memory.py`](src/tasks/memory.py)
+2. [`src/tasks/memory_task_runtime.py`](src/tasks/memory_task_runtime.py)
 3. [`src/tasks/runners/agent.py`](src/tasks/runners/agent.py)
 4. [`src/tools/agent.py`](src/tools/agent.py)
 5. [`src/tools/task_output.py`](src/tools/task_output.py)

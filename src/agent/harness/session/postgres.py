@@ -13,6 +13,7 @@ from db.models.session import (
     Session as DbSession,
     SessionEntry as DbSessionEntry,
     SessionEntryType as DbSessionEntryType,
+    SessionKind as DbSessionKind,
 )
 from agent.harness.session.session import Session
 from agent.harness.session.types import (
@@ -29,10 +30,16 @@ def _uuid(value: str | uuid.UUID | None) -> uuid.UUID | None:
 
 
 def _metadata_from_row(row: DbSession) -> SessionMetadata:
+    kind = row.kind.value if hasattr(row.kind, "value") else str(row.kind)
     return SessionMetadata(
         id=str(row.id),
         principal_id=str(row.principal_id),
         title=row.title,
+        kind=kind,
+        parent_session_id=str(row.parent_session_id) if row.parent_session_id else None,
+        agent_name=row.agent_name,
+        origin_task_id=row.origin_task_id,
+        provenance=dict(row.provenance or {}),
     )
 
 
@@ -171,12 +178,22 @@ class PostgresSessionRepo:
                 id=session_id,
                 principal_id=_uuid(principal_id),
                 title=options.get("title"),
+                kind=DbSessionKind(options.get("kind", "main")),
+                parent_session_id=_uuid(options.get("parent_session_id")),
+                agent_name=options.get("agent_name"),
+                origin_task_id=options.get("origin_task_id"),
+                provenance=dict(options.get("provenance") or {}),
             )
             db.add(row)
         metadata = SessionMetadata(
             id=str(session_id),
             principal_id=str(principal_id),
             title=options.get("title"),
+            kind=options.get("kind", "main"),
+            parent_session_id=options.get("parent_session_id"),
+            agent_name=options.get("agent_name"),
+            origin_task_id=options.get("origin_task_id"),
+            provenance=dict(options.get("provenance") or {}),
         )
         return Session(PostgresSessionStorage(self._session_factory, metadata))
 
@@ -202,6 +219,14 @@ class PostgresSessionRepo:
             principal_id=principal_id,
             title=options.get("title"),
             id=options.get("id"),
+            kind=options.get("kind", source_metadata.kind),
+            parent_session_id=options.get(
+                "parent_session_id",
+                source_metadata.parent_session_id,
+            ),
+            agent_name=options.get("agent_name", source_metadata.agent_name),
+            origin_task_id=options.get("origin_task_id", source_metadata.origin_task_id),
+            provenance=dict(options.get("provenance", source_metadata.provenance) or {}),
         )
         target_storage = target_session.get_storage()
         source_leaf_id = options.get("entry_id") or await source_session.get_leaf_id()

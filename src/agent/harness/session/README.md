@@ -38,6 +38,9 @@ Cả hai đều trả về cùng kiểu `Session`; harness không cần biết b
 
 ## Dữ liệu bên trong một session
 
+- **Metadata** (`SessionMetadata`): `kind` (`main` hoặc `sub_agent`),
+  `principal_id`, `parent_session_id`, `agent_name`, `origin_task_id`,
+  `provenance`.
 - **Tree entries** (`SessionTreeEntry`): message, model change, compaction, label, … nối nhau qua `parent_id`.
 - **Leaf** (`current_leaf_id`): đỉnh nhánh hiện tại.
 - **`get_branch()`** — đi từ leaf lên root → nhánh đang active.
@@ -58,4 +61,17 @@ ctx = await session.build_context()                  # Đọc nhánh hiện tạ
 
 session2 = await repo.open({"id": session_id})       # Mở lại
 fork = await repo.fork(source={"id": session_id})    # Fork nhánh
+```
+
+Sub-agent session dùng cùng contract, chỉ khác metadata:
+
+```python
+child = await repo.create(
+    principal_id="user-1",
+    kind="sub_agent",
+    parent_session_id=session_id,
+    agent_name="reviewer",
+    origin_task_id="task_123",
+    provenance={"mode": "sync"},
+)
 ```

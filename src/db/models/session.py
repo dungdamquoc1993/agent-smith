@@ -7,11 +7,16 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.base import Base
+
+
+class SessionKind(str, enum.Enum):
+    main = "main"
+    sub_agent = "sub_agent"
 
 
 class SessionEntryType(str, enum.Enum):
@@ -30,12 +35,35 @@ class SessionEntryType(str, enum.Enum):
 
 class Session(Base):
     __tablename__ = "sessions"
+    __table_args__ = (
+        Index("ix_sessions_parent_session_id", "parent_session_id"),
+        Index("ix_sessions_origin_task_id", "origin_task_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     principal_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("principals.id", ondelete="CASCADE"), nullable=False
     )
     title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    kind: Mapped[SessionKind] = mapped_column(
+        Enum(SessionKind, name="session_kind"),
+        nullable=False,
+        default=SessionKind.main,
+        server_default=SessionKind.main.value,
+    )
+    parent_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    agent_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    origin_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    provenance: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
     current_leaf_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

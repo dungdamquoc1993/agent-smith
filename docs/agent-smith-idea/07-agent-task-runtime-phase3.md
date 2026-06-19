@@ -95,7 +95,8 @@ nen nam trong `src/tasks`.
 ### Goal
 
 Tao runtime in-memory, process-local, du de spawn async jobs va query/stop/wait.
-Chua can DB migration.
+Task records van khong persist DB; session provenance cua sub-agent duoc them
+sau bang migration `003_session_provenance`.
 
 ### Public Concepts
 
@@ -204,7 +205,7 @@ class AgentTaskRunner:
         self,
         *,
         agent_factory: AgentFactory,
-        session_factory: Callable[[str], AgentHarnessSession],
+        session_factory: Callable[[AgentChildSessionRequest], AgentHarnessSession],
         max_depth: int = 3,
     ) -> None: ...
 
@@ -229,8 +230,9 @@ parent harness/session
     -> child AgentHarness
 ```
 
-Ban dau co the dung `MemoryAgentHarnessSession` cho child. Postgres child
-session/link parent de phase sau.
+Child session co the dung memory hoac Postgres backend. Neu persist vao
+Postgres, `SessionMetadata` dung `kind="sub_agent"`, `parent_session_id`,
+`agent_name`, `origin_task_id`, va `provenance` de trace parent session/task.
 
 ### Abort Rules
 
@@ -383,6 +385,7 @@ create_base_tool_registry(
     ...,
     task_runtime: TaskRuntime | None = None,
     agent_runner: AgentTaskRunner | None = None,
+    agent_parent_metadata: Mapping[str, Any] | Callable[[], Mapping[str, Any]] | None = None,
 )
 ```
 
@@ -501,7 +504,7 @@ poetry run pytest
 ## Design Decisions For V1
 
 - Task runtime v1 la in-memory/process-local.
-- Khong DB migration trong Phase 3a-3c.
+- Co migration `003_session_provenance` cho session-level provenance cua sub-agent.
 - Background tasks mat neu process restart; day la chap nhan duoc cho v1.
 - Agent child session rieng, khong mutate parent session truc tiep.
 - Async sub-agent khong bi parent abort tu dong.

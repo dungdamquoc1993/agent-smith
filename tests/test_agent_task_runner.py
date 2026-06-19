@@ -23,7 +23,12 @@ from ai.types import (
 )
 from resources import MemoryResourceStore, ResourceResolver
 from runtime import AgentFactory, ToolRegistry
-from tasks import AgentTaskResult, AgentTaskRunner, MemoryTaskRuntime
+from tasks import (
+    AgentChildSessionRequest,
+    AgentTaskResult,
+    AgentTaskRunner,
+    MemoryTaskRuntime,
+)
 
 
 def _now() -> int:
@@ -132,10 +137,15 @@ async def test_agent_task_runner_success_uses_child_session_and_records_result()
     store = MemoryResourceStore([_agent_resource()])
     session_repo = MemorySessionRepo()
     sessions = {}
+    requests: dict[str, AgentChildSessionRequest] = {}
 
-    async def session_factory(task_id: str):
-        session = await session_repo.create(id=f"child-{task_id}", principal_id="principal-1")
-        sessions[task_id] = session
+    async def session_factory(request: AgentChildSessionRequest):
+        session = await session_repo.create(
+            id=f"child-{request.task_id}",
+            principal_id=request.principal_id,
+        )
+        sessions[request.task_id] = session
+        requests[request.task_id] = request
         return session
 
     def stream_fn(model: Model, context: Context, options: SimpleStreamOptions | None = None):
@@ -149,16 +159,25 @@ async def test_agent_task_runner_success_uses_child_session_and_records_result()
         session_factory=session_factory,
     )
     runtime = MemoryTaskRuntime()
+    parent_metadata = {
+        "agentDepth": 0,
+        "principalId": "principal-1",
+        "parentSessionId": "parent-session-1",
+        "parentToolCallId": "tool-1",
+        "description": "Review change",
+        "mode": "sync",
+        "provenance": {"source": "test"},
+    }
 
     spawned = await runtime.spawn(
         kind="agent",
         description="Run reviewer",
-        metadata={"agentDepth": 0},
+        metadata=parent_metadata,
         run=lambda context: runner.run(
             task_context=context,
             agent_name="reviewer",
             prompt="Review this",
-            parent_metadata={"agentDepth": 0},
+            parent_metadata=parent_metadata,
         ),
     )
     completed = await runtime.wait(spawned.id)
@@ -178,6 +197,17 @@ async def test_agent_task_runner_success_uses_child_session_and_records_result()
     assert "Started agent reviewer." in output.text
     assert "Completed agent reviewer." in output.text
     assert "Looks good." in output.text
+
+    request = requests[spawned.id]
+    assert request.task_id == spawned.id
+    assert request.agent_name == "reviewer"
+    assert request.agent_depth == 1
+    assert request.principal_id == "principal-1"
+    assert request.parent_session_id == "parent-session-1"
+    assert request.parent_tool_call_id == "tool-1"
+    assert request.description == "Review change"
+    assert request.mode == "sync"
+    assert request.provenance == {"source": "test"}
 
     entries = await sessions[spawned.id].get_entries()
     messages = [entry.message for entry in entries if entry.type == "message"]
@@ -207,7 +237,7 @@ async def test_agent_task_runner_applies_agent_factory_tool_selection() -> None:
             tool_registry=ToolRegistry([_tool("read_file"), _tool("write_file")]),
             stream_fn=stream_fn,
         ),
-        session_factory=lambda task_id: MemorySessionRepo().create(id=f"child-{task_id}"),
+        session_factory=lambda request: MemorySessionRepo().create(id=f"child-{request.task_id}"),
     )
     runtime = MemoryTaskRuntime()
 
@@ -231,7 +261,7 @@ async def test_agent_task_runner_factory_validation_failure_marks_task_failed() 
     store = MemoryResourceStore([_agent_resource(tools_allow=["missing_tool"])])
     runner = AgentTaskRunner(
         agent_factory=_factory(store),
-        session_factory=lambda task_id: MemorySessionRepo().create(id=f"child-{task_id}"),
+        session_factory=lambda request: MemorySessionRepo().create(id=f"child-{request.task_id}"),
     )
     runtime = MemoryTaskRuntime()
 
@@ -273,7 +303,7 @@ async def test_agent_task_runner_stop_aborts_child_harness_and_cancels_task() ->
 
     runner = AgentTaskRunner(
         agent_factory=_factory(store, stream_fn=stream_fn),
-        session_factory=lambda task_id: MemorySessionRepo().create(id=f"child-{task_id}"),
+        session_factory=lambda request: MemorySessionRepo().create(id=f"child-{request.task_id}"),
         abort_poll_seconds=0.01,
     )
     runtime = MemoryTaskRuntime()
@@ -303,9 +333,9 @@ async def test_agent_task_runner_recursion_guard_fails_before_creating_session()
     store = MemoryResourceStore([_agent_resource()])
     created_sessions: list[str] = []
 
-    async def session_factory(task_id: str):
-        created_sessions.append(task_id)
-        return await MemorySessionRepo().create(id=f"child-{task_id}")
+    async def session_factory(request: AgentChildSessionRequest):
+        created_sessions.append(request.task_id)
+        return await MemorySessionRepo().create(id=f"child-{request.task_id}")
 
     runner = AgentTaskRunner(
         agent_factory=_factory(store),
