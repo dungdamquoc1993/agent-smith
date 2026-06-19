@@ -8,6 +8,20 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 
 ## [Unreleased]
 
+### Added - Base agent tools
+
+- Them package [`tools`](../src/tools/) gom cac `AgentTool` factory co the register qua `ToolRegistry`: `sleep`, `todo_write`, `ask_user_question`, `web_fetch`, `web_search`, va `skills`.
+- Them helper `create_base_tool_registry(...)` de lap base tool bundle; mac dinh giu 5 tool stateless/base va chi them `skills` khi caller truyen `skills_store`.
+- Them `ask_user_question` theo pause/resume qua injected handler: tool await cau tra loi user trong luc harness turn dang chay, roi tra tool result binh thuong de agent loop tiep tuc.
+- Them `web_fetch` stdlib HTTP fetch cho `http`/`https`, extract text tu HTML/plain/markdown va tra status/final URL/content type/bytes/truncation.
+- Them `web_search` voi provider registry, Tavily/Brave adapters, env credential checks (`TAVILY_API_KEY`, `BRAVE_SEARCH_API_KEY`) va selector `AGENT_SMITH_WEB_SEARCH_PROVIDER`.
+- Them `skills` tool de list/read(create load full content)/create/update/delete skill resources qua `ResourceStore`; `list/read` co the dung `ResourceResolver` de thay resolved catalog.
+- Them [`src/tools/README.md`](../src/tools/README.md) ghi ro factory, registry assembly, resource behavior va web search config.
+
+### Added - Agent tools tests
+
+- Them unit/integration tests cho base tools, ask-user pause/resume trong agent loop, web fetch/search provider behavior, va skills resource CRUD/read-only handling.
+
 ### Changed - Harden unified AI layer v1
 
 - Tach model catalog khoi code sang [`models.catalog.json`](../src/agent_smith/ai/models.catalog.json), giu lookup cu `get_model` / `get_models` / `get_providers` va them API registry model (`register_model`, `register_models`, `clear_models`, `load_models_from_file`, `make_litellm_model`).
@@ -44,6 +58,9 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 .venv/bin/python -m ruff check src tests
 .venv/bin/python -m pytest tests/test_resources_runtime.py tests/test_agent_harness.py -q
 .venv/bin/python -m pytest -q                     # 1 live Google provider test failed; local harness/resource tests passed
+poetry run ruff check src tests                   # pass
+poetry run pytest tests/test_base_tools.py        # 18 passed
+poetry run pytest                                 # 1 live Google provider test failed; tools/resource tests passed
 ```
 
 ## [0.1.0] - 2026-06-18
