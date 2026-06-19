@@ -6,8 +6,8 @@ from tasks.errors import (
     TaskTimeoutError,
     UnknownTaskError,
 )
-from tasks.memory import MemoryTaskRuntime
-from tasks.output import MemoryTaskOutputStore, TaskOutputStore
+from tasks.memory_task_output_store import MemoryTaskOutputStore
+from tasks.memory_task_runtime import MemoryTaskRuntime
 from tasks.runners.agent import AgentTaskResult, AgentTaskRunner, AgentTaskRunnerError
 from tasks.types import (
     AbortSignal,
@@ -15,6 +15,7 @@ from tasks.types import (
     TaskErrorInfo,
     TaskKind,
     TaskOutputSnapshot,
+    TaskOutputStore,
     TaskRecord,
     TaskResult,
     TaskRuntime,

@@ -9,7 +9,9 @@ from typing import Any, Literal, Protocol, TypeAlias
 from pydantic import BaseModel, Field
 
 TaskKind: TypeAlias = Literal["agent", "shell", "remote_agent"]
-TaskStatus: TypeAlias = Literal["pending", "running", "completed", "failed", "cancelled"]
+TaskStatus: TypeAlias = Literal[
+    "pending", "running", "completed", "failed", "cancelled"
+]
 TaskResult: TypeAlias = Any
 
 
@@ -33,7 +35,9 @@ class TaskRecord(BaseModel):
     output_path: str | None = Field(default=None, alias="outputPath")
     output_bytes: int = Field(default=0, alias="outputBytes")
     result: TaskResult | None = None
-    result_metadata: dict[str, Any] = Field(default_factory=dict, alias="resultMetadata")
+    result_metadata: dict[str, Any] = Field(
+        default_factory=dict, alias="resultMetadata"
+    )
     error: TaskErrorInfo | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -77,6 +81,18 @@ class TaskContext:
 TaskRun: TypeAlias = Callable[[TaskContext], Awaitable[TaskResult]]
 
 
+class TaskOutputStore(Protocol):
+    async def append(self, task_id: str, text: str) -> None: ...
+
+    async def read(
+        self, task_id: str, *, max_bytes: int | None = None
+    ) -> TaskOutputSnapshot: ...
+
+    async def clear(self, task_id: str) -> None: ...
+
+    async def size_bytes(self, task_id: str) -> int: ...
+
+
 class TaskRuntime(Protocol):
     async def spawn(
         self,
@@ -91,7 +107,9 @@ class TaskRuntime(Protocol):
 
     async def list(self) -> list[TaskRecord]: ...
 
-    async def wait(self, task_id: str, timeout_seconds: float | None = None) -> TaskRecord: ...
+    async def wait(
+        self, task_id: str, timeout_seconds: float | None = None
+    ) -> TaskRecord: ...
 
     async def stop(self, task_id: str, reason: str | None = None) -> TaskRecord: ...
 

@@ -9,12 +9,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from tasks.errors import TaskAlreadyFinishedError, TaskTimeoutError, UnknownTaskError
-from tasks.output import MemoryTaskOutputStore, TaskOutputStore
+from tasks.memory_task_output_store import MemoryTaskOutputStore
 from tasks.types import (
     TaskContext,
     TaskErrorInfo,
     TaskKind,
     TaskOutputSnapshot,
+    TaskOutputStore,
     TaskRecord,
     TaskRun,
 )

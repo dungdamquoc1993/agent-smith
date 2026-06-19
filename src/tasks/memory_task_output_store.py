@@ -1,21 +1,10 @@
-"""Task output storage."""
+"""In-memory task output storage."""
 
 from __future__ import annotations
 
 import asyncio
-from typing import Protocol
 
 from tasks.types import TaskOutputSnapshot
-
-
-class TaskOutputStore(Protocol):
-    async def append(self, task_id: str, text: str) -> None: ...
-
-    async def read(self, task_id: str, *, max_bytes: int | None = None) -> TaskOutputSnapshot: ...
-
-    async def clear(self, task_id: str) -> None: ...
-
-    async def size_bytes(self, task_id: str) -> int: ...
 
 
 class MemoryTaskOutputStore:
