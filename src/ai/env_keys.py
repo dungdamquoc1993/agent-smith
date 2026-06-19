@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Mapping, TypedDict
 
-from agent_smith.ai.types import Provider
+from ai.types import Provider
 
 _PROVIDER_ENV_KEYS: dict[str, list[str]] = {
     "openai": ["OPENAI_API_KEY"],

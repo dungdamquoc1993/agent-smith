@@ -7,7 +7,7 @@ from typing import Literal, Protocol, TypedDict, runtime_checkable
 
 from pydantic import BaseModel, Field
 
-from agent_smith.ai.types import (
+from ai.types import (
     CacheRetention,
     HookPayload,
     ImageContent,
@@ -19,9 +19,9 @@ from agent_smith.ai.types import (
     ProviderPayload,
     TextContent,
 )
-from agent_smith.agent.types import AgentEvent, AgentMessage, AgentTool, StreamFn
-from agent_smith.agent.harness.compaction import CompactionPreparation, CompactionSettings
-from agent_smith.agent.harness.session.types import SessionContext, SessionMetadata, SessionTreeEntry
+from agent.types import AgentEvent, AgentMessage, AgentTool, StreamFn
+from agent.harness.compaction import CompactionPreparation, CompactionSettings
+from agent.harness.session.types import SessionContext, SessionMetadata, SessionTreeEntry
 
 
 class Result(BaseModel):

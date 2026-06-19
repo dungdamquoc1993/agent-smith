@@ -5,9 +5,9 @@ from typing import Any
 
 import pytest
 
-from agent_smith.ai.events import create_assistant_message_event_stream
-from agent_smith.ai.models import make_litellm_model
-from agent_smith.ai.types import (
+from ai.events import create_assistant_message_event_stream
+from ai.models import make_litellm_model
+from ai.types import (
     AssistantMessage,
     AssistantMessageEventDone,
     AssistantMessageEventStart,
@@ -21,8 +21,8 @@ from agent_smith.ai.types import (
     ToolResultMessage,
     UserMessage,
 )
-from agent_smith.agent import AgentHarness, MemorySessionRepo
-from agent_smith.agent.harness.compaction import (
+from agent import AgentHarness, MemorySessionRepo
+from agent.harness.compaction import (
     COMPACTION_SUMMARY_PREFIX,
     MICROCOMPACT_MARKER,
     CompactionSettings,

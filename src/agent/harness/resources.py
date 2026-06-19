@@ -6,7 +6,7 @@ import re
 from html import escape
 from pathlib import PurePosixPath
 
-from agent_smith.agent.harness.types import PromptTemplate, Skill
+from agent.harness.types import PromptTemplate, Skill
 
 
 def format_skill_invocation(skill: Skill, additional_instructions: str | None = None) -> str:

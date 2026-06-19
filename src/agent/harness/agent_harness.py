@@ -6,9 +6,9 @@ import asyncio
 from collections.abc import Callable
 from typing import Any
 
-from agent_smith.ai import complete_simple
-from agent_smith.ai.events import AssistantMessageEventStream
-from agent_smith.ai.types import (
+from ai import complete_simple
+from ai.events import AssistantMessageEventStream
+from ai.types import (
     AssistantMessage,
     Context,
     HookPayload,
@@ -18,9 +18,9 @@ from agent_smith.ai.types import (
     TextContent,
     UserMessage,
 )
-from agent_smith.agent.agent_loop import run_agent_loop
-from agent_smith.agent.agent_loop.utils import call, now_ms
-from agent_smith.agent.harness.compaction import (
+from agent.agent_loop import run_agent_loop
+from agent.agent_loop.utils import call, now_ms
+from agent.harness.compaction import (
     CompactionPreparation,
     CompactionResult,
     CompactionSettings,
@@ -32,12 +32,12 @@ from agent_smith.agent.harness.compaction import (
     should_compact,
     summarization_prompt,
 )
-from agent_smith.agent.harness.resources import (
+from agent.harness.resources import (
     format_prompt_template_invocation,
     format_skill_invocation,
 )
-from agent_smith.agent.harness.session.types import PendingSessionWrite
-from agent_smith.agent.harness.types import (
+from agent.harness.session.types import PendingSessionWrite
+from agent.harness.types import (
     AbortEvent,
     AbortResult,
     AgentHarnessAuth,
@@ -72,7 +72,7 @@ from agent_smith.agent.harness.types import (
     ToolsUpdateEvent,
     TurnState,
 )
-from agent_smith.agent.types import (
+from agent.types import (
     AbortSignal,
     AfterToolCallContext,
     AgentContext,
@@ -916,6 +916,6 @@ async def _default_stream_fn(
     context: Context,
     options: SimpleStreamOptions | None = None,
 ) -> AssistantMessageEventStream:
-    from agent_smith.ai import stream_simple
+    from ai import stream_simple
 
     return stream_simple(model, context, options)

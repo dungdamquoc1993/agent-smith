@@ -9,13 +9,13 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from agent_smith.db.models.session import (
+from db.models.session import (
     Session as DbSession,
     SessionEntry as DbSessionEntry,
     SessionEntryType as DbSessionEntryType,
 )
-from agent_smith.agent.harness.session.session import Session
-from agent_smith.agent.harness.session.types import (
+from agent.harness.session.session import Session
+from agent.harness.session.types import (
     SessionEntryType,
     SessionMetadata,
     SessionTreeEntry,

@@ -1,8 +1,8 @@
 """Runtime assembly helpers for harness-backed agents."""
 
-from agent_smith.runtime.agent_factory import AgentFactory, AgentFactoryError, ModelResolver
-from agent_smith.runtime.tool_registry import ToolRegistry, ToolRegistryError, UnknownToolError
-from agent_smith.runtime.types import AgentRuntimeSpec
+from runtime.agent_factory import AgentFactory, AgentFactoryError, ModelResolver
+from runtime.tool_registry import ToolRegistry, ToolRegistryError, UnknownToolError
+from runtime.types import AgentRuntimeSpec
 
 __all__ = [
     "AgentFactory",

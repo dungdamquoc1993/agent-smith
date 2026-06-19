@@ -1,9 +1,9 @@
 """Harness session storage backends."""
 
-from agent_smith.agent.harness.session.memory import MemorySessionRepo, MemorySessionStorage
-from agent_smith.agent.harness.session.postgres import PostgresSessionRepo, PostgresSessionStorage
-from agent_smith.agent.harness.session.session import Session
-from agent_smith.agent.harness.session.types import (
+from agent.harness.session.memory import MemorySessionRepo, MemorySessionStorage
+from agent.harness.session.postgres import PostgresSessionRepo, PostgresSessionStorage
+from agent.harness.session.session import Session
+from agent.harness.session.types import (
     PendingSessionWrite,
     SessionContext,
     SessionEntryType,

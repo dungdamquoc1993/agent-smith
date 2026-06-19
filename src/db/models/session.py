@@ -11,7 +11,7 @@ from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from agent_smith.db.base import Base
+from db.base import Base
 
 
 class SessionEntryType(str, enum.Enum):

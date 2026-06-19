@@ -9,10 +9,10 @@ from typing import Any
 
 import litellm
 
-from agent_smith.ai.env_keys import get_google_vertex_config
-from agent_smith.ai.events import AssistantMessageEventStream, create_assistant_message_event_stream
-from agent_smith.ai.registry import register_api_provider
-from agent_smith.ai.types import (
+from ai.env_keys import get_google_vertex_config
+from ai.events import AssistantMessageEventStream, create_assistant_message_event_stream
+from ai.registry import register_api_provider
+from ai.types import (
     AssistantMessage,
     AssistantMessageEventDone,
     AssistantMessageEventError,

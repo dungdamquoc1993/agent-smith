@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from agent_smith.ai.types import HookPayload, JsonValue
-from agent_smith.agent.types import AgentMessage
-from agent_smith.agent.harness.session.types import (
+from ai.types import HookPayload, JsonValue
+from agent.types import AgentMessage
+from agent.harness.session.types import (
     SessionContext,
     SessionMetadata,
     SessionStorage,

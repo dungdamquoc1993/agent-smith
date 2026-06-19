@@ -7,8 +7,8 @@ import json
 
 from jsonschema import ValidationError, validators
 
-from agent_smith.ai.types import JsonObject, ToolCall
-from agent_smith.agent.types import AgentTool
+from ai.types import JsonObject, ToolCall
+from agent.types import AgentTool
 
 
 def _format_path(error: ValidationError) -> str:

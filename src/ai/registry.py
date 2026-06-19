@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from agent_smith.ai.events import AssistantMessageEventStream
-from agent_smith.ai.types import Api, Context, Model, SimpleStreamOptions, StreamOptions
+from ai.events import AssistantMessageEventStream
+from ai.types import Api, Context, Model, SimpleStreamOptions, StreamOptions
 
 
 class ApiProvider(Protocol):

@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator, Coroutine
 from typing import Any
 
-from agent_smith.agent.types import AgentEvent, AgentMessage
+from agent.types import AgentEvent, AgentMessage
 
 
 class AgentEventStream:

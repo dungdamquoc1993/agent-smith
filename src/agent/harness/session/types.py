@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
-from agent_smith.agent.types import AgentMessage
-from agent_smith.ai.types import HookPayload, JsonValue
+from agent.types import AgentMessage
+from ai.types import HookPayload, JsonValue
 
 if TYPE_CHECKING:
-    from agent_smith.agent.harness.session.session import Session
+    from agent.harness.session.session import Session
 
 SessionEntryType = Literal[
     "message",
@@ -148,7 +148,7 @@ class SessionRepo(Protocol):
 
 
 def build_session_context(path_entries: Sequence[SessionTreeEntry]) -> SessionContext:
-    from agent_smith.agent.harness.compaction import build_projected_messages
+    from agent.harness.compaction import build_projected_messages
 
     thinking_level = "off"
     model: SessionModelRef | None = None

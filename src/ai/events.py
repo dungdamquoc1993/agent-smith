@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Coroutine
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from agent_smith.ai.types import AssistantMessage, AssistantMessageEvent
+    from ai.types import AssistantMessage, AssistantMessageEvent
 
 
 class AssistantMessageEventStream:

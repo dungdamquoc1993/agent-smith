@@ -6,11 +6,11 @@ from os import getenv
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from agent_smith.agent import AgentTool, AgentToolResult, MemorySessionRepo
-from agent_smith.ai.models import make_litellm_model
-from agent_smith.ai.types import TextContent
-from agent_smith.db.base import Base
-from agent_smith.resources import (
+from agent import AgentTool, AgentToolResult, MemorySessionRepo
+from ai.models import make_litellm_model
+from ai.types import TextContent
+from db.base import Base
+from resources import (
     AgentDefinition,
     FilesystemResourceStore,
     MemoryResourceStore,
@@ -21,7 +21,7 @@ from agent_smith.resources import (
     ResourceReadOnlyError,
     ResourceResolver,
 )
-from agent_smith.runtime import AgentFactory, AgentFactoryError, ToolRegistry
+from runtime import AgentFactory, AgentFactoryError, ToolRegistry
 
 
 def _skill_content(name: str, body: str) -> dict:

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from agent_smith.agent.harness.types import AgentHarnessResources, PromptTemplate, Skill
-from agent_smith.ai.types import JsonObject
-from agent_smith.resources.store import ResourceStore
-from agent_smith.resources.types import (
+from agent.harness.types import AgentHarnessResources, PromptTemplate, Skill
+from ai.types import JsonObject
+from resources.store import ResourceStore
+from resources.types import (
     AgentDefinition,
     McpServerConfig,
     ResourceKind,

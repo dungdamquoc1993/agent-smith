@@ -6,20 +6,20 @@ import inspect
 from collections.abc import Callable
 from typing import TypeAlias
 
-from agent_smith.agent.harness import AgentHarness, AgentHarnessOptions
-from agent_smith.agent.harness.compaction import CompactionSettings
-from agent_smith.agent.harness.types import (
+from agent.harness import AgentHarness, AgentHarnessOptions
+from agent.harness.compaction import CompactionSettings
+from agent.harness.types import (
     AgentHarnessResources,
     AgentHarnessSession,
     AgentHarnessStreamOptions,
     GetAgentHarnessAuthFn,
 )
-from agent_smith.agent.types import StreamFn
-from agent_smith.ai.models import get_model
-from agent_smith.ai.types import MaybeAwaitable, Model
-from agent_smith.resources import AgentDefinition, ResourceResolver
-from agent_smith.runtime.tool_registry import ToolRegistry, UnknownToolError
-from agent_smith.runtime.types import AgentRuntimeSpec
+from agent.types import StreamFn
+from ai.models import get_model
+from ai.types import MaybeAwaitable, Model
+from resources import AgentDefinition, ResourceResolver
+from runtime.tool_registry import ToolRegistry, UnknownToolError
+from runtime.types import AgentRuntimeSpec
 
 ModelResolver: TypeAlias = Callable[[AgentDefinition], MaybeAwaitable[Model | None]]
 

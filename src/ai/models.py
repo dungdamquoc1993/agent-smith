@@ -7,7 +7,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, Iterable, Literal
 
-from agent_smith.ai.types import Api, JsonObject, Model, ModelCost, Provider
+from ai.types import Api, JsonObject, Model, ModelCost, Provider
 
 ModelInput = Literal["text", "image"]
 

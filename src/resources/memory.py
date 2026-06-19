@@ -5,12 +5,12 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from agent_smith.resources.store import (
+from resources.store import (
     ResourceConflictError,
     ResourceNotFoundError,
     ResourceStore,
 )
-from agent_smith.resources.types import (
+from resources.types import (
     ResourceCreate,
     ResourceKind,
     ResourceRecord,

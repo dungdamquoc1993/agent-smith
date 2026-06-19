@@ -4,7 +4,14 @@ version = "0.1.0"
 description = "Enterprise agent runtime - unified AI layer and control plane"
 authors = ["Agent Smith Team"]
 readme = "README.md"
-packages = [{ include = "agent_smith", from = "src" }]
+packages = [
+    { include = "agent", from = "src" },
+    { include = "ai", from = "src" },
+    { include = "db", from = "src" },
+    { include = "resources", from = "src" },
+    { include = "runtime", from = "src" },
+    { include = "config.py", from = "src" },
+]
 
 [tool.poetry.dependencies]
 python = "^3.11"

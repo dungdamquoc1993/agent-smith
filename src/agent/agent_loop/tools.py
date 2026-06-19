@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from agent_smith.ai.types import AssistantMessage, HookPayload, JsonValue, TextContent, ToolCall, ToolResultMessage
-from agent_smith.agent.agent_loop.utils import call, call_maybe, emit, is_aborted, now_ms
-from agent_smith.agent.types import (
+from ai.types import AssistantMessage, HookPayload, JsonValue, TextContent, ToolCall, ToolResultMessage
+from agent.agent_loop.utils import call, call_maybe, emit, is_aborted, now_ms
+from agent.types import (
     AbortSignal,
     AfterToolCallContext,
     AfterToolCallResult,
@@ -25,7 +25,7 @@ from agent_smith.agent.types import (
     ToolExecutionStartEvent,
     ToolExecutionUpdateEvent,
 )
-from agent_smith.agent.validation import validate_tool_arguments
+from agent.validation import validate_tool_arguments
 
 
 @dataclass

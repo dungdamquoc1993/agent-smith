@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from agent_smith.ai.types import ToolResultMessage
-from agent_smith.agent.agent_loop.streaming import stream_assistant_response
-from agent_smith.agent.agent_loop.tools import execute_tool_calls, get_tool_calls
-from agent_smith.agent.agent_loop.utils import (
+from ai.types import ToolResultMessage
+from agent.agent_loop.streaming import stream_assistant_response
+from agent.agent_loop.tools import execute_tool_calls, get_tool_calls
+from agent.agent_loop.utils import (
     call_maybe,
     coerce_turn_update,
     emit,
     get_messages,
     next_reasoning,
 )
-from agent_smith.agent.events import AgentEventStream, create_agent_event_stream
-from agent_smith.agent.types import (
+from agent.events import AgentEventStream, create_agent_event_stream
+from agent.types import (
     AbortSignal,
     AgentContext,
     AgentEndEvent,

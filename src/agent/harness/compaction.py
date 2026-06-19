@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from agent_smith.ai.types import (
+from ai.types import (
     AssistantMessage,
     Message,
     TextContent,
@@ -15,8 +15,8 @@ from agent_smith.ai.types import (
     ToolResultMessage,
     UserMessage,
 )
-from agent_smith.agent.types import AgentMessage
-from agent_smith.agent.harness.session.types import SessionTreeEntry
+from agent.types import AgentMessage
+from agent.harness.session.types import SessionTreeEntry
 
 COMPACTION_SUMMARY_PREFIX = "The conversation history before this point was compacted into the following summary:\n\n<summary>\n"
 COMPACTION_SUMMARY_SUFFIX = "\n</summary>"

@@ -5,10 +5,10 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from agent_smith.ai import stream_simple
-from agent_smith.ai.types import AssistantMessage, Context, SimpleStreamOptions
-from agent_smith.agent.agent_loop.utils import call, call_maybe, emit
-from agent_smith.agent.types import (
+from ai import stream_simple
+from ai.types import AssistantMessage, Context, SimpleStreamOptions
+from agent.agent_loop.utils import call, call_maybe, emit
+from agent.types import (
     AbortSignal,
     AgentContext,
     AgentEventSink,

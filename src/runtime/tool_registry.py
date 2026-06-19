@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent_smith.agent.types import AgentTool
+from agent.types import AgentTool
 
 
 class ToolRegistryError(Exception):

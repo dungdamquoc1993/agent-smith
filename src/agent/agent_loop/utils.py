@@ -6,7 +6,7 @@ import inspect
 import time
 from typing import Any
 
-from agent_smith.agent.types import (
+from agent.types import (
     AbortSignal,
     AgentEvent,
     AgentEventSink,

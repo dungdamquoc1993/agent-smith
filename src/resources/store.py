@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from agent_smith.resources.types import (
+from resources.types import (
     ResourceCreate,
     ResourceKind,
     ResourceRecord,

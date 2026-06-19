@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from agent_smith.ai.env_keys import get_env_api_key, get_google_vertex_config
-from agent_smith.ai.events import AssistantMessageEventStream
-from agent_smith.ai.registry import get_api_provider
-from agent_smith.ai.types import (
+from ai.env_keys import get_env_api_key, get_google_vertex_config
+from ai.events import AssistantMessageEventStream
+from ai.registry import get_api_provider
+from ai.types import (
     Api,
     AssistantMessage,
     Context,

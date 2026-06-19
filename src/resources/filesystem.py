@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from agent_smith.resources.store import ResourceReadOnlyError, ResourceStore, ResourceStoreError
-from agent_smith.resources.types import (
+from resources.store import ResourceReadOnlyError, ResourceStore, ResourceStoreError
+from resources.types import (
     ResourceCreate,
     ResourceKind,
     ResourceRecord,

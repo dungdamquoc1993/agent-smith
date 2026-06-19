@@ -10,7 +10,7 @@ from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, UniqueConstrain
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from agent_smith.db.base import Base
+from db.base import Base
 
 
 class PrincipalType(str, enum.Enum):

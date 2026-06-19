@@ -8,9 +8,9 @@ from typing import Any
 
 import pytest
 
-from agent_smith.ai import Context, SimpleStreamOptions, StreamOptions, Tool, UserMessage, stream
-from agent_smith.ai.models import make_litellm_model
-from agent_smith.ai.providers import litellm_provider
+from ai import Context, SimpleStreamOptions, StreamOptions, Tool, UserMessage, stream
+from ai.models import make_litellm_model
+from ai.providers import litellm_provider
 
 
 class _FakeLiteLLMStream:

@@ -1,13 +1,13 @@
 """Low-level agent runtime."""
 
-from agent_smith.agent.agent_loop import (
+from agent.agent_loop import (
     agent_loop,
     agent_loop_continue,
     run_agent_loop,
     run_agent_loop_continue,
 )
-from agent_smith.agent.events import AgentEventStream, create_agent_event_stream
-from agent_smith.agent.harness import (
+from agent.events import AgentEventStream, create_agent_event_stream
+from agent.harness import (
     AgentHarness,
     AgentHarnessAuth,
     AgentHarnessError,
@@ -40,7 +40,7 @@ from agent_smith.agent.harness import (
     microcompact_messages,
     prepare_compaction,
 )
-from agent_smith.agent.types import (
+from agent.types import (
     AbortSignal,
     AfterToolCallContext,
     AfterToolCallResult,
@@ -70,7 +70,7 @@ from agent_smith.agent.types import (
     TurnEndEvent,
     TurnStartEvent,
 )
-from agent_smith.agent.validation import validate_tool_arguments
+from agent.validation import validate_tool_arguments
 
 __all__ = [
     "AfterToolCallContext",

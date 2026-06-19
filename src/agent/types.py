@@ -7,8 +7,8 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from agent_smith.ai.events import AssistantMessageEventStream
-from agent_smith.ai.types import (
+from ai.events import AssistantMessageEventStream
+from ai.types import (
     AssistantMessage,
     AssistantMessageEvent,
     Context,

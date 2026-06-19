@@ -1,7 +1,7 @@
 """Stateful agent harness."""
 
-from agent_smith.agent.harness.agent_harness import AgentHarness
-from agent_smith.agent.harness.compaction import (
+from agent.harness.agent_harness import AgentHarness
+from agent.harness.compaction import (
     COMPACTION_SUMMARY_PREFIX,
     COMPACTION_SUMMARY_SUFFIX,
     MICROCOMPACT_MARKER,
@@ -18,14 +18,14 @@ from agent_smith.agent.harness.compaction import (
     should_compact,
     summarization_prompt,
 )
-from agent_smith.agent.harness.resources import (
+from agent.harness.resources import (
     format_prompt_template_invocation,
     format_skill_invocation,
     format_skills_for_system_prompt,
     parse_command_args,
     substitute_args,
 )
-from agent_smith.agent.harness.session import (
+from agent.harness.session import (
     MemorySessionRepo,
     MemorySessionStorage,
     PendingSessionWrite,
@@ -41,7 +41,7 @@ from agent_smith.agent.harness.session import (
     SessionTreeEntry,
     build_session_context,
 )
-from agent_smith.agent.harness.types import (
+from agent.harness.types import (
     AbortEvent,
     AbortResult,
     AfterProviderResponseEvent,

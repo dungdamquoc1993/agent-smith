@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from agent_smith.agent.harness.types import AgentHarnessResources
-from agent_smith.agent.types import AgentTool
-from agent_smith.ai.types import JsonObject, Model, ModelThinkingLevel
-from agent_smith.resources.types import AgentDefinition
+from agent.harness.types import AgentHarnessResources
+from agent.types import AgentTool
+from ai.types import JsonObject, Model, ModelThinkingLevel
+from resources.types import AgentDefinition
 
 
 class AgentRuntimeSpec(BaseModel):

@@ -1,8 +1,8 @@
 """Unified LLM API for Agent Smith."""
 
-from agent_smith.ai.api import complete, complete_simple, stream, stream_simple
-from agent_smith.ai.events import AssistantMessageEventStream, create_assistant_message_event_stream
-from agent_smith.ai.models import (
+from ai.api import complete, complete_simple, stream, stream_simple
+from ai.events import AssistantMessageEventStream, create_assistant_message_event_stream
+from ai.models import (
     clear_models,
     get_model,
     get_models,
@@ -12,7 +12,7 @@ from agent_smith.ai.models import (
     register_model,
     register_models,
 )
-from agent_smith.ai.types import (
+from ai.types import (
     AssistantMessage,
     AssistantMessageEvent,
     Context,
@@ -82,7 +82,7 @@ __all__ = [
 
 
 def register_litellm_provider() -> None:
-    from agent_smith.ai.providers.litellm_provider import register_litellm_provider as _register
+    from ai.providers.litellm_provider import register_litellm_provider as _register
 
     _register()
 

@@ -1,9 +1,9 @@
 """Resource catalog and resolution APIs."""
 
-from agent_smith.resources.filesystem import FilesystemResourceStore
-from agent_smith.resources.memory import MemoryResourceStore
-from agent_smith.resources.postgres import PostgresResourceStore
-from agent_smith.resources.resolver import (
+from resources.filesystem import FilesystemResourceStore
+from resources.memory import MemoryResourceStore
+from resources.postgres import PostgresResourceStore
+from resources.resolver import (
     ResolvedResources,
     ResourceResolver,
     agent_definition_from_record,
@@ -11,14 +11,14 @@ from agent_smith.resources.resolver import (
     prompt_template_from_record,
     skill_from_record,
 )
-from agent_smith.resources.store import (
+from resources.store import (
     ResourceConflictError,
     ResourceNotFoundError,
     ResourceReadOnlyError,
     ResourceStore,
     ResourceStoreError,
 )
-from agent_smith.resources.types import (
+from resources.types import (
     AgentDefinition,
     AgentModelRef,
     McpServerConfig,

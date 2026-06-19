@@ -11,20 +11,20 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
-from agent_smith.db.models.resource import (
+from db.models.resource import (
     Resource as DbResource,
     ResourceKindEnum,
     ResourceScopeEnum,
     ResourceSourceTypeEnum,
     ResourceVersion as DbResourceVersion,
 )
-from agent_smith.resources.store import (
+from resources.store import (
     ResourceConflictError,
     ResourceNotFoundError,
     ResourceStore,
     ResourceStoreError,
 )
-from agent_smith.resources.types import (
+from resources.types import (
     ResourceCreate,
     ResourceKind,
     ResourceRecord,

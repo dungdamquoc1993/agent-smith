@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from agent_smith.ai.types import JsonObject, ModelThinkingLevel
+from ai.types import JsonObject, ModelThinkingLevel
 
 ResourceKind = Literal[
     "skill",

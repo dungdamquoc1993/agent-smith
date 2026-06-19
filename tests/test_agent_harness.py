@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from agent_smith.agent import (
+from agent import (
     AgentHarness,
     AgentHarnessPromptOptions,
     AgentHarnessResources,
@@ -22,11 +22,11 @@ from agent_smith.agent import (
     format_skill_invocation,
     format_skills_for_system_prompt,
 )
-from agent_smith.db.base import Base
-from agent_smith.db.models.principal import Principal, PrincipalType
-from agent_smith.ai.events import create_assistant_message_event_stream
-from agent_smith.ai.models import make_litellm_model
-from agent_smith.ai.types import (
+from db.base import Base
+from db.models.principal import Principal, PrincipalType
+from ai.events import create_assistant_message_event_stream
+from ai.models import make_litellm_model
+from ai.types import (
     AssistantMessage,
     AssistantMessageEventDone,
     AssistantMessageEventStart,

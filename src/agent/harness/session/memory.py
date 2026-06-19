@@ -6,8 +6,8 @@ import uuid
 from copy import deepcopy
 from typing import Any
 
-from agent_smith.agent.harness.session.session import Session
-from agent_smith.agent.harness.session.types import (
+from agent.harness.session.session import Session
+from agent.harness.session.types import (
     SessionEntryType,
     SessionMetadata,
     SessionTreeEntry,
