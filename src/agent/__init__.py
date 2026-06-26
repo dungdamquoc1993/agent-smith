@@ -38,6 +38,7 @@ from agent.harness import (
     format_prompt_template_invocation,
     format_skill_invocation,
     format_skills_for_system_prompt,
+    format_skills_for_system_reminder,
     microcompact_messages,
     prepare_compaction,
 )
@@ -136,6 +137,7 @@ __all__ = [
     "format_prompt_template_invocation",
     "format_skill_invocation",
     "format_skills_for_system_prompt",
+    "format_skills_for_system_reminder",
     "microcompact_messages",
     "prepare_compaction",
     "run_agent_loop",

@@ -383,7 +383,8 @@ Trong harness co hai kieu skill:
 
 ```text
 resources.skills
-  = skill catalog, co the dua vao system prompt de model tu quyet dinh
+  = skill catalog, harness surface vao user-message <system-reminder>
+    khi active tool co skills de model tu quyet dinh
 
 harness.skill(name)
   = explicit invocation tu ben ngoai

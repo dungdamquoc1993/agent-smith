@@ -46,6 +46,21 @@ def format_skills_for_system_prompt(skills: list[Skill]) -> str:
     return "\n".join(lines)
 
 
+def wrap_in_system_reminder(content: str) -> str:
+    return f"<system-reminder>\n{content}\n</system-reminder>"
+
+
+def format_skills_for_system_reminder(skills: list[Skill]) -> str:
+    catalog = format_skills_for_system_prompt(skills)
+    if not catalog:
+        return ""
+    return wrap_in_system_reminder(
+        "The following skills are available for use with the skills tool. "
+        "When a skill matches the user's task, read the full skill before continuing.\n\n"
+        f"{catalog}"
+    )
+
+
 def parse_command_args(args_string: str) -> list[str]:
     args: list[str] = []
     current = ""

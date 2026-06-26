@@ -35,6 +35,7 @@ from agent.harness.compaction import (
 from agent.harness.resources import (
     format_prompt_template_invocation,
     format_skill_invocation,
+    format_skills_for_system_reminder,
 )
 from agent.harness.session.types import PendingSessionWrite
 from agent.harness.types import (
@@ -88,6 +89,7 @@ from agent.types import (
 )
 
 SUBSCRIBER_EVENT_TYPE = "*"
+SKILLS_TOOL_NAME = "skills"
 
 
 def create_user_message(text: str, images: list[ImageContent] | None = None) -> UserMessage:
@@ -683,8 +685,12 @@ class AgentHarness:
             _signal: AbortSignal | None,
         ) -> list[AgentMessage]:
             compacted = microcompact_messages(messages, self.compaction_settings.microcompact)
-            result = await self._emit_hook(ContextEvent(messages=compacted), ContextResult)
-            return result.messages if result else compacted
+            with_skill_catalog = self._prepend_skill_catalog_reminder(
+                compacted,
+                get_turn_state(),
+            )
+            result = await self._emit_hook(ContextEvent(messages=with_skill_catalog), ContextResult)
+            return result.messages if result else with_skill_catalog
 
         async def before_tool_call(
             context: BeforeToolCallContext,
@@ -763,6 +769,23 @@ class AgentHarness:
             return await call(response)
 
         return stream_fn
+
+    def _prepend_skill_catalog_reminder(
+        self,
+        messages: list[AgentMessage],
+        turn_state: TurnState,
+    ) -> list[AgentMessage]:
+        if not any(tool.name == SKILLS_TOOL_NAME for tool in turn_state["active_tools"]):
+            return messages
+
+        reminder = format_skills_for_system_reminder(turn_state["resources"].skills or [])
+        if not reminder:
+            return messages
+
+        return [
+            UserMessage(content=reminder, timestamp=now_ms()),
+            *messages,
+        ]
 
     async def _emit_before_provider_request(
         self,

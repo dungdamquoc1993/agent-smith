@@ -22,6 +22,7 @@ from agent.harness.resources import (
     format_prompt_template_invocation,
     format_skill_invocation,
     format_skills_for_system_prompt,
+    format_skills_for_system_reminder,
     parse_command_args,
     substitute_args,
 )
@@ -153,6 +154,7 @@ __all__ = [
     "format_prompt_template_invocation",
     "format_skill_invocation",
     "format_skills_for_system_prompt",
+    "format_skills_for_system_reminder",
     "microcompact_messages",
     "parse_command_args",
     "prepare_compaction",
