@@ -12,7 +12,11 @@ from resources import (
     ResourceResolver,
 )
 from helpers.resource_stores import ReadOnlyResourceStore
-from tools import AGENTS_TOOL_NAME, create_agents_tool, create_base_tool_registry
+from tools import (
+    MANAGE_AGENTS_TOOL_NAME,
+    create_manage_agents_tool,
+    create_base_tool_registry,
+)
 
 
 def _agent_resource(
@@ -39,7 +43,7 @@ def _agent_resource(
 async def test_agents_tool_lists_and_reads_resolved_agent_definitions() -> None:
     base = MemoryResourceStore([_agent_resource("reviewer", "Use base review.")])
     override = MemoryResourceStore([_agent_resource("reviewer", "Use override review.")])
-    tool = create_agents_tool(override, resolver=ResourceResolver([base, override]))
+    tool = create_manage_agents_tool(override, resolver=ResourceResolver([base, override]))
 
     listed = await tool.execute("agents-1", {"action": "list"}, None, None)
     loaded = await tool.execute("agents-2", {"action": "read", "name": "reviewer"}, None, None)
@@ -61,7 +65,7 @@ async def test_agents_tool_lists_and_reads_resolved_agent_definitions() -> None:
 @pytest.mark.asyncio
 async def test_agents_tool_create_update_delete_versions() -> None:
     store = MemoryResourceStore()
-    tool = create_agents_tool(store)
+    tool = create_manage_agents_tool(store)
 
     created = await tool.execute(
         "agents-1",
@@ -113,7 +117,7 @@ async def test_agents_tool_create_update_delete_versions() -> None:
 
 @pytest.mark.asyncio
 async def test_agents_tool_validates_action_payloads() -> None:
-    tool = create_agents_tool(MemoryResourceStore())
+    tool = create_manage_agents_tool(MemoryResourceStore())
 
     with pytest.raises(ValueError, match="name is required"):
         await tool.execute("agents-1", {"action": "read"}, None, None)
@@ -147,7 +151,7 @@ async def test_agents_tool_read_only_store_write_actions_return_errors() -> None
     store = ReadOnlyResourceStore(
         MemoryResourceStore([_agent_resource("reviewer", "Review carefully.", "Review")])
     )
-    tool = create_agents_tool(store)
+    tool = create_manage_agents_tool(store)
 
     listed = await tool.execute("agents-1", {"action": "list"}, None, None)
     assert listed.details["agents"][0]["name"] == "reviewer"
@@ -177,13 +181,13 @@ async def test_agents_tool_read_only_store_write_actions_return_errors() -> None
 
 def test_agents_tool_schema_and_optional_registry() -> None:
     store = MemoryResourceStore()
-    tool = create_agents_tool(store)
+    tool = create_manage_agents_tool(store)
 
     validate_tool_arguments(
         tool,
         ToolCall(
             id="agents-1",
-            name="agents",
+            name="manage_agents",
             arguments={
                 "action": "create",
                 "name": "reviewer",
@@ -196,14 +200,14 @@ def test_agents_tool_schema_and_optional_registry() -> None:
     with pytest.raises(ValueError, match="action"):
         validate_tool_arguments(
             tool,
-            ToolCall(id="agents-2", name="agents", arguments={"action": "rename"}),
+            ToolCall(id="agents-2", name="manage_agents", arguments={"action": "rename"}),
         )
     with pytest.raises(ValueError, match="thinkingLevel"):
         validate_tool_arguments(
             tool,
             ToolCall(
                 id="agents-3",
-                name="agents",
+                name="manage_agents",
                 arguments={
                     "action": "create",
                     "name": "reviewer",
@@ -217,5 +221,5 @@ def test_agents_tool_schema_and_optional_registry() -> None:
     base = create_base_tool_registry()
     with_agents = create_base_tool_registry(agents_store=store)
 
-    assert AGENTS_TOOL_NAME not in base.names()
-    assert AGENTS_TOOL_NAME in with_agents.names()
+    assert MANAGE_AGENTS_TOOL_NAME not in base.names()
+    assert MANAGE_AGENTS_TOOL_NAME in with_agents.names()

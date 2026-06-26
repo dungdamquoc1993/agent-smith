@@ -1,4 +1,4 @@
-"""Agent task spawning tool factory."""
+"""Sub-agent task spawning tool factory."""
 
 from __future__ import annotations
 
@@ -18,33 +18,33 @@ from tools._task_serialization import (
     task_result_text,
 )
 
-AGENT_TOOL_NAME = "agent"
-AgentToolMode = Literal["sync", "async"]
-AgentToolParentMetadata = Mapping[str, Any] | Callable[[], Mapping[str, Any]]
+TASK_TOOL_NAME = "task"
+TaskToolMode = Literal["sync", "async"]
+TaskToolParentMetadata = Mapping[str, Any] | Callable[[], Mapping[str, Any]]
 
 
-class AgentToolInput(BaseModel):
+class TaskToolInput(BaseModel):
     agent_name: str = Field(min_length=1)
     description: str = Field(min_length=1)
     prompt: str = Field(min_length=1)
-    mode: AgentToolMode | None = None
+    mode: TaskToolMode | None = None
     timeout_seconds: float | None = Field(default=None, gt=0)
 
 
-def create_agent_tool(
+def create_task_tool(
     task_runtime: TaskRuntime,
     agent_runner: AgentTaskRunner,
     *,
-    default_mode: AgentToolMode = "sync",
+    default_mode: TaskToolMode = "sync",
     sync_timeout_seconds: float | None = None,
-    parent_metadata: AgentToolParentMetadata | None = None,
+    parent_metadata: TaskToolParentMetadata | None = None,
 ) -> AgentTool:
     if default_mode not in {"sync", "async"}:
         raise ValueError("default_mode must be sync or async")
 
     async def execute(tool_call_id, args, signal=None, on_update=None):
         _ = on_update
-        payload = AgentToolInput.model_validate(args)
+        payload = TaskToolInput.model_validate(args)
         mode = payload.mode or default_mode
         resolved_parent_metadata = _resolve_parent_metadata(parent_metadata)
         depth = resolved_parent_metadata.get(
@@ -119,8 +119,8 @@ def create_agent_tool(
         return text_result(text, details=details)
 
     return AgentTool(
-        name=AGENT_TOOL_NAME,
-        label="Agent",
+        name=TASK_TOOL_NAME,
+        label="Task",
         description="Run a named sub-agent task, either synchronously or in the background.",
         parameters={
             "type": "object",
@@ -160,7 +160,7 @@ def create_agent_tool(
 
 
 def _resolve_parent_metadata(
-    parent_metadata: AgentToolParentMetadata | None,
+    parent_metadata: TaskToolParentMetadata | None,
 ) -> dict[str, Any]:
     if parent_metadata is None:
         return {}

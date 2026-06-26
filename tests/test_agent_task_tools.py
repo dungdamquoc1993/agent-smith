@@ -33,10 +33,10 @@ from tasks import (
     UnknownTaskError,
 )
 from tools import (
-    AGENT_TOOL_NAME,
+    TASK_TOOL_NAME,
     TASK_OUTPUT_TOOL_NAME,
     TASK_STOP_TOOL_NAME,
-    create_agent_tool,
+    create_task_tool,
     create_base_tool_registry,
     create_task_output_tool,
     create_task_stop_tool,
@@ -144,7 +144,7 @@ async def test_agent_tool_sync_runs_sub_agent_to_final_response() -> None:
         assert context.messages[-1].content == "Review this"
         return _stream_for(_assistant("Looks good."))
 
-    tool = create_agent_tool(runtime, _runner(store, stream_fn=stream_fn))
+    tool = create_task_tool(runtime, _runner(store, stream_fn=stream_fn))
 
     result = await tool.execute(
         "agent-1",
@@ -188,7 +188,7 @@ async def test_agent_tool_merges_parent_metadata_into_task_and_session_request()
         session_factory=session_factory,
         abort_poll_seconds=0.01,
     )
-    tool = create_agent_tool(
+    tool = create_task_tool(
         runtime,
         runner,
         parent_metadata=lambda: {
@@ -232,7 +232,7 @@ async def test_agent_tool_merges_parent_metadata_into_task_and_session_request()
 async def test_agent_tool_async_launch_then_task_output_blocks_to_result() -> None:
     store = MemoryResourceStore([_agent_resource()])
     runtime = MemoryTaskRuntime()
-    agent_tool = create_agent_tool(
+    agent_tool = create_task_tool(
         runtime,
         _runner(store, stream_fn=lambda model, context, options=None: _stream_for(_assistant("Done."))),
     )
@@ -336,7 +336,7 @@ async def test_task_stop_cancels_async_agent_task_and_output_reports_cancelled()
         stream.set_producer(produce())
         return stream
 
-    agent_tool = create_agent_tool(runtime, _runner(store, stream_fn=stream_fn))
+    agent_tool = create_task_tool(runtime, _runner(store, stream_fn=stream_fn))
     output_tool = create_task_output_tool(runtime)
     stop_tool = create_task_stop_tool(runtime)
 
@@ -416,7 +416,7 @@ async def test_task_tools_raise_clear_error_for_unknown_task() -> None:
 def test_agent_task_tool_schemas_validate_required_fields_and_modes() -> None:
     runtime = MemoryTaskRuntime()
     store = MemoryResourceStore([_agent_resource()])
-    agent_tool = create_agent_tool(runtime, _runner(store))
+    agent_tool = create_task_tool(runtime, _runner(store))
     output_tool = create_task_output_tool(runtime)
     stop_tool = create_task_stop_tool(runtime)
 
@@ -424,7 +424,7 @@ def test_agent_task_tool_schemas_validate_required_fields_and_modes() -> None:
         agent_tool,
         ToolCall(
             id="agent-1",
-            name="agent",
+            name="task",
             arguments={
                 "agent_name": "reviewer",
                 "description": "Review",
@@ -438,7 +438,7 @@ def test_agent_task_tool_schemas_validate_required_fields_and_modes() -> None:
             agent_tool,
             ToolCall(
                 id="agent-2",
-                name="agent",
+                name="task",
                 arguments={
                     "agent_name": "reviewer",
                     "description": "Review",
@@ -452,7 +452,7 @@ def test_agent_task_tool_schemas_validate_required_fields_and_modes() -> None:
             agent_tool,
             ToolCall(
                 id="agent-3",
-                name="agent",
+                name="task",
                 arguments={"description": "Review", "prompt": "Review this"},
             ),
         )
@@ -475,12 +475,12 @@ def test_base_registry_optionally_adds_task_tools() -> None:
     runtime_only = create_base_tool_registry(task_runtime=runtime)
     with_agent = create_base_tool_registry(task_runtime=runtime, agent_runner=runner)
 
-    assert AGENT_TOOL_NAME not in base.names()
+    assert TASK_TOOL_NAME not in base.names()
     assert TASK_OUTPUT_TOOL_NAME not in base.names()
     assert TASK_STOP_TOOL_NAME not in base.names()
-    assert AGENT_TOOL_NAME not in runtime_only.names()
+    assert TASK_TOOL_NAME not in runtime_only.names()
     assert TASK_OUTPUT_TOOL_NAME in runtime_only.names()
     assert TASK_STOP_TOOL_NAME in runtime_only.names()
-    assert AGENT_TOOL_NAME in with_agent.names()
+    assert TASK_TOOL_NAME in with_agent.names()
     assert TASK_OUTPUT_TOOL_NAME in with_agent.names()
     assert TASK_STOP_TOOL_NAME in with_agent.names()

@@ -16,7 +16,8 @@ This package contains concrete tools that can be registered with
 | `create_web_fetch_tool()` | `web_fetch` | Fetch HTTP/HTTPS content and return extracted text. |
 | `create_web_search_tool()` | `web_search` | Search through configured Tavily or Brave providers. |
 | `create_skills_tool()` | `skills` | List, load, create, update, and delete skill resources. |
-| `create_agent_tool()` | `agent` | Spawn a named sub-agent task sync or async. |
+| `create_task_tool()` | `task` | Spawn a named sub-agent task sync or async. |
+| `create_manage_agents_tool()` | `manage_agents` | List, load, create, update, or delete agent definition resources. |
 | `create_task_output_tool()` | `task_output` | Read or wait for task output/result snapshots. |
 | `create_task_stop_tool()` | `task_stop` | Stop a running task. |
 | `create_base_tool_registry()` | n/a | Convenience helper that assembles the base tool bundle. |
@@ -47,7 +48,7 @@ tool_registry = create_base_tool_registry(
 )
 ```
 
-Task tools are added only when `task_runtime` is provided; `agent` is added only
+Task tools are added only when `task_runtime` is provided; `task` is added only
 when both `task_runtime` and `agent_runner` are provided. Pass
 `agent_parent_metadata` to propagate parent session/principal provenance into
 sub-agent tasks.
@@ -59,7 +60,7 @@ sub-agent tasks.
   for resolved `list` / `read` views when provided.
 - `skills.read` returns full skill content in the tool result text so the next model
   turn can use the loaded instructions.
-- `agent` task metadata includes `parentToolCallId`; child session persistence is
+- `task` task metadata includes `parentToolCallId`; child session persistence is
   controlled by the injected `AgentTaskRunner.session_factory`.
 
 ## Web Search Configuration

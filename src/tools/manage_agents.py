@@ -20,12 +20,12 @@ from resources import (
 )
 from tools._common import text_result
 
-AGENTS_TOOL_NAME = "agents"
-AgentsAction = Literal["list", "read", "create", "update", "delete"]
+MANAGE_AGENTS_TOOL_NAME = "manage_agents"
+ManageAgentsAction = Literal["list", "read", "create", "update", "delete"]
 
 
-class AgentsToolInput(BaseModel):
-    action: AgentsAction
+class ManageAgentsToolInput(BaseModel):
+    action: ManageAgentsAction
     name: str | None = Field(default=None, min_length=1)
     description: str | None = None
     system_prompt: str | None = Field(default=None, alias="systemPrompt")
@@ -44,7 +44,7 @@ class AgentsToolInput(BaseModel):
     model_config = {"populate_by_name": True}
 
     @model_validator(mode="after")
-    def validate_action_payload(self) -> "AgentsToolInput":
+    def validate_action_payload(self) -> "ManageAgentsToolInput":
         if self.action in {"read", "create", "update", "delete"} and not self.name:
             raise ValueError(f"name is required for {self.action}")
         if self.action == "create":
@@ -57,14 +57,14 @@ class AgentsToolInput(BaseModel):
         return self
 
 
-def create_agents_tool(
+def create_manage_agents_tool(
     store: ResourceStore,
     *,
     resolver: ResourceResolver | None = None,
 ) -> AgentTool:
     async def execute(tool_call_id, args, signal=None, on_update=None):
         _ = tool_call_id, signal, on_update
-        payload = AgentsToolInput.model_validate(args)
+        payload = ManageAgentsToolInput.model_validate(args)
 
         if payload.action == "list":
             return await _list_agents(store, resolver)
@@ -79,8 +79,8 @@ def create_agents_tool(
         raise ValueError(f"Unsupported agents action: {payload.action}")
 
     return AgentTool(
-        name=AGENTS_TOOL_NAME,
-        label="Agents",
+        name=MANAGE_AGENTS_TOOL_NAME,
+        label="Manage Agents",
         description="List, load, create, update, or delete agent definition resources.",
         parameters={
             "type": "object",
@@ -157,7 +157,7 @@ async def _read_agent(
     )
 
 
-async def _create_agent(store: ResourceStore, payload: AgentsToolInput):
+async def _create_agent(store: ResourceStore, payload: ManageAgentsToolInput):
     name = payload.name or ""
     definition = _definition_from_payload(payload)
     content = _definition_to_content(definition)
@@ -179,7 +179,7 @@ async def _create_agent(store: ResourceStore, payload: AgentsToolInput):
     )
 
 
-async def _update_agent(store: ResourceStore, payload: AgentsToolInput):
+async def _update_agent(store: ResourceStore, payload: ManageAgentsToolInput):
     name = payload.name or ""
     existing = await store.get_resource("agent_definition", name)
     if existing is None:
@@ -262,7 +262,7 @@ def _record_to_agent_details(record: ResourceRecord, *, include_content: bool) -
     return details
 
 
-def _definition_from_payload(payload: AgentsToolInput) -> AgentDefinition:
+def _definition_from_payload(payload: ManageAgentsToolInput) -> AgentDefinition:
     content: JsonObject = {
         "name": payload.name or "",
         "description": payload.description or "",
@@ -276,7 +276,7 @@ def _definition_from_payload(payload: AgentsToolInput) -> AgentDefinition:
     return AgentDefinition.model_validate(content)
 
 
-def _merge_definition_content(current: JsonObject, payload: AgentsToolInput) -> JsonObject:
+def _merge_definition_content(current: JsonObject, payload: ManageAgentsToolInput) -> JsonObject:
     merged = dict(current)
     merged["name"] = payload.name or str(merged.get("name") or "")
     for field_name, alias in _AGENT_FIELD_ALIASES.items():
@@ -291,7 +291,7 @@ def _definition_to_content(definition: AgentDefinition) -> JsonObject:
     return definition.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
-def _has_update_fields(payload: AgentsToolInput) -> bool:
+def _has_update_fields(payload: ManageAgentsToolInput) -> bool:
     return any(
         field in payload.model_fields_set
         for field in _EDITABLE_UPDATE_FIELDS

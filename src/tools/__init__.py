@@ -1,7 +1,11 @@
 """Built-in tool factories for Agent Smith agents."""
 
-from tools.agent import AGENT_TOOL_NAME, AgentToolInput, create_agent_tool
-from tools.agents import AGENTS_TOOL_NAME, AgentsToolInput, create_agents_tool
+from tools.manage_agents import (
+    MANAGE_AGENTS_TOOL_NAME,
+    ManageAgentsToolInput,
+    create_manage_agents_tool,
+)
+from tools.task import TASK_TOOL_NAME, TaskToolInput, create_task_tool
 from tools.ask_user import (
     ASK_USER_QUESTION_TOOL_NAME,
     AskUserQuestionHandler,
@@ -40,11 +44,11 @@ from tools.web_search import (
 )
 
 __all__ = [
-    "AGENT_TOOL_NAME",
-    "AGENTS_TOOL_NAME",
+    "MANAGE_AGENTS_TOOL_NAME",
+    "TASK_TOOL_NAME",
+    "ManageAgentsToolInput",
+    "TaskToolInput",
     "ASK_USER_QUESTION_TOOL_NAME",
-    "AgentsToolInput",
-    "AgentToolInput",
     "AskUserQuestionHandler",
     "AskUserQuestionRequest",
     "AskUserQuestionResponse",
@@ -71,8 +75,8 @@ __all__ = [
     "WEB_SEARCH_PROVIDER_ENV",
     "WEB_SEARCH_TOOL_NAME",
     "WebFetchResponse",
-    "create_agent_tool",
-    "create_agents_tool",
+    "create_manage_agents_tool",
+    "create_task_tool",
     "create_ask_user_question_tool",
     "create_base_tool_registry",
     "create_sleep_tool",
