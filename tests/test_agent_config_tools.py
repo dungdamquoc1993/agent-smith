@@ -6,12 +6,12 @@ from agent.validation import validate_tool_arguments
 from ai.types import ToolCall
 from resources import (
     AgentDefinition,
-    FilesystemResourceStore,
     MemoryResourceStore,
     ResourceNotFoundError,
     ResourceReadOnlyError,
     ResourceResolver,
 )
+from helpers.resource_stores import ReadOnlyResourceStore
 from tools import AGENTS_TOOL_NAME, create_agents_tool, create_base_tool_registry
 
 
@@ -143,14 +143,11 @@ async def test_agents_tool_validates_action_payloads() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agents_tool_read_only_store_write_actions_return_errors(tmp_path) -> None:
-    agents_dir = tmp_path / "agents"
-    agents_dir.mkdir()
-    (agents_dir / "reviewer.json").write_text(
-        '{"name":"reviewer","description":"Review","systemPrompt":"Review carefully."}',
-        encoding="utf-8",
+async def test_agents_tool_read_only_store_write_actions_return_errors() -> None:
+    store = ReadOnlyResourceStore(
+        MemoryResourceStore([_agent_resource("reviewer", "Review carefully.", "Review")])
     )
-    tool = create_agents_tool(FilesystemResourceStore(tmp_path))
+    tool = create_agents_tool(store)
 
     listed = await tool.execute("agents-1", {"action": "list"}, None, None)
     assert listed.details["agents"][0]["name"] == "reviewer"

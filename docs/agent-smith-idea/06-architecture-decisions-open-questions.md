@@ -36,7 +36,6 @@ Enterprise Systems
 Storage
   - Postgres control plane
   - object storage for artifacts
-  - optional JSONL export/debug transcript
 ```
 
 ## Decisions So Far

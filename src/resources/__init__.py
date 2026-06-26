@@ -1,6 +1,5 @@
 """Resource catalog and resolution APIs."""
 
-from resources.filesystem import FilesystemResourceStore
 from resources.memory import MemoryResourceStore
 from resources.postgres import PostgresResourceStore
 from resources.resolver import (
@@ -35,7 +34,6 @@ from resources.types import (
 __all__ = [
     "AgentDefinition",
     "AgentModelRef",
-    "FilesystemResourceStore",
     "McpServerConfig",
     "MemoryResourceStore",
     "PostgresResourceStore",

@@ -16,7 +16,6 @@ from db.base import Base
 # Import models so metadata is populated
 from db.models import (  # noqa: F401
     ExternalIdentity,
-    LocalCredential,
     McpCredentialRecord,
     Principal,
     Resource,
