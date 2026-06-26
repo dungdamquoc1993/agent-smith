@@ -163,6 +163,41 @@ def apply_stream_options_patch(
     return AgentHarnessStreamOptions.model_validate(data)
 
 
+def create_context(turn_state: TurnState, system_prompt: str | None = None) -> AgentContext:
+    return AgentContext(
+        system_prompt=system_prompt or turn_state["system_prompt"],
+        messages=list(turn_state["messages"]),
+        tools=list(turn_state["active_tools"]),
+    )
+
+
+def resolve_prompt_options(
+    options: AgentHarnessPromptOptions | dict[str, Any] | None,
+) -> AgentHarnessPromptOptions | None:
+    if options is None:
+        return None
+    if isinstance(options, AgentHarnessPromptOptions):
+        return options
+    return AgentHarnessPromptOptions.model_validate(options)
+
+
+def prepend_skill_catalog_reminder(
+    messages: list[AgentMessage],
+    turn_state: TurnState,
+) -> list[AgentMessage]:
+    if not any(tool.name == SKILLS_TOOL_NAME for tool in turn_state["active_tools"]):
+        return messages
+
+    reminder = format_skills_for_system_reminder(turn_state["resources"].skills or [])
+    if not reminder:
+        return messages
+
+    return [
+        UserMessage(content=reminder, timestamp=now_ms()),
+        *messages,
+    ]
+
+
 class AgentHarness:
     def __init__(self, options: AgentHarnessOptions | dict[str, Any] | None = None, **kwargs: Any) -> None:
         data: dict[str, Any] = {}
@@ -220,7 +255,7 @@ class AgentHarness:
         self._run_signal = asyncio.Event()
         try:
             turn_state = await self._create_turn_state()
-            prompt_options = self._resolve_prompt_options(options)
+            prompt_options = resolve_prompt_options(options)
             return await self._execute_turn(
                 turn_state,
                 text,
@@ -271,7 +306,7 @@ class AgentHarness:
     ) -> None:
         if self.phase == "idle":
             raise AgentHarnessError("invalid_state", "Cannot steer while idle")
-        resolved_options = self._resolve_prompt_options(options)
+        resolved_options = resolve_prompt_options(options)
         self._steer_queue.append(create_user_message(text, resolved_options.images if resolved_options else None))
         await self._emit_queue_update()
 
@@ -282,7 +317,7 @@ class AgentHarness:
     ) -> None:
         if self.phase == "idle":
             raise AgentHarnessError("invalid_state", "Cannot follow up while idle")
-        resolved_options = self._resolve_prompt_options(options)
+        resolved_options = resolve_prompt_options(options)
         self._follow_up_queue.append(create_user_message(text, resolved_options.images if resolved_options else None))
         await self._emit_queue_update()
 
@@ -291,7 +326,7 @@ class AgentHarness:
         text: str,
         options: AgentHarnessPromptOptions | dict[str, Any] | None = None,
     ) -> None:
-        resolved_options = self._resolve_prompt_options(options)
+        resolved_options = resolve_prompt_options(options)
         self._next_turn_queue.append(create_user_message(text, resolved_options.images if resolved_options else None))
         await self._emit_queue_update()
 
@@ -467,7 +502,7 @@ class AgentHarness:
         async def run() -> list[AgentMessage]:
             return await run_agent_loop(
                 messages,
-                self._create_context(active_turn_state, before_result.system_prompt if before_result else None),
+                create_context(active_turn_state, before_result.system_prompt if before_result else None),
                 self._create_loop_config(get_turn_state, set_turn_state),
                 self._handle_agent_event,
                 self._run_signal,
@@ -665,13 +700,6 @@ class AgentHarness:
             )
         return _assistant_text(response)
 
-    def _create_context(self, turn_state: TurnState, system_prompt: str | None = None) -> AgentContext:
-        return AgentContext(
-            system_prompt=system_prompt or turn_state["system_prompt"],
-            messages=list(turn_state["messages"]),
-            tools=list(turn_state["active_tools"]),
-        )
-
     def _create_loop_config(
         self,
         get_turn_state: Callable[[], TurnState],
@@ -685,7 +713,7 @@ class AgentHarness:
             _signal: AbortSignal | None,
         ) -> list[AgentMessage]:
             compacted = microcompact_messages(messages, self.compaction_settings.microcompact)
-            with_skill_catalog = self._prepend_skill_catalog_reminder(
+            with_skill_catalog = prepend_skill_catalog_reminder(
                 compacted,
                 get_turn_state(),
             )
@@ -729,7 +757,7 @@ class AgentHarness:
             next_turn_state = await self._maybe_auto_compact(next_turn_state)
             set_turn_state(next_turn_state)
             return AgentLoopTurnUpdate(
-                context=self._create_context(next_turn_state),
+                context=create_context(next_turn_state),
                 model=next_turn_state["model"],
                 thinking_level=next_turn_state["thinking_level"],
             )
@@ -769,23 +797,6 @@ class AgentHarness:
             return await call(response)
 
         return stream_fn
-
-    def _prepend_skill_catalog_reminder(
-        self,
-        messages: list[AgentMessage],
-        turn_state: TurnState,
-    ) -> list[AgentMessage]:
-        if not any(tool.name == SKILLS_TOOL_NAME for tool in turn_state["active_tools"]):
-            return messages
-
-        reminder = format_skills_for_system_reminder(turn_state["resources"].skills or [])
-        if not reminder:
-            return messages
-
-        return [
-            UserMessage(content=reminder, timestamp=now_ms()),
-            *messages,
-        ]
 
     async def _emit_before_provider_request(
         self,
@@ -868,16 +879,6 @@ class AgentHarness:
             elif write_type == "session_info":
                 await self.session.append_session_name(write.get("name") or "")
 
-    def _resolve_prompt_options(
-        self,
-        options: AgentHarnessPromptOptions | dict[str, Any] | None,
-    ) -> AgentHarnessPromptOptions | None:
-        if options is None:
-            return None
-        if isinstance(options, AgentHarnessPromptOptions):
-            return options
-        return AgentHarnessPromptOptions.model_validate(options)
-
     async def _emit_queue_update(self) -> None:
         await self._emit_own(
             QueueUpdateEvent(
@@ -916,22 +917,6 @@ class AgentHarness:
         missing = [name for name in tool_names if name not in available]
         if missing:
             raise AgentHarnessError("invalid_argument", f"Unknown tool(s): {', '.join(missing)}")
-
-    promptFromTemplate = prompt_from_template
-    followUp = follow_up
-    nextTurn = next_turn
-    appendMessage = append_message
-    setModel = set_model
-    setThinkingLevel = set_thinking_level
-    setTools = set_tools
-    setActiveTools = set_active_tools
-    setResources = set_resources
-    getResources = get_resources
-    setStreamOptions = set_stream_options
-    getStreamOptions = get_stream_options
-    setCompactionSettings = set_compaction_settings
-    getCompactionSettings = get_compaction_settings
-    waitForIdle = wait_for_idle
 
 
 async def _default_stream_fn(
