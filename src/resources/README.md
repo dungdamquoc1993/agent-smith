@@ -1,8 +1,8 @@
 # Resources
 
-Catalog/config layer for definitions that can come from memory, files, plugins, or Postgres.
+Catalog/config layer for definitions from memory, plugins, or Postgres.
 
-This package owns resource records, versions, store protocols, filesystem/memory/Postgres stores,
+This package owns resource records, versions, store protocols, memory/Postgres stores,
 and resolving catalog records into runtime snapshots.
 
 ## Boundary
@@ -31,15 +31,6 @@ context before resolving resources.
 
 Runtime state such as tasks, todos, sleeps, agent runs, and pending user questions belongs outside
 this catalog.
-
-## Filesystem V1
-
-`FilesystemResourceStore` is read-only and recognizes:
-
-- `**/SKILL.md` or `**/*.skill.md`
-- `prompts/*.md`, `prompt_templates/*.md`, or `**/*.prompt.md`
-- `agents/*.json` or `**/*.agent.json`
-- `mcp/*.json`, `mcp_servers/*.json`, or `**/*.mcp.json`
 
 ## Postgres V1
 

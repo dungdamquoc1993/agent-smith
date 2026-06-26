@@ -12,13 +12,11 @@ from ai.types import TextContent
 from db.base import Base
 from resources import (
     AgentDefinition,
-    FilesystemResourceStore,
     MemoryResourceStore,
     PostgresResourceStore,
     ResourceConflictError,
     ResourceCreate,
     ResourceNotFoundError,
-    ResourceReadOnlyError,
     ResourceResolver,
 )
 from runtime import AgentFactory, AgentFactoryError, ToolRegistry
@@ -142,37 +140,6 @@ async def test_resource_resolver_priority_and_runtime_mapping() -> None:
     assert resolved.harness_resources.prompt_templates[0].name == "fix"
     assert resolved.agent_definitions[0].name == "reviewer"
     assert resolved.mcp_server_configs["github"] == {"command": "github-mcp"}
-
-
-@pytest.mark.asyncio
-async def test_filesystem_resource_store_reads_v1_conventions(tmp_path) -> None:
-    skill_dir = tmp_path / "skills" / "debug"
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
-        "---\nname: debug\ndescription: Debug problems\n---\nRead logs carefully.\n",
-        encoding="utf-8",
-    )
-    agents_dir = tmp_path / "agents"
-    agents_dir.mkdir()
-    (agents_dir / "reviewer.json").write_text(
-        '{"name":"reviewer","description":"Review","systemPrompt":"Review carefully."}',
-        encoding="utf-8",
-    )
-
-    store = FilesystemResourceStore(tmp_path)
-    resolved = await ResourceResolver([store]).resolve()
-
-    assert resolved.harness_resources.skills is not None
-    assert resolved.harness_resources.skills[0].name == "debug"
-    assert resolved.agent_definitions[0].system_prompt == "Review carefully."
-    with pytest.raises(ResourceReadOnlyError):
-        await store.create_resource(
-            {
-                "kind": "skill",
-                "name": "new",
-                "content": _skill_content("new", "body"),
-            }
-        )
 
 
 @pytest.mark.asyncio

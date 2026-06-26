@@ -59,8 +59,6 @@ sub-agent tasks.
   for resolved `list` / `read` views when provided.
 - `skills.read` returns full skill content in the tool result text so the next model
   turn can use the loaded instructions.
-- Filesystem resources are read-only; create/update/delete should use memory,
-  Postgres, or another writable `ResourceStore`.
 - `agent` task metadata includes `parentToolCallId`; child session persistence is
   controlled by the injected `AgentTaskRunner.session_factory`.
 

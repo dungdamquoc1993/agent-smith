@@ -108,7 +108,7 @@ Ba tang nay nen nho ngan gon:
 ```text
 SessionStorage
   = luu tru cho 1 session
-  = memory hoac jsonl
+  = memory hoac Postgres
 
 Session
   = API/logic thao tac tren 1 session
@@ -122,17 +122,17 @@ SessionRepo
 Cu the:
 
 ```text
-InMemorySessionStorage
+MemorySessionStorage
   = 1 session luu trong RAM
 
-JsonlSessionStorage
-  = 1 session luu trong 1 file .jsonl
+PostgresSessionStorage
+  = 1 session persist trong Postgres
 
-InMemorySessionRepo
+MemorySessionRepo
   = nhieu session trong Map
 
-JsonlSessionRepo
-  = nhieu session trong nhieu file .jsonl
+PostgresSessionRepo
+  = nhieu session trong Postgres
 ```
 
 `Session` duoc tao bang cach boc quanh mot storage:

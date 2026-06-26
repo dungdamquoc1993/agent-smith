@@ -36,7 +36,7 @@ resources/              ← skill, prompt_template, agent_definition, mcp_server
 | [`agent_loop`](src/agent_smith/agent/agent_loop/README.md) | Orchestration **stateless**: stream → tool → lặp | `run_agent_loop`, hooks qua config |
 | [`harness`](src/agent_smith/agent/harness/README.md) | Orchestration **stateful**: session, compact, steer/follow-up | `AgentHarness.prompt()` |
 | [`session`](src/agent_smith/agent/harness/session/README.md) | Session tree append-only, fork/branch | Memory / Postgres backend |
-| [`resources`](src/agent_smith/resources/README.md) | Catalog definitions (filesystem, memory, Postgres) | Resolve → snapshot cho harness |
+| [`resources`](src/agent_smith/resources/README.md) | Catalog definitions (memory, Postgres) | Resolve → snapshot cho harness |
 | [`runtime`](src/agent_smith/runtime/README.md) | Assembly: blueprint → harness instance | `AgentFactory` |
 
 **Khi nào dùng gì?**

@@ -41,12 +41,12 @@ from tools import (
     create_web_search_tool,
 )
 from resources import (
-    FilesystemResourceStore,
     MemoryResourceStore,
     ResourceNotFoundError,
     ResourceReadOnlyError,
     ResourceResolver,
 )
+from helpers.resource_stores import ReadOnlyResourceStore
 
 
 def _now() -> int:
@@ -258,14 +258,11 @@ async def test_skills_tool_validates_action_payloads() -> None:
 
 
 @pytest.mark.asyncio
-async def test_skills_tool_read_only_store_errors_for_mutations(tmp_path) -> None:
-    skill_dir = tmp_path / "skills" / "debug"
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
-        "---\nname: debug\ndescription: Debug problems\n---\nRead logs.\n",
-        encoding="utf-8",
+async def test_skills_tool_read_only_store_errors_for_mutations() -> None:
+    store = ReadOnlyResourceStore(
+        MemoryResourceStore([_skill_resource("debug", "Read logs.", "Debug problems")])
     )
-    tool = create_skills_tool(FilesystemResourceStore(tmp_path))
+    tool = create_skills_tool(store)
 
     with pytest.raises(ResourceReadOnlyError):
         await tool.execute(
