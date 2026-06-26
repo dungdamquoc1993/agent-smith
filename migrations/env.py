@@ -17,6 +17,7 @@ from db.base import Base
 from db.models import (  # noqa: F401
     ExternalIdentity,
     LocalCredential,
+    McpCredentialRecord,
     Principal,
     Resource,
     ResourceVersion,

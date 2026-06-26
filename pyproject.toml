@@ -6,6 +6,7 @@ authors = ["Agent Smith Team"]
 readme = "README.md"
 packages = [
     { include = "agent", from = "src" },
+    { include = "agent_mcp", from = "src" },
     { include = "ai", from = "src" },
     { include = "db", from = "src" },
     { include = "resources", from = "src" },
@@ -18,6 +19,7 @@ packages = [
 [tool.poetry.dependencies]
 python = "^3.11"
 litellm = "1.44.28"  # pinned: newer versions break on Windows long-path installs
+mcp = "^1.28.0"
 pydantic = "^2.10.0"
 pydantic-settings = "^2.7.0"
 sqlalchemy = { version = "^2.0.36", extras = ["asyncio"] }

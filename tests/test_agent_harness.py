@@ -21,6 +21,7 @@ from agent import (
     format_prompt_template_invocation,
     format_skill_invocation,
     format_skills_for_system_prompt,
+    format_skills_for_system_reminder,
 )
 from db.base import Base
 from db.models.principal import Principal, PrincipalType
@@ -236,6 +237,7 @@ def test_resources_format_skill_and_template() -> None:
 
     assert "Read logs carefully." in format_skill_invocation(skill, "Be concise.")
     assert "<available_skills>" in format_skills_for_system_prompt([skill])
+    assert format_skills_for_system_reminder([skill]).startswith("<system-reminder>")
     assert format_prompt_template_invocation(template, ["bug", "tests"]) == (
         "Fix bug using bug tests and tests"
     )
@@ -446,6 +448,72 @@ async def test_harness_pending_mutations_flush_after_turn() -> None:
     ]
     assert context.thinking_level == "high"
     assert context.active_tool_names == []
+
+
+@pytest.mark.asyncio
+async def test_harness_surfaces_skill_catalog_as_system_reminder_user_message() -> None:
+    repo = MemorySessionRepo()
+    session = await repo.create(principal_id="principal-1")
+    captured_contexts: list[Context] = []
+
+    def execute(tool_call_id, params, signal=None, on_update=None):
+        _ = tool_call_id, params, signal, on_update
+        return AgentToolResult(content=[TextContent(text="ok")])
+
+    skills_tool = AgentTool(
+        name="skills",
+        label="Skills",
+        description="List, load, create, update, or delete skill resources.",
+        parameters={"type": "object", "properties": {}},
+        execute=execute,
+    )
+
+    def stream_fn(model: Model, context: Context, options: SimpleStreamOptions | None = None):
+        _ = model, options
+        captured_contexts.append(context)
+        return _stream_for(_assistant([TextContent(text="done")]))
+
+    harness = AgentHarness(
+        session=session,
+        model=_model(),
+        system_prompt="Review carefully.",
+        stream_fn=stream_fn,
+        tools=[skills_tool],
+        resources=AgentHarnessResources(
+            skills=[
+                Skill(
+                    name="debug",
+                    description="Debug problems",
+                    content="Use the debugger.",
+                    file_path="/skills/debug/SKILL.md",
+                ),
+                Skill(
+                    name="hidden",
+                    description="Hidden",
+                    content="Do not surface.",
+                    file_path="/skills/hidden/SKILL.md",
+                    disable_model_invocation=True,
+                ),
+            ],
+        ),
+    )
+
+    await harness.prompt("hello")
+
+    provider_context = captured_contexts[0]
+    assert provider_context.system_prompt == "Review carefully."
+    assert provider_context.tools is not None
+    assert provider_context.tools[0].description == skills_tool.description
+    assert isinstance(provider_context.messages[0], UserMessage)
+    assert isinstance(provider_context.messages[-1], UserMessage)
+    assert provider_context.messages[0].content.startswith("<system-reminder>")
+    assert "debug" in provider_context.messages[0].content
+    assert "hidden" not in provider_context.messages[0].content
+    assert provider_context.messages[-1].content == "hello"
+
+    persisted = await session.build_context()
+    assert [message.role for message in persisted.messages] == ["user", "assistant"]
+    assert persisted.messages[0].content == "hello"
 
 
 @pytest.mark.asyncio

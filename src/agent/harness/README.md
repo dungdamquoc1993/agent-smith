@@ -77,10 +77,10 @@ Sau full compact, `session.build_context()` project lại history qua `build_pro
 
 ## Resources
 
-- **`skills`** — gọi qua `skill()` hoặc liệt kê trong system prompt (caller tự wire qua `SystemPromptFn`)
+- **`skills`** — gọi qua `skill()` hoặc surface như user-message `<system-reminder>` khi active tool có `skills`
 - **`prompt_templates`** — gọi qua `prompt_from_template()`
 
-Helper format: `resources.py` (`format_skill_invocation`, `format_skills_for_system_prompt`, …).
+Helper format: `resources.py` (`format_skill_invocation`, `format_skills_for_system_reminder`, …).
 
 `AgentHarnessResources` là **resolved snapshot** cho một run/turn, không phải source of truth.
 Harness không đọc filesystem, không query Postgres resource tables, và không tự quản lý vòng đời

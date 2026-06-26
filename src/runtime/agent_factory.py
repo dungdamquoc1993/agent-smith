@@ -14,12 +14,13 @@ from agent.harness.types import (
     AgentHarnessStreamOptions,
     GetAgentHarnessAuthFn,
 )
-from agent.types import StreamFn
+from agent.types import AgentTool, StreamFn
 from ai.models import get_model
 from ai.types import MaybeAwaitable, Model
 from resources import AgentDefinition, ResourceResolver
 from runtime.tool_registry import ToolRegistry, UnknownToolError
 from runtime.types import AgentRuntimeSpec
+from agent_mcp import McpConnectionManager
 
 ModelResolver: TypeAlias = Callable[[AgentDefinition], MaybeAwaitable[Model | None]]
 
@@ -40,6 +41,7 @@ class AgentFactory:
         get_api_key_and_headers: GetAgentHarnessAuthFn | None = None,
         stream_options: AgentHarnessStreamOptions | dict | None = None,
         compaction_settings: CompactionSettings | None = None,
+        mcp_manager: McpConnectionManager | None = None,
     ) -> None:
         self.resource_resolver = resource_resolver
         self.tool_registry = tool_registry
@@ -53,6 +55,7 @@ class AgentFactory:
             else stream_options
         )
         self.compaction_settings = compaction_settings
+        self.mcp_manager = mcp_manager
 
     async def build_runtime_spec(self, definition: AgentDefinition | str) -> AgentRuntimeSpec:
         resolved_definition = await self._resolve_definition(definition)
@@ -106,14 +109,24 @@ class AgentFactory:
             if isinstance(stream_options, dict)
             else stream_options or self.stream_options
         )
+        tools = list[AgentTool](spec.tools)
+        active_tool_names = list[str](spec.active_tool_names)
+        if self.mcp_manager is not None and spec.mcp_server_configs:
+            metadata = await session.get_metadata()
+            materialized = await self.mcp_manager.materialize_tools(
+                spec.mcp_server_configs,
+                principal_id=metadata.principal_id,
+            )
+            tools.extend(materialized.tools)
+            active_tool_names.extend(materialized.active_tool_names)
         return AgentHarnessOptions(
             session=session,
             model=spec.model,
             thinking_level=spec.thinking_level,
             system_prompt=spec.system_prompt,
             resources=spec.resources,
-            tools=spec.tools,
-            active_tool_names=spec.active_tool_names,
+            tools=tools,
+            active_tool_names=active_tool_names,
             stream_fn=stream_fn or self.stream_fn,
             get_api_key_and_headers=get_api_key_and_headers or self.get_api_key_and_headers,
             stream_options=resolved_stream_options,
