@@ -33,9 +33,11 @@ from agent.harness.compaction import (
     summarization_prompt,
 )
 from agent.harness.resources import (
+    format_agent_catalog_delta,
     format_prompt_template_invocation,
     format_skill_invocation,
     format_skills_for_system_reminder,
+    parse_announced_agents_from_messages,
 )
 from agent.harness.session.types import PendingSessionWrite
 from agent.harness.types import (
@@ -89,7 +91,8 @@ from agent.types import (
 )
 
 SUBSCRIBER_EVENT_TYPE = "*"
-SKILLS_TOOL_NAME = "skills"
+SKILL_TOOL_NAME = "skill"
+TASK_TOOL_NAME = "task"
 
 
 def create_user_message(text: str, images: list[ImageContent] | None = None) -> UserMessage:
@@ -181,21 +184,64 @@ def resolve_prompt_options(
     return AgentHarnessPromptOptions.model_validate(options)
 
 
-def prepend_skill_catalog_reminder(
+def prepend_catalog_reminders(
     messages: list[AgentMessage],
     turn_state: TurnState,
-) -> list[AgentMessage]:
-    if not any(tool.name == SKILLS_TOOL_NAME for tool in turn_state["active_tools"]):
-        return messages
+    *,
+    announced_agent_names: set[str],
+    reset_agent_catalog: bool = False,
+) -> tuple[list[AgentMessage], set[str]]:
+    reminders: list[AgentMessage] = []
+    next_announced = set(announced_agent_names)
 
-    reminder = format_skills_for_system_reminder(turn_state["resources"].skills or [])
-    if not reminder:
-        return messages
+    if any(tool.name == SKILL_TOOL_NAME for tool in turn_state["active_tools"]):
+        skill_reminder = format_skills_for_system_reminder(turn_state["resources"].skills or [])
+        if skill_reminder:
+            reminders.append(UserMessage(content=skill_reminder, timestamp=now_ms()))
 
-    return [
-        UserMessage(content=reminder, timestamp=now_ms()),
-        *messages,
-    ]
+    if any(tool.name == TASK_TOOL_NAME for tool in turn_state["active_tools"]):
+        catalog = turn_state["resources"].agent_catalog or []
+        current_by_name = {entry.name: entry for entry in catalog}
+
+        if reset_agent_catalog:
+            announced = set()
+        elif not next_announced:
+            announced = parse_announced_agents_from_messages(messages)
+        else:
+            announced = next_announced
+
+        current_names = set(current_by_name.keys())
+        if reset_agent_catalog or not announced:
+            added = sorted(catalog, key=lambda entry: entry.name)
+            removed: list[str] = []
+            is_initial = True
+        else:
+            added = sorted(
+                [current_by_name[name] for name in current_names if name not in announced],
+                key=lambda entry: entry.name,
+            )
+            removed = sorted(name for name in announced if name not in current_names)
+            is_initial = False
+
+        if reset_agent_catalog or is_initial or added or removed:
+            updated_announced = (
+                current_names
+                if reset_agent_catalog or is_initial
+                else (announced - set(removed)) | {entry.name for entry in added}
+            )
+            agent_reminder = format_agent_catalog_delta(
+                added=added,
+                removed=removed,
+                announced=updated_announced,
+                is_initial=reset_agent_catalog or is_initial,
+            )
+            if agent_reminder:
+                reminders.append(UserMessage(content=agent_reminder, timestamp=now_ms()))
+                next_announced = updated_announced
+
+    if not reminders:
+        return messages, next_announced
+    return [*reminders, *messages], next_announced
 
 
 class AgentHarness:
@@ -241,6 +287,8 @@ class AgentHarness:
         self._handlers: dict[str, set[HarnessHandler]] = {}
         self._auto_compact_failures = 0
         self._is_compacting = False
+        self._announced_agent_names: set[str] = set()
+        self._agent_catalog_reset_pending = False
 
         self._validate_tool_names(self.active_tool_names)
 
@@ -647,6 +695,8 @@ class AgentHarness:
                     from_hook=from_hook,
                 )
             )
+            self._announced_agent_names = set()
+            self._agent_catalog_reset_pending = True
             return CompactionResult(
                 summary=summary,
                 first_kept_entry_id=preparation.first_kept_entry_id,
@@ -713,12 +763,15 @@ class AgentHarness:
             _signal: AbortSignal | None,
         ) -> list[AgentMessage]:
             compacted = microcompact_messages(messages, self.compaction_settings.microcompact)
-            with_skill_catalog = prepend_skill_catalog_reminder(
+            with_catalog, self._announced_agent_names = prepend_catalog_reminders(
                 compacted,
                 get_turn_state(),
+                announced_agent_names=self._announced_agent_names,
+                reset_agent_catalog=self._agent_catalog_reset_pending,
             )
-            result = await self._emit_hook(ContextEvent(messages=with_skill_catalog), ContextResult)
-            return result.messages if result else with_skill_catalog
+            self._agent_catalog_reset_pending = False
+            result = await self._emit_hook(ContextEvent(messages=with_catalog), ContextResult)
+            return result.messages if result else with_catalog
 
         async def before_tool_call(
             context: BeforeToolCallContext,

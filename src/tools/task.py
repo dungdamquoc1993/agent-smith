@@ -121,7 +121,10 @@ def create_task_tool(
     return AgentTool(
         name=TASK_TOOL_NAME,
         label="Task",
-        description="Run a named sub-agent task, either synchronously or in the background.",
+        description=(
+            "Run a named sub-agent task, either synchronously or in the background. "
+            "Available agent definitions are listed in system-reminder messages in the conversation."
+        ),
         parameters={
             "type": "object",
             "properties": {

@@ -15,9 +15,9 @@ This package contains concrete tools that can be registered with
 | `create_ask_user_question_tool()` | `ask_user_question` | Pause tool execution on an injected handler and resume with user answers. |
 | `create_web_fetch_tool()` | `web_fetch` | Fetch HTTP/HTTPS content and return extracted text. |
 | `create_web_search_tool()` | `web_search` | Search through configured Tavily or Brave providers. |
-| `create_skills_tool()` | `skills` | List, load, create, update, and delete skill resources. |
+| `create_skill_tool()` | `skill` | Invoke a skill by name with optional arguments. |
 | `create_task_tool()` | `task` | Spawn a named sub-agent task sync or async. |
-| `create_manage_agents_tool()` | `manage_agents` | List, load, create, update, or delete agent definition resources. |
+| `create_manage_resources_tool()` | `manage_resources` | List, load, create, update, or delete catalog resources. |
 | `create_task_output_tool()` | `task_output` | Read or wait for task output/result snapshots. |
 | `create_task_stop_tool()` | `task_stop` | Stop a running task. |
 | `create_base_tool_registry()` | n/a | Convenience helper that assembles the base tool bundle. |
@@ -35,7 +35,7 @@ tool_registry = create_base_tool_registry(
 )
 ```
 
-The `skills` tool is added only when a writable `ResourceStore` is provided:
+Resource tools are added when a `ResourceStore` / `ResourceResolver` is provided:
 
 ```python
 from resources import MemoryResourceStore, ResourceResolver
@@ -43,8 +43,8 @@ from tools import create_base_tool_registry
 
 store = MemoryResourceStore()
 tool_registry = create_base_tool_registry(
-    skills_store=store,
-    skills_resolver=ResourceResolver([store]),
+    resources_store=store,
+    resources_resolver=ResourceResolver([store]),
 )
 ```
 
@@ -56,10 +56,10 @@ sub-agent tasks.
 ## Resource Behavior
 
 - `todo_write` is intentionally stateless. The caller passes the full list each time.
-- `skills` writes through the injected `ResourceStore` and uses `ResourceResolver`
-  for resolved `list` / `read` views when provided.
-- `skills.read` returns full skill content in the tool result text so the next model
-  turn can use the loaded instructions.
+- `skill` invokes catalog skills resolved through `ResourceResolver`. Available skills
+  are surfaced via `<system-reminder>` user messages in the harness.
+- `manage_resources` writes through the injected `ResourceStore` and uses
+  `ResourceResolver` for resolved `list` / `read` views when provided.
 - `task` task metadata includes `parentToolCallId`; child session persistence is
   controlled by the injected `AgentTaskRunner.session_factory`.
 

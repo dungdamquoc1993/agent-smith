@@ -6,7 +6,7 @@ import re
 from html import escape
 from pathlib import PurePosixPath
 
-from agent.harness.types import PromptTemplate, Skill
+from agent.harness.types import AgentCatalogEntry, PromptTemplate, Skill
 
 
 def format_skill_invocation(skill: Skill, additional_instructions: str | None = None) -> str:
@@ -55,10 +55,97 @@ def format_skills_for_system_reminder(skills: list[Skill]) -> str:
     if not catalog:
         return ""
     return wrap_in_system_reminder(
-        "The following skills are available for use with the skills tool. "
-        "When a skill matches the user's task, read the full skill before continuing.\n\n"
+        "The following skills are available for use with the Skill tool. "
+        "When a skill matches the user's task, invoke the Skill tool before continuing.\n\n"
         f"{catalog}"
     )
+
+
+def _format_agent_tools(entry: AgentCatalogEntry) -> str:
+    if entry.tools_allow:
+        return ", ".join(entry.tools_allow)
+    if entry.tools_deny:
+        return f"All tools except {', '.join(entry.tools_deny)}"
+    return "All tools"
+
+
+def format_agent_line(entry: AgentCatalogEntry) -> str:
+    when_to_use = entry.when_to_use or entry.description
+    return f"- {entry.name}: {when_to_use} (Tools: {_format_agent_tools(entry)})"
+
+
+def format_agents_for_system_prompt(entries: list[AgentCatalogEntry]) -> str:
+    if not entries:
+        return ""
+    lines = [
+        "The following agent definitions are available for use with the task tool.",
+        "",
+        "<available_agents>",
+        *[format_agent_line(entry) for entry in entries],
+        "</available_agents>",
+    ]
+    return "\n".join(lines)
+
+
+AGENT_CATALOG_DELTA_MARKER = '<agent-catalog-delta data-announced="'
+
+
+def parse_announced_agents_from_messages(messages: list) -> set[str]:
+    announced: set[str] = set()
+    for message in messages:
+        if getattr(message, "role", None) != "user":
+            continue
+        content = getattr(message, "content", "")
+        if isinstance(content, list):
+            parts = [
+                block.text
+                for block in content
+                if getattr(block, "type", None) == "text" and hasattr(block, "text")
+            ]
+            content = "\n".join(parts)
+        if not isinstance(content, str):
+            continue
+        marker_index = content.find(AGENT_CATALOG_DELTA_MARKER)
+        if marker_index < 0:
+            continue
+        start = marker_index + len(AGENT_CATALOG_DELTA_MARKER)
+        end = content.find('"', start)
+        if end < 0:
+            continue
+        raw = content[start:end]
+        if raw:
+            announced = {name for name in raw.split(",") if name}
+    return announced
+
+
+def format_agent_catalog_delta(
+    added: list[AgentCatalogEntry],
+    removed: list[str],
+    *,
+    announced: set[str],
+    is_initial: bool,
+) -> str:
+    if not added and not removed:
+        return ""
+
+    lines = [
+        f'<agent-catalog-delta data-announced="{",".join(sorted(announced))}">',
+        "The following agent definitions are available for use with the task tool.",
+    ]
+    if is_initial:
+        lines.append("")
+        lines.append(format_agents_for_system_prompt(added))
+    else:
+        if added:
+            lines.append("")
+            lines.append("Added:")
+            lines.extend(format_agent_line(entry) for entry in added)
+        if removed:
+            lines.append("")
+            lines.append("Removed:")
+            lines.extend(f"- {name}" for name in removed)
+    lines.append("</agent-catalog-delta>")
+    return wrap_in_system_reminder("\n".join(lines))
 
 
 def parse_command_args(args_string: str) -> list[str]:

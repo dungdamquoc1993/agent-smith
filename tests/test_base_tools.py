@@ -35,18 +35,11 @@ from tools import (
     create_ask_user_question_tool,
     create_base_tool_registry,
     create_sleep_tool,
-    create_skills_tool,
     create_todo_write_tool,
     create_web_fetch_tool,
     create_web_search_tool,
 )
-from resources import (
-    MemoryResourceStore,
-    ResourceNotFoundError,
-    ResourceReadOnlyError,
-    ResourceResolver,
-)
-from helpers.resource_stores import ReadOnlyResourceStore
+from resources import MemoryResourceStore, ResourceResolver
 
 
 def _now() -> int:
@@ -124,20 +117,6 @@ class AbortFlag:
         return self.aborted
 
 
-def _skill_resource(name: str, content: str, description: str | None = None) -> dict[str, Any]:
-    return {
-        "kind": "skill",
-        "name": name,
-        "description": description or f"{name} skill",
-        "content": {
-            "name": name,
-            "description": description or f"{name} skill",
-            "content": content,
-            "filePath": f"/skills/{name}/SKILL.md",
-        },
-    }
-
-
 @pytest.mark.asyncio
 async def test_sleep_tool_waits_caps_and_aborts() -> None:
     tool = create_sleep_tool(max_seconds=0.2)
@@ -179,114 +158,6 @@ async def test_todo_write_is_stateless_full_list_echo() -> None:
     assert first.details["todos"] == payload["todos"]
     assert first.details["counts"] == {"pending": 1, "inProgress": 1, "completed": 1}
     assert second.details["todos"] == []
-
-
-@pytest.mark.asyncio
-async def test_skills_tool_lists_and_reads_resolved_skills() -> None:
-    base = MemoryResourceStore([_skill_resource("debug", "Use base logs.")])
-    override = MemoryResourceStore([_skill_resource("debug", "Use override traces.")])
-    tool = create_skills_tool(override, resolver=ResourceResolver([base, override]))
-
-    listed = await tool.execute("skills-1", {"action": "list"}, None, None)
-    loaded = await tool.execute("skills-2", {"action": "read", "name": "debug"}, None, None)
-
-    assert listed.details["skills"] == [
-        {
-            "name": "debug",
-            "description": "debug skill",
-            "filePath": "/skills/debug/SKILL.md",
-            "disableModelInvocation": None,
-            "resource": listed.details["skills"][0]["resource"],
-        }
-    ]
-    assert "content" not in listed.details["skills"][0]
-    assert "Use override traces." in loaded.content[0].text
-    assert loaded.details["skill"]["content"] == "Use override traces."
-    assert loaded.details["skill"]["resource"]["version"] == 1
-
-
-@pytest.mark.asyncio
-async def test_skills_tool_create_update_delete_versions() -> None:
-    store = MemoryResourceStore()
-    tool = create_skills_tool(store)
-
-    created = await tool.execute(
-        "skills-1",
-        {
-            "action": "create",
-            "name": "review",
-            "description": "Review changes",
-            "content": "Inspect the diff.",
-            "filePath": "/skills/review/SKILL.md",
-        },
-        None,
-        None,
-    )
-    updated = await tool.execute(
-        "skills-2",
-        {
-            "action": "update",
-            "name": "review",
-            "content": "Inspect the diff and tests.",
-            "disableModelInvocation": True,
-        },
-        None,
-        None,
-    )
-    await tool.execute("skills-3", {"action": "delete", "name": "review"}, None, None)
-
-    deleted = await store.get_resource("skill", "review", include_deleted=True)
-    assert created.details["skill"]["resource"]["version"] == 1
-    assert updated.details["skill"]["resource"]["version"] == 2
-    assert updated.details["skill"]["content"] == "Inspect the diff and tests."
-    assert updated.details["skill"]["disableModelInvocation"] is True
-    assert await store.get_resource("skill", "review") is None
-    assert deleted is not None
-    assert deleted.deleted_at is not None
-
-
-@pytest.mark.asyncio
-async def test_skills_tool_validates_action_payloads() -> None:
-    tool = create_skills_tool(MemoryResourceStore())
-
-    with pytest.raises(ValueError, match="name is required"):
-        await tool.execute("skills-1", {"action": "read"}, None, None)
-    with pytest.raises(ValueError, match="content is required"):
-        await tool.execute("skills-2", {"action": "create", "name": "debug"}, None, None)
-    with pytest.raises(ValueError, match="at least one editable field"):
-        await tool.execute("skills-3", {"action": "update", "name": "debug"}, None, None)
-
-
-@pytest.mark.asyncio
-async def test_skills_tool_read_only_store_errors_for_mutations() -> None:
-    store = ReadOnlyResourceStore(
-        MemoryResourceStore([_skill_resource("debug", "Read logs.", "Debug problems")])
-    )
-    tool = create_skills_tool(store)
-
-    with pytest.raises(ResourceReadOnlyError):
-        await tool.execute(
-            "skills-1",
-            {"action": "create", "name": "new", "content": "New skill."},
-            None,
-            None,
-        )
-    with pytest.raises(ResourceReadOnlyError):
-        await tool.execute(
-            "skills-2",
-            {"action": "update", "name": "debug", "content": "New content."},
-            None,
-            None,
-        )
-    with pytest.raises(ResourceReadOnlyError):
-        await tool.execute("skills-3", {"action": "delete", "name": "debug"}, None, None)
-
-
-@pytest.mark.asyncio
-async def test_skills_tool_read_missing_skill_errors() -> None:
-    tool = create_skills_tool(MemoryResourceStore())
-    with pytest.raises(ResourceNotFoundError, match="Unknown skill"):
-        await tool.execute("skills-1", {"action": "read", "name": "missing"}, None, None)
 
 
 @pytest.mark.asyncio
@@ -555,10 +426,12 @@ def test_base_tool_registry_contains_phase_1_tools() -> None:
     ]
 
 
-def test_base_tool_registry_optionally_includes_skills_tool() -> None:
+def test_base_tool_registry_optionally_includes_resource_tools() -> None:
+    store = MemoryResourceStore()
     registry = create_base_tool_registry(
         web_search_env={},
-        skills_store=MemoryResourceStore(),
+        resources_store=store,
+        resources_resolver=ResourceResolver([store]),
     )
 
     assert registry.names() == [
@@ -567,5 +440,6 @@ def test_base_tool_registry_optionally_includes_skills_tool() -> None:
         "ask_user_question",
         "web_fetch",
         "web_search",
-        "skills",
+        "skill",
+        "manage_resources",
     ]

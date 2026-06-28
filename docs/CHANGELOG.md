@@ -8,6 +8,13 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 
 ## [Unreleased]
 
+### Changed - Resource tools refactor
+
+- Thay `skills` CRUD tool bang `skill` invoke-only (`skill` + optional `args`), mirror Claude Code `SkillTool`.
+- Thay `manage_agents` bang `manage_resources` CRUD thong nhat cho `skill`, `prompt_template`, `agent_definition`, `mcp_server_config`.
+- `create_base_tool_registry(...)` dung `resources_store` / `resources_resolver` thay cho `skills_store` / `agents_store`.
+- Harness inject agent catalog delta qua `<system-reminder>` khi co `task` tool; `AgentFactory` map `agent_definitions` vao `AgentHarnessResources.agentCatalog`.
+
 ### Added - Agent task runtime and agent config tools
 
 - Them package [`tasks`](../src/tasks/) lam runtime core in-memory cho background/sub-agent work: `MemoryTaskRuntime`, `TaskRecord`, `TaskContext`, typed errors va `MemoryTaskOutputStore`.

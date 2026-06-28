@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from agent import (
+    AgentCatalogEntry,
     AgentHarness,
     AgentHarnessPromptOptions,
     AgentHarnessResources,
@@ -461,9 +462,9 @@ async def test_harness_surfaces_skill_catalog_as_system_reminder_user_message() 
         return AgentToolResult(content=[TextContent(text="ok")])
 
     skills_tool = AgentTool(
-        name="skills",
-        label="Skills",
-        description="List, load, create, update, or delete skill resources.",
+        name="skill",
+        label="Skill",
+        description="Execute a skill by name with optional arguments.",
         parameters={"type": "object", "properties": {}},
         execute=execute,
     )
@@ -514,6 +515,57 @@ async def test_harness_surfaces_skill_catalog_as_system_reminder_user_message() 
     persisted = await session.build_context()
     assert [message.role for message in persisted.messages] == ["user", "assistant"]
     assert persisted.messages[0].content == "hello"
+
+
+@pytest.mark.asyncio
+async def test_harness_surfaces_agent_catalog_delta_as_system_reminder() -> None:
+    repo = MemorySessionRepo()
+    session = await repo.create(principal_id="principal-1")
+    captured_contexts: list[Context] = []
+
+    def execute(tool_call_id, params, signal=None, on_update=None):
+        _ = tool_call_id, params, signal, on_update
+        return AgentToolResult(content=[TextContent(text="ok")])
+
+    task_tool = AgentTool(
+        name="task",
+        label="Task",
+        description="Run a named sub-agent task.",
+        parameters={"type": "object", "properties": {}},
+        execute=execute,
+    )
+
+    def stream_fn(model: Model, context: Context, options: SimpleStreamOptions | None = None):
+        _ = model, options
+        captured_contexts.append(context)
+        return _stream_for(_assistant([TextContent(text="done")]))
+
+    harness = AgentHarness(
+        session=session,
+        model=_model(),
+        system_prompt="Coordinate work.",
+        stream_fn=stream_fn,
+        tools=[task_tool],
+        resources=AgentHarnessResources(
+            agent_catalog=[
+                AgentCatalogEntry(
+                    name="reviewer",
+                    description="Review changes",
+                    when_to_use="Use for code review",
+                    tools_allow=["read_file"],
+                )
+            ],
+        ),
+    )
+
+    await harness.prompt("hello")
+
+    provider_context = captured_contexts[0]
+    assert isinstance(provider_context.messages[0], UserMessage)
+    assert provider_context.messages[0].content.startswith("<system-reminder>")
+    assert "agent-catalog-delta" in provider_context.messages[0].content
+    assert "reviewer" in provider_context.messages[0].content
+    assert provider_context.messages[-1].content == "hello"
 
 
 @pytest.mark.asyncio

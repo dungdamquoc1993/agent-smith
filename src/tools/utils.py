@@ -9,11 +9,11 @@ from agent.types import AgentTool
 from resources import ResourceResolver, ResourceStore
 from runtime import ToolRegistry
 from tasks import AgentTaskRunner, TaskRuntime
-from tools.manage_agents import create_manage_agents_tool
-from tools.task import create_task_tool
 from tools.ask_user import AskUserQuestionHandler, create_ask_user_question_tool
+from tools.manage_resources import create_manage_resources_tool
+from tools.skill import create_skill_tool
 from tools.sleep import create_sleep_tool
-from tools.skills import create_skills_tool
+from tools.task import create_task_tool
 from tools.task_output import create_task_output_tool
 from tools.task_stop import create_task_stop_tool
 from tools.todo import create_todo_write_tool
@@ -32,10 +32,8 @@ def create_base_tool_registry(
     web_search_registry: SearchProviderRegistry | None = None,
     web_search_provider: str | None = None,
     web_search_env: Mapping[str, str] | None = None,
-    skills_store: ResourceStore | None = None,
-    skills_resolver: ResourceResolver | None = None,
-    agents_store: ResourceStore | None = None,
-    agents_resolver: ResourceResolver | None = None,
+    resources_store: ResourceStore | None = None,
+    resources_resolver: ResourceResolver | None = None,
     task_runtime: TaskRuntime | None = None,
     agent_runner: AgentTaskRunner | None = None,
     agent_parent_metadata: Mapping[str, Any] | Callable[[], Mapping[str, Any]] | None = None,
@@ -58,10 +56,15 @@ def create_base_tool_registry(
             env=web_search_env,
         ),
     ]
-    if skills_store is not None:
-        tools.append(create_skills_tool(skills_store, resolver=skills_resolver))
-    if agents_store is not None:
-        tools.append(create_manage_agents_tool(agents_store, resolver=agents_resolver))
+    if resources_resolver is not None:
+        tools.append(create_skill_tool(resolver=resources_resolver))
+    if resources_store is not None:
+        tools.append(
+            create_manage_resources_tool(
+                resources_store,
+                resolver=resources_resolver,
+            )
+        )
     if task_runtime is not None and agent_runner is not None:
         tools.append(
             create_task_tool(

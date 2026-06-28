@@ -56,11 +56,25 @@ class PromptTemplate(BaseModel):
     content: str
 
 
+class AgentCatalogEntry(BaseModel):
+    name: str
+    description: str
+    when_to_use: str | None = Field(default=None, alias="whenToUse")
+    tools_allow: list[str] | None = Field(default=None, alias="toolsAllow")
+    tools_deny: list[str] | None = Field(default=None, alias="toolsDeny")
+
+    model_config = {"populate_by_name": True}
+
+
 class AgentHarnessResources(BaseModel):
     skills: list[Skill] | None = None
     prompt_templates: list[PromptTemplate] | None = Field(
         default=None,
         alias="promptTemplates",
+    )
+    agent_catalog: list[AgentCatalogEntry] | None = Field(
+        default=None,
+        alias="agentCatalog",
     )
 
     model_config = {"populate_by_name": True}

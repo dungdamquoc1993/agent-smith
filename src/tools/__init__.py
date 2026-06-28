@@ -1,11 +1,5 @@
 """Built-in tool factories for Agent Smith agents."""
 
-from tools.manage_agents import (
-    MANAGE_AGENTS_TOOL_NAME,
-    ManageAgentsToolInput,
-    create_manage_agents_tool,
-)
-from tools.task import TASK_TOOL_NAME, TaskToolInput, create_task_tool
 from tools.ask_user import (
     ASK_USER_QUESTION_TOOL_NAME,
     AskUserQuestionHandler,
@@ -16,12 +10,14 @@ from tools.ask_user import (
     UserQuestion,
     create_ask_user_question_tool,
 )
-from tools.sleep import SLEEP_TOOL_NAME, create_sleep_tool
-from tools.skills import (
-    SKILLS_TOOL_NAME,
-    SkillsToolInput,
-    create_skills_tool,
+from tools.manage_resources import (
+    MANAGE_RESOURCES_TOOL_NAME,
+    ManageResourcesToolInput,
+    create_manage_resources_tool,
 )
+from tools.skill import SKILL_TOOL_NAME, SkillToolInput, create_skill_tool
+from tools.sleep import SLEEP_TOOL_NAME, create_sleep_tool
+from tools.task import TASK_TOOL_NAME, TaskToolInput, create_task_tool
 from tools.task_output import (
     TASK_OUTPUT_TOOL_NAME,
     TaskOutputToolInput,
@@ -44,9 +40,9 @@ from tools.web_search import (
 )
 
 __all__ = [
-    "MANAGE_AGENTS_TOOL_NAME",
+    "MANAGE_RESOURCES_TOOL_NAME",
     "TASK_TOOL_NAME",
-    "ManageAgentsToolInput",
+    "ManageResourcesToolInput",
     "TaskToolInput",
     "ASK_USER_QUESTION_TOOL_NAME",
     "AskUserQuestionHandler",
@@ -60,14 +56,14 @@ __all__ = [
     "SearchProviderRegistry",
     "SearchRequest",
     "SearchResult",
-    "SKILLS_TOOL_NAME",
+    "SKILL_TOOL_NAME",
     "TASK_OUTPUT_TOOL_NAME",
     "TASK_STOP_TOOL_NAME",
     "TODO_WRITE_TOOL_NAME",
     "TavilySearchProvider",
     "TodoItem",
     "TodoWriteInput",
-    "SkillsToolInput",
+    "SkillToolInput",
     "TaskOutputToolInput",
     "TaskStopToolInput",
     "UserQuestion",
@@ -75,12 +71,12 @@ __all__ = [
     "WEB_SEARCH_PROVIDER_ENV",
     "WEB_SEARCH_TOOL_NAME",
     "WebFetchResponse",
-    "create_manage_agents_tool",
+    "create_manage_resources_tool",
     "create_task_tool",
     "create_ask_user_question_tool",
     "create_base_tool_registry",
     "create_sleep_tool",
-    "create_skills_tool",
+    "create_skill_tool",
     "create_task_output_tool",
     "create_task_stop_tool",
     "create_todo_write_tool",

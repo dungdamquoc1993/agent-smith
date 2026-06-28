@@ -417,13 +417,13 @@ add task_stop
 
 Chi lam sau khi Phase 3c green.
 
-Tool co the la `agents` hoac `agent_configs`, nhung nen tach khoi `agent` spawn
+Tool co the la `manage_resources` (kind `agent_definition`), nhung nen tach khoi `task` spawn
 tool. Ly do: spawn la runtime action, config CRUD la resource management.
 
 Factory:
 
 ```python
-create_agents_tool(store: ResourceStore, resolver: ResourceResolver | None = None)
+create_manage_resources_tool(store: ResourceStore, resolver: ResourceResolver | None = None)
 ```
 
 Actions:

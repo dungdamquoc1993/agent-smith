@@ -12,6 +12,7 @@ from agent.harness.types import (
     AgentHarnessResources,
     AgentHarnessSession,
     AgentHarnessStreamOptions,
+    AgentCatalogEntry,
     GetAgentHarnessAuthFn,
 )
 from agent.types import AgentTool, StreamFn
@@ -104,6 +105,13 @@ class AgentFactory:
         compaction_settings: CompactionSettings | None = None,
     ) -> AgentHarnessOptions:
         spec = await self.build_runtime_spec(definition)
+        resolved_resources = await self.resource_resolver.resolve()
+        resources = spec.resources or AgentHarnessResources()
+        resources = AgentHarnessResources(
+            skills=resources.skills,
+            prompt_templates=resources.prompt_templates,
+            agent_catalog=_build_agent_catalog(resolved_resources.agent_definitions),
+        )
         resolved_stream_options = (
             AgentHarnessStreamOptions.model_validate(stream_options)
             if isinstance(stream_options, dict)
@@ -124,7 +132,7 @@ class AgentFactory:
             model=spec.model,
             thinking_level=spec.thinking_level,
             system_prompt=spec.system_prompt,
-            resources=spec.resources,
+            resources=resources,
             tools=tools,
             active_tool_names=active_tool_names,
             stream_fn=stream_fn or self.stream_fn,
@@ -242,3 +250,18 @@ async def _maybe_await(value: MaybeAwaitable[Model | None]) -> Model | None:
     if inspect.isawaitable(value):
         return await value
     return value
+
+
+def _build_agent_catalog(definitions: list[AgentDefinition]) -> list[AgentCatalogEntry] | None:
+    if not definitions:
+        return None
+    return [
+        AgentCatalogEntry(
+            name=definition.name,
+            description=definition.description,
+            when_to_use=definition.when_to_use,
+            tools_allow=definition.tools_allow,
+            tools_deny=definition.tools_deny,
+        )
+        for definition in definitions
+    ]

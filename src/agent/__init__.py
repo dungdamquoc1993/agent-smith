@@ -8,6 +8,7 @@ from agent.agent_loop import (
 )
 from agent.events import AgentEventStream, create_agent_event_stream
 from agent.harness import (
+    AgentCatalogEntry,
     AgentHarness,
     AgentHarnessAuth,
     AgentHarnessError,
@@ -82,6 +83,7 @@ __all__ = [
     "AgentEvent",
     "AgentEventSink",
     "AgentEventStream",
+    "AgentCatalogEntry",
     "AgentHarness",
     "AgentHarnessAuth",
     "AgentHarnessError",
