@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import TypeAlias
 
 from agent.harness import AgentHarness, AgentHarnessOptions
@@ -25,6 +25,8 @@ from permission import (
     PermissionResolver,
     rule_provider_from_store,
 )
+from permission.session_context import visible_session_ids_for_rules
+from agent.harness.session.types import SessionMetadata
 from resources import AgentDefinition, ResourceResolver
 from runtime.tool_registry import ToolRegistry, UnknownToolError
 from runtime.types import AgentRuntimeSpec
@@ -54,6 +56,7 @@ class AgentFactory:
         permission_rule_store: InMemoryPermissionRuleStore | None = None,
         default_permission_mode: str = "default",
         can_use_tool: CanUseTool | None = None,
+        session_metadata_lookup: Callable[[str], Awaitable[SessionMetadata | None]] | None = None,
     ) -> None:
         self.resource_resolver = resource_resolver
         self.tool_registry = tool_registry
@@ -72,6 +75,7 @@ class AgentFactory:
         self.permission_rule_store = permission_rule_store or InMemoryPermissionRuleStore()
         self.default_permission_mode = default_permission_mode
         self.can_use_tool = can_use_tool
+        self.session_metadata_lookup = session_metadata_lookup
 
     async def build_runtime_spec(self, definition: AgentDefinition | str) -> AgentRuntimeSpec:
         resolved_definition = await self._resolve_definition(definition)
@@ -153,10 +157,20 @@ class AgentFactory:
             is_background=is_background,
         )
         rule_store = permission_rule_store or self.permission_rule_store
-        resolver = permission_resolver or self.permission_resolver or PermissionResolver(
-            rule_provider=rule_provider_from_store(rule_store),
-            default_mode=permission_mode,
-        )
+        if permission_resolver is not None or self.permission_resolver is not None:
+            resolver = permission_resolver or self.permission_resolver
+        else:
+            visible_ids = await visible_session_ids_for_rules(
+                session,
+                lookup_metadata=self.session_metadata_lookup,
+            )
+            resolver = PermissionResolver(
+                rule_provider=rule_provider_from_store(
+                    rule_store,
+                    visible_session_ids=visible_ids,
+                ),
+                default_mode=permission_mode,
+            )
         return AgentHarnessOptions(
             session=session,
             model=spec.model,

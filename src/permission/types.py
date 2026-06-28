@@ -35,6 +35,7 @@ class PermissionRule(BaseModel):
     pattern: str
     behavior: PermissionBehavior
     scope: RuleScope = "session"
+    session_id: str | None = Field(default=None, alias="sessionId")
 
     model_config = {"populate_by_name": True}
 
@@ -47,6 +48,7 @@ class PermissionRequest(BaseModel):
     is_background: bool = Field(default=False, alias="isBackground")
     tool_spec: ToolPermissionSpec = Field(default_factory=ToolPermissionSpec, alias="toolSpec")
     message: str | None = None
+    session_id: str | None = Field(default=None, alias="sessionId")
 
     model_config = {"populate_by_name": True}
 

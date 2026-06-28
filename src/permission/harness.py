@@ -6,13 +6,23 @@ from permission.utils import maybe_await
 from agent.types import AgentTool
 from permission.resolver import PermissionResolver
 from permission.store import PermissionRuleStore
-from permission.types import CanUseTool, PermissionDecision, PermissionMode, PermissionRequest
+from permission.types import CanUseTool, PermissionDecision, PermissionMode, PermissionRequest, PermissionRule
 
 
 def _coerce_input(args: object) -> dict:
     if isinstance(args, dict):
         return args
     return {"value": args}
+
+
+def _prepare_persist_rule(rule: PermissionRule, session_id: str | None) -> PermissionRule | None:
+    if rule.scope != "session":
+        return rule
+    if rule.session_id is not None:
+        return rule
+    if session_id is None:
+        return None
+    return rule.model_copy(update={"session_id": session_id})
 
 
 async def resolve_harness_tool_permission(
@@ -25,6 +35,7 @@ async def resolve_harness_tool_permission(
     permission_resolver: PermissionResolver | None,
     can_use_tool: CanUseTool | None,
     permission_rule_store: PermissionRuleStore | None = None,
+    session_id: str | None = None,
 ) -> PermissionDecision | None:
     if permission_resolver is None:
         return None
@@ -37,6 +48,7 @@ async def resolve_harness_tool_permission(
         mode=permission_mode,
         is_background=is_background,
         tool_spec=tool.permission,
+        session_id=session_id,
     )
     decision = await permission_resolver.resolve(
         request,
@@ -60,7 +72,9 @@ async def resolve_harness_tool_permission(
             )
         decision = await maybe_await(can_use_tool(request))
         if decision.persist_rule is not None and permission_rule_store is not None:
-            permission_rule_store.add_rule(decision.persist_rule)
+            prepared = _prepare_persist_rule(decision.persist_rule, session_id)
+            if prepared is not None:
+                permission_rule_store.add_rule(prepared)
 
     return decision
 

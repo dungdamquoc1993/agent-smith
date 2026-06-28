@@ -813,6 +813,7 @@ class AgentHarness:
                 permission_resolver=self.permission_resolver,
                 can_use_tool=self.can_use_tool,
                 permission_rule_store=self.permission_rule_store,
+                session_id=get_turn_state()["session_id"],
             )
             permission_result = (
                 permission_decision_to_before_result(permission_decision)

@@ -103,10 +103,17 @@ async def test_permission_resolver_scope_precedence() -> None:
     store = InMemoryPermissionRuleStore(
         [
             PermissionRule(pattern="*", behavior="allow", scope="user"),
-            PermissionRule(pattern="web_fetch", behavior="allow", scope="session"),
+            PermissionRule(
+                pattern="web_fetch",
+                behavior="allow",
+                scope="session",
+                session_id="sess-a",
+            ),
         ]
     )
-    resolver = PermissionResolver(rule_provider=rule_provider_from_store(store))
+    resolver = PermissionResolver(
+        rule_provider=rule_provider_from_store(store, visible_session_ids=frozenset({"sess-a"}))
+    )
     decision = await resolver.resolve(
         PermissionRequest(
             tool_name="web_fetch",
@@ -257,7 +264,9 @@ async def test_harness_permission_denies_mutating_tool_in_plan_mode() -> None:
         permission=MUTATING_ASK,
     )
     store = InMemoryPermissionRuleStore()
-    resolver = PermissionResolver(rule_provider=rule_provider_from_store(store))
+    resolver = PermissionResolver(
+        rule_provider=rule_provider_from_store(store, visible_session_ids=frozenset())
+    )
     repo = MemorySessionRepo()
     session = await repo.create(principal_id="principal-1")
     harness = AgentHarness(
@@ -314,7 +323,13 @@ async def test_can_use_tool_persists_session_rule_on_approval() -> None:
 
     can_use_tool = create_can_use_tool(tool_approval_handler=approve)
     assert can_use_tool is not None
-    resolver = PermissionResolver(rule_provider=rule_provider_from_store(store))
+    session_id = "sess-1"
+    resolver = PermissionResolver(
+        rule_provider=rule_provider_from_store(
+            store,
+            visible_session_ids=frozenset({session_id}),
+        )
+    )
     decision = await resolver.resolve(
         PermissionRequest(
             tool_name="task",
@@ -344,6 +359,7 @@ async def test_can_use_tool_persists_session_rule_on_approval() -> None:
         permission_resolver=resolver,
         can_use_tool=can_use_tool,
         permission_rule_store=store,
+        session_id=session_id,
     )
     assert approved is not None
     assert approved.behavior == "allow"
@@ -358,3 +374,136 @@ async def test_can_use_tool_persists_session_rule_on_approval() -> None:
     )
     assert follow_up.behavior == "allow"
     assert follow_up.source == "rule:session"
+
+
+@pytest.mark.asyncio
+async def test_session_rules_isolated_between_unrelated_sessions() -> None:
+    store = InMemoryPermissionRuleStore(
+        [
+            PermissionRule(
+                pattern="task",
+                behavior="allow",
+                scope="session",
+                session_id="sess-a",
+            )
+        ]
+    )
+    resolver_a = PermissionResolver(
+        rule_provider=rule_provider_from_store(store, visible_session_ids=frozenset({"sess-a"}))
+    )
+    resolver_b = PermissionResolver(
+        rule_provider=rule_provider_from_store(store, visible_session_ids=frozenset({"sess-b"}))
+    )
+    request = PermissionRequest(
+        tool_name="task",
+        tool_call_id="tc-1",
+        input={"agent_name": "worker", "description": "x", "prompt": "y"},
+        tool_spec=MUTATING_ASK,
+    )
+
+    decision_a = await resolver_a.resolve(request)
+    decision_b = await resolver_b.resolve(request)
+
+    assert decision_a.behavior == "allow"
+    assert decision_a.source == "rule:session"
+    assert decision_b.behavior == "ask"
+
+
+@pytest.mark.asyncio
+async def test_subagent_inherits_parent_session_rules() -> None:
+    from agent.harness.session.types import SessionMetadata
+    from permission.session_context import visible_session_ids_for_rules
+
+    store = InMemoryPermissionRuleStore(
+        [
+            PermissionRule(
+                pattern="task",
+                behavior="allow",
+                scope="session",
+                session_id="parent",
+            )
+        ]
+    )
+    parent_metadata = SessionMetadata(id="parent")
+    child_metadata = SessionMetadata(id="child", parent_session_id="parent")
+
+    async def lookup(session_id: str) -> SessionMetadata | None:
+        if session_id == "parent":
+            return parent_metadata
+        return None
+
+    class _Session:
+        def __init__(self, metadata: SessionMetadata) -> None:
+            self._metadata = metadata
+
+        async def get_metadata(self) -> SessionMetadata:
+            return self._metadata
+
+    child_visible = await visible_session_ids_for_rules(
+        _Session(child_metadata),
+        lookup_metadata=lookup,
+    )
+    assert child_visible == frozenset({"child", "parent"})
+
+    resolver = PermissionResolver(
+        rule_provider=rule_provider_from_store(store, visible_session_ids=child_visible)
+    )
+    decision = await resolver.resolve(
+        PermissionRequest(
+            tool_name="task",
+            tool_call_id="tc-1",
+            input={"agent_name": "worker", "description": "x", "prompt": "y"},
+            tool_spec=MUTATING_ASK,
+        )
+    )
+    assert decision.behavior == "allow"
+    assert decision.source == "rule:session"
+
+
+@pytest.mark.asyncio
+async def test_persist_rule_stamps_session_id() -> None:
+    from permission.harness import resolve_harness_tool_permission
+
+    store = InMemoryPermissionRuleStore()
+    session_id = "sess-stamp"
+
+    async def approve(_request: PermissionRequest) -> PermissionDecision:
+        return PermissionDecision.allow(
+            source="user",
+            persist_rule=PermissionRule(
+                pattern="task",
+                behavior="allow",
+                scope="session",
+            ),
+        )
+
+    can_use_tool = create_can_use_tool(tool_approval_handler=approve)
+    resolver = PermissionResolver(
+        rule_provider=rule_provider_from_store(
+            store,
+            visible_session_ids=frozenset({session_id}),
+        )
+    )
+    tool = AgentTool(
+        name="task",
+        label="Task",
+        description="task",
+        parameters={"type": "object", "properties": {}, "additionalProperties": True},
+        execute=lambda *_args, **_kwargs: AgentToolResult(content=[TextContent(text="ok")]),
+        permission=MUTATING_ASK,
+    )
+    await resolve_harness_tool_permission(
+        tool=tool,
+        tool_call_id="tc-1",
+        args={"agent_name": "worker", "description": "x", "prompt": "y"},
+        permission_mode="default",
+        is_background=False,
+        permission_resolver=resolver,
+        can_use_tool=can_use_tool,
+        permission_rule_store=store,
+        session_id=session_id,
+    )
+
+    rules = store.rules_for_scope("session")
+    assert len(rules) == 1
+    assert rules[0].session_id == session_id
