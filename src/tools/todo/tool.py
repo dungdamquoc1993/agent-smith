@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from agent.types import AgentTool
+from permission.tool_specs import READ_ONLY_ALLOW
 from tools.shared.common import text_result
 from tools.todo.constants import TODO_WRITE_TOOL_NAME
 
@@ -70,4 +71,5 @@ def create_todo_write_tool() -> AgentTool:
             "additionalProperties": False,
         },
         execute=execute,
+        permission=READ_ONLY_ALLOW,
     )

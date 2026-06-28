@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from agent.types import AgentTool
+from permission.tool_specs import READ_ONLY_ALLOW, TASK_ASK
 from tasks import TaskRuntime, TaskTimeoutError
 from tools.shared.common import text_result
 from tools.shared.task_serialization import task_output_to_details, task_record_to_details
@@ -91,4 +92,5 @@ def create_task_output_tool(
         },
         execute=execute,
         execution_mode="parallel",
+        permission=READ_ONLY_ALLOW,
     )

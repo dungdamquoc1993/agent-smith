@@ -6,6 +6,8 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from agent.types import AgentTool
+from permission.host import ToolApprovalHandler, create_can_use_tool
+from permission.types import CanUseTool
 from resources import ResourceResolver, ResourceStore
 from runtime import ToolRegistry
 from tasks import AgentTaskRunner, TaskRuntime
@@ -19,6 +21,17 @@ from tools.task_stop import create_task_stop_tool
 from tools.todo import create_todo_write_tool
 from tools.web_fetch import WebFetcher, create_web_fetch_tool
 from tools.web_search import SearchProviderRegistry, create_web_search_tool
+
+
+def create_base_can_use_tool(
+    *,
+    ask_user_handler: AskUserQuestionHandler | None = None,
+    tool_approval_handler: ToolApprovalHandler | None = None,
+) -> CanUseTool | None:
+    return create_can_use_tool(
+        ask_user_handler=ask_user_handler,
+        tool_approval_handler=tool_approval_handler,
+    )
 
 
 def create_base_tool_registry(

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Literal, Protocol, TypedDict, runtime_checkable
+from typing import Any, Literal, Protocol, TypedDict, runtime_checkable
 
 from pydantic import BaseModel, Field
 
@@ -22,6 +22,7 @@ from ai.types import (
 from agent.types import AgentEvent, AgentMessage, AgentTool, StreamFn
 from agent.harness.compaction import CompactionPreparation, CompactionSettings
 from agent.harness.session.types import SessionContext, SessionMetadata, SessionTreeEntry
+from permission.types import PermissionMode
 
 
 class Result(BaseModel):
@@ -355,6 +356,9 @@ class BeforeProviderPayloadResult(BaseModel):
 class ToolCallResult(BaseModel):
     block: bool | None = None
     reason: str | None = None
+    updated_args: JsonObject | None = Field(default=None, alias="updatedArgs")
+
+    model_config = {"populate_by_name": True}
 
 
 class ToolResultPatch(BaseModel):
@@ -408,6 +412,19 @@ class AgentHarnessOptions(BaseModel):
         default=None,
         alias="compactionSettings",
     )
+    permission_mode: PermissionMode = Field(default="default", alias="permissionMode")
+    permission_resolver: Any | None = Field(
+        default=None,
+        alias="permissionResolver",
+        exclude=True,
+    )
+    can_use_tool: Any | None = Field(default=None, alias="canUseTool", exclude=True)
+    permission_rule_store: Any | None = Field(
+        default=None,
+        alias="permissionRuleStore",
+        exclude=True,
+    )
+    is_background: bool = Field(default=False, alias="isBackground")
 
     model_config = {
         "populate_by_name": True,

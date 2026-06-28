@@ -89,6 +89,10 @@ from agent.types import (
     StreamFn,
     TurnEndEvent,
 )
+from permission.harness import (
+    permission_decision_to_before_result,
+    resolve_harness_tool_permission,
+)
 from tools.skill.constants import SKILL_TOOL_NAME
 from tools.task.constants import TASK_TOOL_NAME
 
@@ -276,6 +280,11 @@ class AgentHarness:
             else list(self.tools.keys())
         )
         self.stream_fn = resolved.stream_fn
+        self.permission_mode = resolved.permission_mode
+        self.permission_resolver = resolved.permission_resolver
+        self.can_use_tool = resolved.can_use_tool
+        self.permission_rule_store = resolved.permission_rule_store
+        self.is_background = resolved.is_background
 
         self.phase = "idle"
         self._run_signal: asyncio.Event | None = None
@@ -785,7 +794,34 @@ class AgentHarness:
                 ),
                 ToolCallResult,
             )
-            return result.model_dump(exclude_none=True) if result else None
+            if result and result.block:
+                return result.model_dump(exclude_none=True, by_alias=True)
+
+            tool = next(
+                (candidate for candidate in context.context.tools or [] if candidate.name == context.tool_call.name),
+                None,
+            )
+            if tool is None:
+                return result.model_dump(exclude_none=True, by_alias=True) if result else None
+
+            permission_decision = await resolve_harness_tool_permission(
+                tool=tool,
+                tool_call_id=context.tool_call.id,
+                args=context.args,
+                permission_mode=self.permission_mode,
+                is_background=self.is_background,
+                permission_resolver=self.permission_resolver,
+                can_use_tool=self.can_use_tool,
+                permission_rule_store=self.permission_rule_store,
+            )
+            permission_result = (
+                permission_decision_to_before_result(permission_decision)
+                if permission_decision is not None
+                else None
+            )
+            if permission_result is not None:
+                return permission_result
+            return result.model_dump(exclude_none=True, by_alias=True) if result else None
 
         async def after_tool_call(
             context: AfterToolCallContext,

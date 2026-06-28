@@ -273,6 +273,11 @@ async def prepare_tool_call(
                         ),
                         is_error=True,
                     )
+                if before.updated_args is not None:
+                    validated_args = validate_tool_arguments(
+                        tool,
+                        tool_call.model_copy(update={"arguments": before.updated_args}),
+                    )
         if is_aborted(signal):
             return ImmediateToolCallOutcome(
                 result=create_error_tool_result("Operation aborted"),

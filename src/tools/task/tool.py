@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from agent.types import AgentTool
+from permission.tool_specs import READ_ONLY_ALLOW, TASK_ASK
 from tasks import AgentTaskRunner, TaskRuntime, TaskTimeoutError
 from tools.shared.common import is_aborted, text_result
 from tools.shared.task_serialization import (
@@ -159,6 +160,7 @@ def create_task_tool(
         },
         execute=execute,
         execution_mode="sequential",
+        permission=TASK_ASK,
     )
 
 

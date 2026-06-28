@@ -7,7 +7,9 @@ from collections.abc import Callable
 from pydantic import BaseModel, Field
 
 from agent.types import AbortSignal, AgentTool
-from ai.types import HookPayload
+from ai.types import HookPayload, JsonObject
+from permission.tool_specs import INTERACTIVE_ASK
+from permission.types import PermissionDecision
 from tools.ask_user.constants import ASK_USER_QUESTION_TOOL_NAME
 from tools.shared.common import MaybeAwaitable, await_with_abort, text_result
 
@@ -55,8 +57,32 @@ def create_ask_user_question_tool(
     handler: AskUserQuestionHandler | None = None,
     timeout_seconds: float | None = None,
 ) -> AgentTool:
+    async def check_permissions(tool_input: JsonObject) -> PermissionDecision:
+        return PermissionDecision.ask(
+            message="Answer questions?",
+            updated_input=tool_input,
+            source="ask_user",
+        )
+
     async def execute(tool_call_id, args, signal=None, on_update=None):
         _ = on_update
+        answers = args.get("answers")
+        if isinstance(answers, dict) and answers:
+            answer_parts = [f'"{question}"="{answer}"' for question, answer in answers.items()]
+            details: dict[str, HookPayload] = {
+                "questions": args.get("questions", []),
+                "answers": dict(answers),
+            }
+            annotations = args.get("annotations")
+            if annotations:
+                details["annotations"] = annotations
+            return text_result(
+                "User answered questions: "
+                + ", ".join(answer_parts)
+                + ". Continue with these answers in mind.",
+                details=details,
+            )
+
         if handler is None:
             raise RuntimeError("ask_user_question is not configured with a handler")
 
@@ -143,10 +169,18 @@ def create_ask_user_question_tool(
                     },
                 },
                 "metadata": {"type": "object"},
+                "answers": {
+                    "type": "object",
+                    "description": "User answers collected by the permission component.",
+                    "additionalProperties": {"type": "string"},
+                },
+                "annotations": {"type": "object"},
             },
             "required": ["questions"],
             "additionalProperties": False,
         },
         execute=execute,
         execution_mode="sequential",
+        permission=INTERACTIVE_ASK,
+        check_permissions=check_permissions,
     )

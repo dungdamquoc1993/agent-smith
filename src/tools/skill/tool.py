@@ -11,6 +11,7 @@ from agent.harness.resources import (
 )
 from agent.harness.types import Skill
 from agent.types import AgentTool
+from permission.tool_specs import READ_ONLY_ALLOW
 from resources import ResourceNotFoundError, ResourceResolver, skill_from_record
 from tools.shared.common import text_result
 from tools.shared.resource_management._handlers import find_resource_record
@@ -72,6 +73,7 @@ def create_skill_tool(
         },
         execute=execute,
         execution_mode="sequential",
+        permission=READ_ONLY_ALLOW,
     )
 
 

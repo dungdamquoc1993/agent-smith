@@ -10,6 +10,7 @@ packages = [
     { include = "ai", from = "src" },
     { include = "db", from = "src" },
     { include = "resources", from = "src" },
+    { include = "permission", from = "src" },
     { include = "runtime", from = "src" },
     { include = "tasks", from = "src" },
     { include = "tools", from = "src" },

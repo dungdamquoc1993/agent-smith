@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     openrouter_api_key: str | None = None
     mcp_credentials_key: str | None = None
+    default_permission_mode: str = "default"
 
 
 @lru_cache

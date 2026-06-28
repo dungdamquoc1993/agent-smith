@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field, model_validator
 
 from agent.types import AgentTool
 from ai.types import JsonObject
+from permission.tool_specs import MUTATING_ASK
+from permission.types import PermissionDecision
 from resources import ResourceKind, ResourceResolver, ResourceStore
 from tools.manage_resources.constants import MANAGE_RESOURCES_TOOL_NAME, RESOURCE_KINDS
 from tools.shared.resource_management._handlers import (
@@ -77,6 +79,12 @@ def create_manage_resources_tool(
             return await delete_resource(store, payload.kind, payload.name or "")
         raise ValueError(f"Unsupported manage_resources action: {payload.action}")
 
+    async def check_permissions(tool_input: JsonObject) -> PermissionDecision | None:
+        action = str(tool_input.get("action", ""))
+        if action in {"list", "read"}:
+            return PermissionDecision.allow(source="tool_check:read_only_action")
+        return None
+
     return AgentTool(
         name=MANAGE_RESOURCES_TOOL_NAME,
         label="Manage Resources",
@@ -117,4 +125,6 @@ def create_manage_resources_tool(
         },
         execute=execute,
         execution_mode="sequential",
+        permission=MUTATING_ASK,
+        check_permissions=check_permissions,
     )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from agent.types import AgentTool
 from ai.types import JsonObject
+from permission.tool_specs import MCP_ASK, READ_ONLY_ALLOW
 
 from agent_mcp.naming import mcp_tool_name
 from agent_mcp.types import McpServerConfig, McpToolDefinition, McpToolIdentity
@@ -39,6 +40,7 @@ def create_mcp_agent_tool(
         parameters=tool.input_schema or _empty_object_schema(),
         execute=execute,
         execution_mode="parallel" if tool.read_only else "sequential",
+        permission=READ_ONLY_ALLOW if tool.read_only else MCP_ASK,
     )
 
 

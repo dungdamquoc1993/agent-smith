@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from agent.types import AgentTool
+from permission.tool_specs import TASK_ASK
 from tasks import TaskAlreadyFinishedError, TaskRuntime
 from tools.shared.common import text_result
 from tools.shared.task_serialization import task_record_to_details
@@ -51,4 +52,5 @@ def create_task_stop_tool(task_runtime: TaskRuntime) -> AgentTool:
         },
         execute=execute,
         execution_mode="parallel",
+        permission=TASK_ASK,
     )

@@ -26,6 +26,7 @@ from ai.types import (
     ToolCall,
     ToolResultMessage,
 )
+from permission.types import CheckPermissionsFn, ToolPermissionSpec
 
 AgentMessage = Message
 AgentToolCall = ToolCall
@@ -61,6 +62,8 @@ class AgentTool(Tool):
     )
     execute: AgentToolExecute = Field(exclude=True)
     execution_mode: ToolExecutionMode | None = Field(default=None, alias="executionMode")
+    permission: ToolPermissionSpec = Field(default_factory=ToolPermissionSpec)
+    check_permissions: CheckPermissionsFn | None = Field(default=None, exclude=True)
 
     model_config = {
         "populate_by_name": True,
@@ -86,6 +89,9 @@ def default_convert_to_llm(messages: list[AgentMessage]) -> list[Message]:
 class BeforeToolCallResult(BaseModel):
     block: bool | None = None
     reason: str | None = None
+    updated_args: JsonObject | None = Field(default=None, alias="updatedArgs")
+
+    model_config = {"populate_by_name": True}
 
 
 class AfterToolCallResult(BaseModel):

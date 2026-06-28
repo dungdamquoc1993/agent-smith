@@ -18,6 +18,13 @@ from agent.harness.types import (
 from agent.types import AgentTool, StreamFn
 from ai.models import get_model
 from ai.types import MaybeAwaitable, Model
+from permission import (
+    CanUseTool,
+    InMemoryPermissionRuleStore,
+    PermissionMode,
+    PermissionResolver,
+    rule_provider_from_store,
+)
 from resources import AgentDefinition, ResourceResolver
 from runtime.tool_registry import ToolRegistry, UnknownToolError
 from runtime.types import AgentRuntimeSpec
@@ -43,6 +50,10 @@ class AgentFactory:
         stream_options: AgentHarnessStreamOptions | dict | None = None,
         compaction_settings: CompactionSettings | None = None,
         mcp_manager: McpConnectionManager | None = None,
+        permission_resolver: PermissionResolver | None = None,
+        permission_rule_store: InMemoryPermissionRuleStore | None = None,
+        default_permission_mode: str = "default",
+        can_use_tool: CanUseTool | None = None,
     ) -> None:
         self.resource_resolver = resource_resolver
         self.tool_registry = tool_registry
@@ -57,6 +68,10 @@ class AgentFactory:
         )
         self.compaction_settings = compaction_settings
         self.mcp_manager = mcp_manager
+        self.permission_resolver = permission_resolver
+        self.permission_rule_store = permission_rule_store or InMemoryPermissionRuleStore()
+        self.default_permission_mode = default_permission_mode
+        self.can_use_tool = can_use_tool
 
     async def build_runtime_spec(self, definition: AgentDefinition | str) -> AgentRuntimeSpec:
         resolved_definition = await self._resolve_definition(definition)
@@ -103,6 +118,11 @@ class AgentFactory:
         get_api_key_and_headers: GetAgentHarnessAuthFn | None = None,
         stream_options: AgentHarnessStreamOptions | dict | None = None,
         compaction_settings: CompactionSettings | None = None,
+        is_background: bool = False,
+        permission_mode_override: str | None = None,
+        can_use_tool: CanUseTool | None = None,
+        permission_resolver: PermissionResolver | None = None,
+        permission_rule_store: InMemoryPermissionRuleStore | None = None,
     ) -> AgentHarnessOptions:
         spec = await self.build_runtime_spec(definition)
         resolved_resources = await self.resource_resolver.resolve()
@@ -127,6 +147,16 @@ class AgentFactory:
             )
             tools.extend(materialized.tools)
             active_tool_names.extend(materialized.active_tool_names)
+        permission_mode = _resolve_permission_mode(
+            permission_mode_override or spec.permission_mode,
+            self.default_permission_mode,
+            is_background=is_background,
+        )
+        rule_store = permission_rule_store or self.permission_rule_store
+        resolver = permission_resolver or self.permission_resolver or PermissionResolver(
+            rule_provider=rule_provider_from_store(rule_store),
+            default_mode=permission_mode,
+        )
         return AgentHarnessOptions(
             session=session,
             model=spec.model,
@@ -139,6 +169,11 @@ class AgentFactory:
             get_api_key_and_headers=get_api_key_and_headers or self.get_api_key_and_headers,
             stream_options=resolved_stream_options,
             compaction_settings=compaction_settings or self.compaction_settings,
+            permission_mode=permission_mode,
+            permission_resolver=resolver,
+            can_use_tool=can_use_tool or self.can_use_tool,
+            permission_rule_store=rule_store,
+            is_background=is_background,
         )
 
     async def create_harness(
@@ -150,6 +185,11 @@ class AgentFactory:
         get_api_key_and_headers: GetAgentHarnessAuthFn | None = None,
         stream_options: AgentHarnessStreamOptions | dict | None = None,
         compaction_settings: CompactionSettings | None = None,
+        is_background: bool = False,
+        permission_mode_override: str | None = None,
+        can_use_tool: CanUseTool | None = None,
+        permission_resolver: PermissionResolver | None = None,
+        permission_rule_store: InMemoryPermissionRuleStore | None = None,
     ) -> AgentHarness:
         return AgentHarness(
             await self.create_options(
@@ -159,6 +199,11 @@ class AgentFactory:
                 get_api_key_and_headers=get_api_key_and_headers,
                 stream_options=stream_options,
                 compaction_settings=compaction_settings,
+                is_background=is_background,
+                permission_mode_override=permission_mode_override,
+                can_use_tool=can_use_tool,
+                permission_resolver=permission_resolver,
+                permission_rule_store=permission_rule_store,
             )
         )
 
@@ -250,6 +295,20 @@ async def _maybe_await(value: MaybeAwaitable[Model | None]) -> Model | None:
     if inspect.isawaitable(value):
         return await value
     return value
+
+
+def _resolve_permission_mode(
+    value: str | None,
+    default: str,
+    *,
+    is_background: bool,
+) -> PermissionMode:
+    if value is None and is_background:
+        return "accept_edits"
+    resolved = value or default
+    if resolved not in {"plan", "default", "accept_edits", "bypass"}:
+        raise AgentFactoryError(f"Unknown permission mode: {resolved}")
+    return resolved  # type: ignore[return-value]
 
 
 def _build_agent_catalog(definitions: list[AgentDefinition]) -> list[AgentCatalogEntry] | None:

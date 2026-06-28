@@ -6,6 +6,7 @@ import asyncio
 import time
 
 from agent.types import AgentTool
+from permission.tool_specs import READ_ONLY_ALLOW
 from tools.shared.common import is_aborted, text_result
 from tools.sleep.constants import SLEEP_TOOL_NAME
 
@@ -54,4 +55,5 @@ def create_sleep_tool(max_seconds: float = 300) -> AgentTool:
         },
         execute=execute,
         execution_mode="parallel",
+        permission=READ_ONLY_ALLOW,
     )

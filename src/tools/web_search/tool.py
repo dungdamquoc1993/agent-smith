@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from agent.types import AgentTool
 from ai.types import JsonObject
+from permission.tool_specs import READ_ONLY_ALLOW
 from tools.shared.common import MaybeAwaitable, maybe_await, text_result
 from tools.web_search.constants import WEB_SEARCH_PROVIDER_ENV, WEB_SEARCH_TOOL_NAME
 
@@ -228,6 +229,7 @@ def create_web_search_tool(
         },
         execute=execute,
         execution_mode="parallel",
+        permission=READ_ONLY_ALLOW,
     )
 
 

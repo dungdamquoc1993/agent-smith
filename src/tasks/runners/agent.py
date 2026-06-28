@@ -99,7 +99,13 @@ class AgentTaskRunner:
         child_session = await self._create_child_session(session_request)
         child_metadata = await child_session.get_metadata()
         await task_context.set_result_metadata({"sessionId": child_metadata.id})
-        harness = await self.agent_factory.create_harness(agent_name, session=child_session)
+        is_background = session_request.mode == "async"
+        harness = await self.agent_factory.create_harness(
+            agent_name,
+            session=child_session,
+            is_background=is_background,
+            permission_mode_override=None,
+        )
 
         await task_context.append_output(f"Started agent {agent_name}.\n")
         response = await self._prompt_with_abort(

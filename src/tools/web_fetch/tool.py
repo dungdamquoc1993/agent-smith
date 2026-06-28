@@ -13,6 +13,7 @@ from collections.abc import Callable
 from pydantic import BaseModel, Field
 
 from agent.types import AgentTool
+from permission.tool_specs import READ_ONLY_ALLOW
 from tools.shared.common import MaybeAwaitable, maybe_await, text_result
 from tools.web_fetch.constants import WEB_FETCH_TOOL_NAME
 
@@ -97,6 +98,7 @@ def create_web_fetch_tool(
         },
         execute=execute,
         execution_mode="parallel",
+        permission=READ_ONLY_ALLOW,
     )
 
 

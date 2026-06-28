@@ -1,0 +1,1 @@
+this project is for education purpose the code from src/ folder is leak from claude code the main purpose is learn from architect and write it in a docs. 
