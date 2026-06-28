@@ -8,9 +8,8 @@ from pydantic import BaseModel, Field
 
 from agent.types import AbortSignal, AgentTool
 from ai.types import HookPayload
-from tools._common import MaybeAwaitable, await_with_abort, text_result
-
-ASK_USER_QUESTION_TOOL_NAME = "ask_user_question"
+from tools.ask_user.constants import ASK_USER_QUESTION_TOOL_NAME
+from tools.shared.common import MaybeAwaitable, await_with_abort, text_result
 
 
 class QuestionOption(BaseModel):

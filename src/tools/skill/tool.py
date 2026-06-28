@@ -12,10 +12,9 @@ from agent.harness.resources import (
 from agent.harness.types import Skill
 from agent.types import AgentTool
 from resources import ResourceNotFoundError, ResourceResolver, skill_from_record
-from tools._common import text_result
-from tools.resource_management._handlers import find_resource_record
-
-SKILL_TOOL_NAME = "skill"
+from tools.shared.common import text_result
+from tools.shared.resource_management._handlers import find_resource_record
+from tools.skill.constants import SKILL_TOOL_NAME
 
 
 class SkillToolInput(BaseModel):

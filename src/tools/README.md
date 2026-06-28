@@ -6,6 +6,23 @@ This package contains concrete tools that can be registered with
 `runtime.ToolRegistry` and then selected by `AgentFactory` through
 `toolsAllow` / `toolsDeny`.
 
+## Layout
+
+Each tool lives in its own snake_case package under `src/tools/`:
+
+```text
+src/tools/
+  __init__.py       # public re-exports (from tools import ...)
+  registry.py       # create_base_tool_registry()
+  shared/           # common helpers (not part of public API)
+  sleep/, todo/, ask_user/, web_fetch/, web_search/
+  skill/, manage_resources/
+  task/, task_output/, task_stop/
+```
+
+Each tool package contains `constants.py` (wire name), `tool.py` (factory + logic),
+and `__init__.py` (package re-exports).
+
 ## Factories
 
 | Factory | Tool name | Purpose |

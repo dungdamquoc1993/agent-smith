@@ -6,10 +6,9 @@ from pydantic import BaseModel, Field
 
 from agent.types import AgentTool
 from tasks import TaskRuntime, TaskTimeoutError
-from tools._common import text_result
-from tools._task_serialization import task_output_to_details, task_record_to_details
-
-TASK_OUTPUT_TOOL_NAME = "task_output"
+from tools.shared.common import text_result
+from tools.shared.task_serialization import task_output_to_details, task_record_to_details
+from tools.task_output.constants import TASK_OUTPUT_TOOL_NAME
 
 
 class TaskOutputToolInput(BaseModel):

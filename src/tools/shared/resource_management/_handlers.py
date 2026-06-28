@@ -12,9 +12,9 @@ from resources import (
     ResourceUpdate,
 )
 from resources.types import ResourceKind
-from tools._common import text_result
-from tools.resource_management._details import kind_label, record_to_summary
-from tools.resource_management._validators import (
+from tools.shared.common import text_result
+from tools.shared.resource_management._details import kind_label, record_to_summary
+from tools.shared.resource_management._validators import (
     build_create_content,
     merge_update_content,
 )

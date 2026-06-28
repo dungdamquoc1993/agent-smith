@@ -8,9 +8,9 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from agent.types import AgentTool
-from tools._common import text_result
+from tools.shared.common import text_result
+from tools.todo.constants import TODO_WRITE_TOOL_NAME
 
-TODO_WRITE_TOOL_NAME = "todo_write"
 TodoStatus = Literal["pending", "in_progress", "completed"]
 
 

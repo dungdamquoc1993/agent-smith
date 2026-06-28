@@ -89,10 +89,10 @@ from agent.types import (
     StreamFn,
     TurnEndEvent,
 )
+from tools.skill.constants import SKILL_TOOL_NAME
+from tools.task.constants import TASK_TOOL_NAME
 
 SUBSCRIBER_EVENT_TYPE = "*"
-SKILL_TOOL_NAME = "skill"
-TASK_TOOL_NAME = "task"
 
 
 def create_user_message(text: str, images: list[ImageContent] | None = None) -> UserMessage:

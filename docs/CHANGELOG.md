@@ -8,6 +8,12 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 
 ## [Unreleased]
 
+### Changed - Tools package layout
+
+- Reorganize [`src/tools/`](../src/tools/) from flat modules into one snake_case folder per tool (`skill/`, `task/`, `manage_resources/`, …).
+- Move shared helpers to [`tools/shared/`](../src/tools/shared/) (`common.py`, `task_serialization.py`, `resource_management/`).
+- Rename `utils.py` → `registry.py` (`create_base_tool_registry`); public `from tools import ...` API unchanged.
+
 ### Changed - Resource tools refactor
 
 - Thay `skills` CRUD tool bang `skill` invoke-only (`skill` + optional `args`), mirror Claude Code `SkillTool`.

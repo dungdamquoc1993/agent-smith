@@ -6,9 +6,8 @@ import asyncio
 import time
 
 from agent.types import AgentTool
-from tools._common import is_aborted, text_result
-
-SLEEP_TOOL_NAME = "sleep"
+from tools.shared.common import is_aborted, text_result
+from tools.sleep.constants import SLEEP_TOOL_NAME
 
 
 def create_sleep_tool(max_seconds: float = 300) -> AgentTool:

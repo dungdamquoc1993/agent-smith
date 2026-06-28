@@ -9,7 +9,8 @@ from pydantic import BaseModel, Field, model_validator
 from agent.types import AgentTool
 from ai.types import JsonObject
 from resources import ResourceKind, ResourceResolver, ResourceStore
-from tools.resource_management._handlers import (
+from tools.manage_resources.constants import MANAGE_RESOURCES_TOOL_NAME, RESOURCE_KINDS
+from tools.shared.resource_management._handlers import (
     create_resource,
     delete_resource,
     list_resources,
@@ -17,14 +18,7 @@ from tools.resource_management._handlers import (
     update_resource,
 )
 
-MANAGE_RESOURCES_TOOL_NAME = "manage_resources"
 ManageResourcesAction = Literal["list", "read", "create", "update", "delete"]
-RESOURCE_KINDS: tuple[ResourceKind, ...] = (
-    "skill",
-    "prompt_template",
-    "agent_definition",
-    "mcp_server_config",
-)
 
 
 class ManageResourcesToolInput(BaseModel):

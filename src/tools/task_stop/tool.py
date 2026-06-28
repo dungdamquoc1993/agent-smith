@@ -6,10 +6,9 @@ from pydantic import BaseModel, Field
 
 from agent.types import AgentTool
 from tasks import TaskAlreadyFinishedError, TaskRuntime
-from tools._common import text_result
-from tools._task_serialization import task_record_to_details
-
-TASK_STOP_TOOL_NAME = "task_stop"
+from tools.shared.common import text_result
+from tools.shared.task_serialization import task_record_to_details
+from tools.task_stop.constants import TASK_STOP_TOOL_NAME
 
 
 class TaskStopToolInput(BaseModel):

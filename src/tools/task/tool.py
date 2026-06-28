@@ -10,15 +10,15 @@ from pydantic import BaseModel, Field
 
 from agent.types import AgentTool
 from tasks import AgentTaskRunner, TaskRuntime, TaskTimeoutError
-from tools._common import is_aborted, text_result
-from tools._task_serialization import (
+from tools.shared.common import is_aborted, text_result
+from tools.shared.task_serialization import (
     serialize_value,
     task_output_to_details,
     task_record_to_details,
     task_result_text,
 )
+from tools.task.constants import TASK_TOOL_NAME
 
-TASK_TOOL_NAME = "task"
 TaskToolMode = Literal["sync", "async"]
 TaskToolParentMetadata = Mapping[str, Any] | Callable[[], Mapping[str, Any]]
 

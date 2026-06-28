@@ -15,10 +15,8 @@ from pydantic import BaseModel, Field
 
 from agent.types import AgentTool
 from ai.types import JsonObject
-from tools._common import MaybeAwaitable, maybe_await, text_result
-
-WEB_SEARCH_TOOL_NAME = "web_search"
-WEB_SEARCH_PROVIDER_ENV = "AGENT_SMITH_WEB_SEARCH_PROVIDER"
+from tools.shared.common import MaybeAwaitable, maybe_await, text_result
+from tools.web_search.constants import WEB_SEARCH_PROVIDER_ENV, WEB_SEARCH_TOOL_NAME
 
 
 class SearchResult(BaseModel):

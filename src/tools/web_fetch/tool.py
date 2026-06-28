@@ -13,9 +13,9 @@ from collections.abc import Callable
 from pydantic import BaseModel, Field
 
 from agent.types import AgentTool
-from tools._common import MaybeAwaitable, maybe_await, text_result
+from tools.shared.common import MaybeAwaitable, maybe_await, text_result
+from tools.web_fetch.constants import WEB_FETCH_TOOL_NAME
 
-WEB_FETCH_TOOL_NAME = "web_fetch"
 DEFAULT_MAX_CHARS = 50_000
 
 
