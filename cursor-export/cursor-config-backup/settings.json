@@ -1,0 +1,90 @@
+{
+  "[typescript]": {
+    "editor.defaultFormatter": "vscode.typescript-language-features"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[python]": {
+    "editor.formatOnSave": true,
+    "editor.formatOnType": true,
+    "editor.defaultFormatter": "ms-python.black-formatter"
+  },
+  "[html]": {
+    "editor.defaultFormatter": "vscode.html-language-features"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[vue]": {
+    "editor.defaultFormatter": "Vue.volar"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "workbench.iconTheme": "vscode-icons",
+  "[jsonc]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "github.copilot.editor.enableAutoCompletions": true,
+  "[yaml]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "workbench.startupEditor": "none",
+  "remote.SSH.connectTimeout": 60,
+  "gopls": {
+    "staticcheck": true,
+    "usePlaceholders": true,
+    "completeUnimported": true,
+    "analyses": {
+      "fieldalignment": true,
+      "unusedparams": true
+    },
+    "codelenses": {
+      "generate": true,
+      "gc_details": true
+    }
+  },
+  "github.copilot.enable": {
+    "editor.inlineSuggest.enabled": true,
+    "github.copilot.autoComplete": true,
+    "github.copilot.enable": true,
+    "github.copilot.showEditorCompletions": true
+  },
+  "prettier.trailingComma": "all",
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[go]": {
+    "editor.defaultFormatter": "golang.go"
+  },
+  "roo-cline.allowedCommands": [
+    "npm test",
+    "npm install",
+    "tsc",
+    "git log",
+    "git diff",
+    "git show"
+  ],
+  "workbench.editor.empty.hint": "hidden",
+  "editor.inlineSuggest.suppressSuggestions": true,
+  "go.toolsManagement.autoUpdate": true,
+  "cursor.cpp.enablePartialAccepts": true,
+  "cursor.general.disableHttp2": true,
+  "workbench.activityBar.orientation": "vertical",
+  "[dockercompose]": {
+    "editor.insertSpaces": true,
+    "editor.tabSize": 2,
+    "editor.autoIndent": "advanced",
+    "editor.quickSuggestions": {
+      "other": true,
+      "comments": false,
+      "strings": true
+    },
+    "editor.defaultFormatter": "redhat.vscode-yaml"
+  },
+  "[github-actions-workflow]": {
+    "editor.defaultFormatter": "redhat.vscode-yaml"
+  },
+  "[sql]": {
+    "editor.defaultFormatter": "adpyke.vscode-sql-formatter"
+  }
+}
