@@ -13,16 +13,23 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    principal_type = sa.Enum(
+    principal_type = postgresql.ENUM(
         "human",
         "service_account",
         "agent",
         "subagent",
         "system_job",
         name="principal_type",
+        create_type=False,
     )
-    principal_status = sa.Enum("active", "inactive", "pending", name="principal_status")
-    session_entry_type = sa.Enum(
+    principal_status = postgresql.ENUM(
+        "active",
+        "inactive",
+        "pending",
+        name="principal_status",
+        create_type=False,
+    )
+    session_entry_type = postgresql.ENUM(
         "message",
         "model_change",
         "thinking_level_change",
@@ -35,6 +42,7 @@ def upgrade() -> None:
         "session_info",
         "leaf",
         name="session_entry_type",
+        create_type=False,
     )
 
     principal_type.create(op.get_bind(), checkfirst=True)

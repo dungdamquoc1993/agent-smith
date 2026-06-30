@@ -13,28 +13,31 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    resource_kind = sa.Enum(
+    resource_kind = postgresql.ENUM(
         "skill",
         "prompt_template",
         "agent_definition",
         "mcp_server_config",
         name="resource_kind",
+        create_type=False,
     )
-    resource_scope = sa.Enum(
+    resource_scope = postgresql.ENUM(
         "builtin",
         "file",
         "project",
         "user",
         "session",
         name="resource_scope",
+        create_type=False,
     )
-    resource_source_type = sa.Enum(
+    resource_source_type = postgresql.ENUM(
         "builtin",
         "filesystem",
         "memory",
         "plugin",
         "postgres",
         name="resource_source_type",
+        create_type=False,
     )
 
     resource_kind.create(op.get_bind(), checkfirst=True)

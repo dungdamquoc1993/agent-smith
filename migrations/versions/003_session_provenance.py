@@ -13,7 +13,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    session_kind = sa.Enum("main", "sub_agent", name="session_kind")
+    session_kind = postgresql.ENUM(
+        "main",
+        "sub_agent",
+        name="session_kind",
+        create_type=False,
+    )
     session_kind.create(op.get_bind(), checkfirst=True)
 
     op.add_column(
