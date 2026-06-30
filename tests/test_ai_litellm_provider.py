@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from ai import Context, SimpleStreamOptions, StreamOptions, Tool, UserMessage, stream
+from ai import AssistantMessage, Context, SimpleStreamOptions, StreamOptions, Tool, UserMessage, stream
 from ai.models import make_litellm_model
 from ai.providers import litellm_provider
 
@@ -48,6 +48,27 @@ def _chunk(delta: dict[str, Any] | None = None, finish_reason: str | None = None
         **extra,
     }
     return payload
+
+
+def test_context_conversion_uses_empty_string_for_empty_assistant_content() -> None:
+    messages = litellm_provider._context_to_litellm_messages(
+        Context(
+            messages=[
+                UserMessage(role="user", content="hello", timestamp=int(time.time() * 1000)),
+                AssistantMessage(
+                    api="litellm",
+                    provider="openai",
+                    model="gpt-test",
+                    content=[],
+                    stop_reason="error",
+                    error_message="previous provider error",
+                    timestamp=int(time.time() * 1000),
+                ),
+            ]
+        )
+    )
+
+    assert messages[1] == {"role": "assistant", "content": ""}
 
 
 @pytest.mark.asyncio
@@ -116,7 +137,7 @@ async def test_litellm_forwards_options_and_supports_ad_hoc_model(monkeypatch) -
     assert captured["max_retry_delay"] == 2.5
     assert captured["metadata"] == {"trace": "abc"}
     assert captured["cache_retention"] == "long"
-    assert captured["session_id"] == "session-1"
+    assert "session_id" not in captured
     assert captured["custom_model_option"] == "model-default"
     assert captured["custom_option"] == "request"
     assert captured["extra_flag"] is True

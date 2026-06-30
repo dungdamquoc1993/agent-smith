@@ -87,7 +87,7 @@ def _context_to_litellm_messages(context: Context) -> list[dict[str, Any]]:
                             },
                         }
                     )
-            assistant_msg: dict[str, Any] = {"role": "assistant", "content": "\n".join(text_parts) or None}
+            assistant_msg: dict[str, Any] = {"role": "assistant", "content": "\n".join(text_parts)}
             if tool_calls:
                 assistant_msg["tool_calls"] = tool_calls
             messages.append(assistant_msg)
@@ -206,8 +206,6 @@ def _build_litellm_kwargs(model: Model, context: Context, opts: StreamOptions) -
         kwargs["metadata"] = opts.metadata
     if opts.cache_retention:
         kwargs["cache_retention"] = opts.cache_retention
-    if opts.session_id:
-        kwargs["session_id"] = opts.session_id
 
     headers = _merge_headers(model.headers, opts.headers)
     if headers:
