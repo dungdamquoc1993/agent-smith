@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
 from typing import Any
+from urllib.parse import urlparse
 
 import litellm
 
@@ -59,6 +61,52 @@ def _content_to_litellm(content: str | list[TextContent | ImageContent]) -> str 
     return parts
 
 
+def _assistant_text(message: AssistantMessage) -> str:
+    return "\n".join(block.text for block in message.content if isinstance(block, TextContent))
+
+
+def _tool_result_to_litellm_messages(msg: ToolResultMessage) -> list[dict[str, Any]]:
+    text = "\n".join(
+        b.text for b in msg.content if isinstance(b, TextContent)
+    )
+    images = [b for b in msg.content if isinstance(b, ImageContent)]
+
+    if not images:
+        return [
+            {
+                "role": "tool",
+                "tool_call_id": msg.tool_call_id,
+                "name": msg.tool_name,
+                "content": text,
+            }
+        ]
+
+    image_count = len(images)
+    tool_text = text or (
+        f"Tool returned {image_count} image"
+        f"{'' if image_count == 1 else 's'}. The image content follows."
+    )
+    image_content: list[TextContent | ImageContent] = [
+        TextContent(
+            text=(
+                f"Image content returned by tool {msg.tool_name} "
+                f"for tool call {msg.tool_call_id}:"
+            )
+        ),
+        *images,
+    ]
+
+    return [
+        {
+            "role": "tool",
+            "tool_call_id": msg.tool_call_id,
+            "name": msg.tool_name,
+            "content": tool_text,
+        },
+        {"role": "user", "content": _content_to_litellm(image_content)},
+    ]
+
+
 def _context_to_litellm_messages(context: Context) -> list[dict[str, Any]]:
     messages: list[dict[str, Any]] = []
     if context.system_prompt:
@@ -92,17 +140,7 @@ def _context_to_litellm_messages(context: Context) -> list[dict[str, Any]]:
                 assistant_msg["tool_calls"] = tool_calls
             messages.append(assistant_msg)
         elif isinstance(msg, ToolResultMessage):
-            text = "\n".join(
-                b.text for b in msg.content if isinstance(b, TextContent)
-            )
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": msg.tool_call_id,
-                    "name": msg.tool_name,
-                    "content": text,
-                }
-            )
+            messages.extend(_tool_result_to_litellm_messages(msg))
     return messages
 
 
@@ -245,6 +283,162 @@ def _map_reasoning(model: Model, reasoning: str | None) -> str | None:
     return reasoning
 
 
+def _provider_option(model: Model, opts: StreamOptions, name: str, default: Any = None) -> Any:
+    if opts.provider_options and name in opts.provider_options:
+        return opts.provider_options[name]
+    if model.provider_options and name in model.provider_options:
+        return model.provider_options[name]
+    return default
+
+
+def _use_ollama_native(model: Model, opts: StreamOptions) -> bool:
+    return bool(_provider_option(model, opts, "ollama_native", False))
+
+
+def _ollama_model_name(model: Model) -> str:
+    litellm_model = model.resolve_litellm_model()
+    if "/" in litellm_model:
+        return litellm_model.split("/", 1)[1]
+    return litellm_model
+
+
+def _ollama_base_url(model: Model) -> str:
+    base = (model.base_url or "http://localhost:11434").rstrip("/")
+    if base.endswith("/v1"):
+        return base[:-3]
+    return base
+
+
+def _content_to_ollama(content: str | list[TextContent | ImageContent]) -> dict[str, Any]:
+    if isinstance(content, str):
+        return {"content": content}
+    text_parts: list[str] = []
+    images: list[str] = []
+    for part in content:
+        if isinstance(part, TextContent):
+            text_parts.append(part.text)
+        elif isinstance(part, ImageContent):
+            images.append(part.data)
+    payload: dict[str, Any] = {"content": "\n".join(text_parts)}
+    if images:
+        payload["images"] = images
+    return payload
+
+
+def _context_to_ollama_messages(context: Context) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
+    if context.system_prompt:
+        messages.append({"role": "system", "content": context.system_prompt})
+    for msg in context.messages:
+        if isinstance(msg, UserMessage):
+            messages.append({"role": "user", **_content_to_ollama(msg.content)})
+        elif isinstance(msg, AssistantMessage):
+            messages.append({"role": "assistant", "content": _assistant_text(msg)})
+        elif isinstance(msg, ToolResultMessage):
+            text = "\n".join(
+                block.text if isinstance(block, TextContent) else f"[image: {block.mime_type}]"
+                for block in msg.content
+            )
+            messages.append({"role": "tool", "content": text})
+    return messages
+
+
+async def _ollama_chat_stream(
+    *,
+    base_url: str,
+    payload: dict[str, Any],
+    timeout: float | None,
+) -> Any:
+    parsed = urlparse(base_url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError(f"Unsupported Ollama URL scheme: {parsed.scheme}")
+    host = parsed.hostname or "localhost"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    ssl = parsed.scheme == "https"
+    path_prefix = parsed.path.rstrip("/")
+    path = f"{path_prefix}/api/chat" if path_prefix else "/api/chat"
+    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+
+    reader, writer = await asyncio.wait_for(
+        asyncio.open_connection(host, port, ssl=ssl),
+        timeout=timeout,
+    )
+    try:
+        writer.write(
+            b"\r\n".join(
+                [
+                    f"POST {path} HTTP/1.1".encode(),
+                    f"Host: {host}".encode(),
+                    b"Content-Type: application/json",
+                    f"Content-Length: {len(body)}".encode(),
+                    b"Connection: close",
+                    b"",
+                    body,
+                ]
+            )
+        )
+        await writer.drain()
+
+        status_line = await reader.readline()
+        if not status_line:
+            raise RuntimeError("Ollama closed connection before responding")
+        try:
+            status = int(status_line.decode("iso-8859-1").split()[1])
+        except (IndexError, ValueError) as exc:
+            raise RuntimeError(f"Invalid Ollama response: {status_line!r}") from exc
+
+        headers: dict[str, str] = {}
+        while True:
+            line = await reader.readline()
+            if line in {b"\r\n", b"\n", b""}:
+                break
+            name, _, value = line.decode("iso-8859-1").partition(":")
+            headers[name.strip().lower()] = value.strip().lower()
+
+        async def read_body() -> bytes:
+            if headers.get("transfer-encoding") == "chunked":
+                chunks: list[bytes] = []
+                while True:
+                    size_line = await reader.readline()
+                    if not size_line:
+                        break
+                    size = int(size_line.strip().split(b";", 1)[0], 16)
+                    if size == 0:
+                        break
+                    chunks.append(await reader.readexactly(size))
+                    await reader.readexactly(2)
+                return b"".join(chunks)
+            return await reader.read()
+
+        if status >= 400:
+            body_text = (await read_body()).decode("utf-8", errors="replace")
+            raise RuntimeError(f"Ollama API error {status}: {body_text}")
+
+        if headers.get("transfer-encoding") == "chunked":
+            while True:
+                size_line = await reader.readline()
+                if not size_line:
+                    break
+                size = int(size_line.strip().split(b";", 1)[0], 16)
+                if size == 0:
+                    break
+                chunk = await reader.readexactly(size)
+                await reader.readexactly(2)
+                for raw in chunk.splitlines():
+                    if raw.strip():
+                        yield json.loads(raw)
+        else:
+            while True:
+                raw = await reader.readline()
+                if not raw:
+                    break
+                if raw.strip():
+                    yield json.loads(raw)
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
 def _usage_token_count(usage: Any, *names: str) -> int:
     for name in names:
         value = _get(usage, name)
@@ -306,7 +500,7 @@ class LitellmApiProvider:
         opts = options or SimpleStreamOptions()
         reasoning = _map_reasoning(model, opts.reasoning)
         extra = opts.model_dump(exclude_none=True, by_alias=True)
-        if reasoning:
+        if reasoning and model.reasoning:
             extra["reasoning_effort"] = reasoning
         merged = StreamOptions.model_validate(extra)
         return self.stream(model, context, merged)
@@ -323,6 +517,10 @@ class LitellmApiProvider:
         event_stream.push(AssistantMessageEventStart(partial=partial))
 
         try:
+            if _use_ollama_native(model, opts):
+                await self._run_ollama_native_stream(model, context, opts, event_stream, partial)
+                return
+
             kwargs = _build_litellm_kwargs(model, context, opts)
 
             response = await litellm.acompletion(**kwargs)
@@ -532,6 +730,168 @@ class LitellmApiProvider:
             event_stream.push(
                 AssistantMessageEventError(reason="error", error=err_msg)
             )
+
+    async def _run_ollama_native_stream(
+        self,
+        model: Model,
+        context: Context,
+        opts: StreamOptions,
+        event_stream: AssistantMessageEventStream,
+        partial: AssistantMessage,
+    ) -> None:
+        thinking_setting = _provider_option(model, opts, "ollama_think")
+        if thinking_setting is None:
+            thinking_setting = bool(model.reasoning and (opts.model_extra or {}).get("reasoning"))
+        payload: dict[str, Any] = {
+            "model": _ollama_model_name(model),
+            "messages": _context_to_ollama_messages(context),
+            "stream": True,
+            "think": thinking_setting,
+        }
+        if context.tools:
+            payload["tools"] = _tools_to_litellm(context.tools)
+        options: dict[str, Any] = {}
+        if opts.temperature is not None:
+            options["temperature"] = opts.temperature
+        if opts.max_tokens is not None:
+            options["num_predict"] = opts.max_tokens
+        if options:
+            payload["options"] = options
+
+        text_index: int | None = None
+        thinking_index: int | None = None
+        thinking_closed = False
+        accumulated_text = ""
+        accumulated_thinking = ""
+        response_model: str | None = None
+        final_chunk: dict[str, Any] = {}
+        stop_reason: str = "stop"
+
+        async for chunk in _ollama_chat_stream(
+            base_url=_ollama_base_url(model),
+            payload=payload,
+            timeout=opts.timeout_ms / 1000 if opts.timeout_ms else None,
+        ):
+            final_chunk = chunk
+            response_model = chunk.get("model") or response_model
+            message = chunk.get("message") or {}
+
+            reasoning_content = message.get("thinking") or message.get("reasoning_content")
+            if reasoning_content:
+                if thinking_index is None:
+                    thinking_index = len(partial.content)
+                    partial.content.append(ThinkingContent(thinking=""))
+                    event_stream.push(
+                        AssistantMessageEventThinkingStart(
+                            content_index=thinking_index,
+                            partial=partial.model_copy(deep=True),
+                        )
+                    )
+                accumulated_thinking += reasoning_content
+                partial.content[thinking_index] = ThinkingContent(thinking=accumulated_thinking)
+                event_stream.push(
+                    AssistantMessageEventThinkingDelta(
+                        content_index=thinking_index,
+                        delta=reasoning_content,
+                        partial=partial.model_copy(deep=True),
+                    )
+                )
+
+            delta_content = message.get("content")
+            if delta_content:
+                if text_index is None:
+                    if thinking_index is not None and not thinking_closed:
+                        event_stream.push(
+                            AssistantMessageEventThinkingEnd(
+                                content_index=thinking_index,
+                                content=accumulated_thinking,
+                                partial=partial.model_copy(deep=True),
+                            )
+                        )
+                        thinking_closed = True
+                    text_index = len(partial.content)
+                    partial.content.append(TextContent(text=""))
+                    event_stream.push(
+                        AssistantMessageEventTextStart(
+                            content_index=text_index,
+                            partial=partial.model_copy(deep=True),
+                        )
+                    )
+                accumulated_text += delta_content
+                partial.content[text_index] = TextContent(text=accumulated_text)
+                event_stream.push(
+                    AssistantMessageEventTextDelta(
+                        content_index=text_index,
+                        delta=delta_content,
+                        partial=partial.model_copy(deep=True),
+                    )
+                )
+
+            tool_calls = message.get("tool_calls") or []
+            if tool_calls:
+                stop_reason = "toolUse"
+                for idx, raw_call in enumerate(tool_calls):
+                    function = raw_call.get("function") or {}
+                    arguments = function.get("arguments") or {}
+                    if not isinstance(arguments, dict):
+                        arguments = {}
+                    tool_call = ToolCall(
+                        id=raw_call.get("id") or str(uuid.uuid4()),
+                        name=function.get("name") or raw_call.get("name") or "",
+                        arguments=arguments,
+                    )
+                    content_index = len(partial.content) + idx
+                    event_stream.push(
+                        AssistantMessageEventToolcallStart(
+                            content_index=content_index,
+                            partial=partial.model_copy(deep=True),
+                        )
+                    )
+                    partial.content.append(tool_call)
+                    event_stream.push(
+                        AssistantMessageEventToolcallEnd(
+                            content_index=content_index,
+                            tool_call=tool_call,
+                            partial=partial.model_copy(deep=True),
+                        )
+                    )
+
+            if chunk.get("done"):
+                break
+
+        if text_index is not None:
+            event_stream.push(
+                AssistantMessageEventTextEnd(
+                    content_index=text_index,
+                    content=accumulated_text,
+                    partial=partial.model_copy(deep=True),
+                )
+            )
+        if thinking_index is not None and accumulated_thinking and not thinking_closed:
+            event_stream.push(
+                AssistantMessageEventThinkingEnd(
+                    content_index=thinking_index,
+                    content=accumulated_thinking,
+                    partial=partial.model_copy(deep=True),
+                )
+            )
+
+        prompt_tokens = int(final_chunk.get("prompt_eval_count") or 0)
+        output_tokens = int(final_chunk.get("eval_count") or 0)
+        partial.usage = Usage(
+            input=prompt_tokens,
+            output=output_tokens,
+            totalTokens=prompt_tokens + output_tokens,
+        )
+        partial.usage.cost = _compute_cost(model, partial.usage)
+        partial.response_model = response_model
+        partial.stop_reason = stop_reason  # type: ignore[assignment]
+        event_stream.push(
+            AssistantMessageEventDone(
+                reason=stop_reason,  # type: ignore[arg-type]
+                message=partial.model_copy(deep=True),
+            )
+        )
 
 
 def register_litellm_provider() -> None:

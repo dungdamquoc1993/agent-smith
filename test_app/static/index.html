@@ -200,9 +200,10 @@
       }
 
       .messages {
+        flex: 1 1 auto;
         min-height: 0;
         overflow: auto;
-        padding: 22px;
+        padding: 22px 22px 18px;
         display: flex;
         flex-direction: column;
         gap: 14px;
@@ -278,11 +279,17 @@
       }
 
       .tool .bubble,
-      .system .bubble {
+      .system .bubble,
+      .thinking .bubble {
         color: var(--muted);
         background: var(--tool);
         font-size: 12px;
         padding: 8px 10px;
+      }
+
+      .thinking .bubble {
+        border-color: rgba(20, 184, 166, 0.28);
+        background: rgba(20, 184, 166, 0.08);
       }
 
       .system.error .bubble {
@@ -308,16 +315,40 @@
       .composer {
         flex: 0 0 auto;
         border-top: 1px solid var(--line);
-        padding: 14px;
-        background: var(--panel);
-        display: grid;
-        gap: 10px;
+        padding: 14px 18px 16px;
+        background: rgba(17, 21, 29, 0.98);
       }
 
-      textarea {
-        min-height: 82px;
-        max-height: 220px;
+      .composer-box {
+        position: relative;
+        display: flex;
+        align-items: flex-end;
+        max-width: 920px;
+        margin: 0 auto;
+      }
+
+      .composer textarea {
+        min-height: 52px;
+        max-height: 180px;
+        padding: 14px 72px 14px 14px;
         resize: vertical;
+        line-height: 1.45;
+      }
+
+      .composer .primary {
+        position: absolute;
+        right: 8px;
+        bottom: 8px;
+        min-width: 54px;
+        height: 36px;
+        padding: 0 12px;
+      }
+
+      .composer-hint {
+        max-width: 920px;
+        margin: 7px auto 0;
+        color: var(--muted);
+        font-size: 12px;
       }
 
       .debug-line {
@@ -384,6 +415,15 @@
           </div>
 
           <div class="stack">
+            <div class="section-title">Model</div>
+            <select id="modelSelect"></select>
+            <div class="info-card">
+              <strong id="modelName">OpenAI</strong>
+              <span class="meta" id="modelSummary">Cloud model</span>
+            </div>
+          </div>
+
+          <div class="stack">
             <div class="section-title">Agent Resource</div>
             <div class="info-card">
               <strong id="agentName">test_assistant</strong>
@@ -413,11 +453,11 @@
         </div>
 
         <form id="promptForm" class="composer">
-          <textarea id="promptInput" placeholder="Message test_assistant..."></textarea>
-          <div class="row">
+          <div class="composer-box">
+            <textarea id="promptInput" rows="1" placeholder="Message test_assistant..."></textarea>
             <button class="primary" id="sendBtn" type="submit">Send</button>
-            <span class="meta">Tool calls and tool results render inline as compact steps.</span>
           </div>
+          <div class="composer-hint">Enter to send, Shift+Enter for a new line.</div>
         </form>
       </section>
 
@@ -435,11 +475,15 @@
         principal: null,
         sessions: [],
         resources: [],
+        models: [],
         activeSessionId: null,
-        defaults: { agentName: "test_assistant" },
+        activeModelKey: "openai",
+        defaults: { agentName: "test_assistant", modelKey: "openai" },
         busy: false,
         liveAssistant: null,
         liveAssistantText: "",
+        liveThinking: null,
+        liveThinkingText: "",
         pendingUserPrompt: "",
         sawAssistantEnd: false,
       };
@@ -483,6 +527,14 @@
           return `Assistant stopped: ${message.stopReason}`;
         }
         return "";
+      }
+
+      function thinkingText(message) {
+        if (!message || !Array.isArray(message.content)) return "";
+        return message.content
+          .map((part) => (part && typeof part.thinking === "string" ? part.thinking : ""))
+          .filter(Boolean)
+          .join("\n");
       }
 
       function isAssistantError(message) {
@@ -557,6 +609,8 @@
           return;
         }
         if (message.role === "assistant") {
+          const thinking = thinkingText(message);
+          if (thinking) appendTurn("thinking", thinking, { label: "Thinking", avatar: "TH" });
           const text = messageText(message);
           if (text) appendTurn("assistant", text, { label: "Assistant", error: isAssistantError(message) });
           for (const call of toolCallsFromMessage(message)) {
@@ -577,6 +631,22 @@
         return state.liveAssistant;
       }
 
+      function ensureLiveThinking() {
+        if (!state.liveThinking) {
+          state.liveThinking = appendTurn("thinking", "", { label: "Thinking", avatar: "TH" });
+          state.liveThinkingText = "";
+        }
+        return state.liveThinking;
+      }
+
+      function appendThinkingDelta(delta) {
+        if (!delta) return;
+        const live = ensureLiveThinking();
+        state.liveThinkingText += delta;
+        live.content.textContent = state.liveThinkingText;
+        scrollChat();
+      }
+
       function appendAssistantDelta(delta) {
         if (!delta) return;
         const live = ensureLiveAssistant();
@@ -594,6 +664,11 @@
           appendTurn("assistant", text, { label: "Assistant", error: isAssistantError(message) });
         }
         if (isAssistantError(message)) setStatus("chatStatus", "Model error", "error");
+        if (state.liveThinking && !state.liveThinkingText.trim()) {
+          state.liveThinking.turn.remove();
+        }
+        state.liveThinking = null;
+        state.liveThinkingText = "";
         state.liveAssistant = null;
         state.liveAssistantText = "";
         state.sawAssistantEnd = true;
@@ -653,6 +728,21 @@
         $("activeSessionLabel").textContent = state.activeSessionId
           ? `Session ${shortId(state.activeSessionId)}`
           : "No session yet";
+
+        const modelSelect = $("modelSelect");
+        modelSelect.innerHTML = "";
+        for (const model of state.models) {
+          const option = document.createElement("option");
+          option.value = model.key;
+          option.textContent = model.label;
+          modelSelect.appendChild(option);
+        }
+        modelSelect.value = state.activeModelKey;
+        const activeModel = state.models.find((model) => model.key === state.activeModelKey);
+        $("modelName").textContent = activeModel?.label || "Model";
+        $("modelSummary").textContent = activeModel?.baseUrl
+          ? `${activeModel.provider}/${activeModel.modelId} · ${activeModel.baseUrl}`
+          : `${activeModel?.provider || "provider"}/${activeModel?.modelId || "model"}`;
       }
 
       async function api(path, options = {}) {
@@ -673,7 +763,9 @@
         state.principal = data.principal;
         state.sessions = data.sessions || [];
         state.resources = data.resources || [];
+        state.models = data.models || [];
         state.defaults = data.defaults || state.defaults;
+        state.activeModelKey = state.defaults.modelKey || "openai";
         state.activeSessionId = state.sessions[0]?.id || null;
         setStatus("dbStatus", "DB ok", "ok");
         renderSidebar();
@@ -744,6 +836,8 @@
         }
         if (event.type === "message_update") {
           const assistantEvent = event.assistantMessageEvent;
+          if (assistantEvent?.type === "thinking_start") ensureLiveThinking();
+          if (assistantEvent?.type === "thinking_delta") appendThinkingDelta(assistantEvent.delta);
           if (assistantEvent?.type === "text_delta") appendAssistantDelta(assistantEvent.delta);
           if (assistantEvent?.type === "text_start") ensureLiveAssistant();
           return;
@@ -777,6 +871,7 @@
             prompt,
             sessionId: state.activeSessionId,
             agentName: state.defaults.agentName,
+            modelKey: state.activeModelKey,
           }),
         });
         if (!response.ok || !response.body) {
@@ -812,6 +907,34 @@
         if (!$("chatStatus").classList.contains("error")) setStatus("chatStatus", "Idle");
       }
 
+      function resizePromptInput() {
+        const input = $("promptInput");
+        input.style.height = "auto";
+        input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
+      }
+
+      async function submitPrompt() {
+        const prompt = $("promptInput").value.trim();
+        if (!prompt || state.busy) return;
+        $("promptInput").value = "";
+        resizePromptInput();
+        try {
+          await sendPrompt(prompt);
+        } catch (err) {
+          appendSystem(err.message, true);
+          setStatus("chatStatus", "Error", "error");
+          logEvent("client_error", { type: "client_error", message: err.message });
+        } finally {
+          state.busy = false;
+          state.liveAssistant = null;
+          state.liveAssistantText = "";
+          state.liveThinking = null;
+          state.liveThinkingText = "";
+          $("sendBtn").disabled = false;
+          if (!$("chatStatus").classList.contains("error")) setStatus("chatStatus", "Idle");
+        }
+      }
+
       $("newSessionBtn").addEventListener("click", () => newSession().catch((err) => setStatus("dbStatus", err.message, "error")));
       $("reloadSessionBtn").addEventListener("click", () => refreshSessions().catch((err) => setStatus("dbStatus", err.message, "error")));
       $("reloadResourcesBtn").addEventListener("click", () => refreshResources().catch((err) => setStatus("dbStatus", err.message, "error")));
@@ -824,23 +947,19 @@
         renderSidebar();
         await loadEntries(state.activeSessionId);
       });
+      $("modelSelect").addEventListener("change", (event) => {
+        state.activeModelKey = event.target.value;
+        renderSidebar();
+      });
       $("promptForm").addEventListener("submit", async (event) => {
         event.preventDefault();
-        const prompt = $("promptInput").value.trim();
-        if (!prompt || state.busy) return;
-        $("promptInput").value = "";
-        try {
-          await sendPrompt(prompt);
-        } catch (err) {
-          appendSystem(err.message, true);
-          setStatus("chatStatus", "Error", "error");
-          logEvent("client_error", { type: "client_error", message: err.message });
-        } finally {
-          state.busy = false;
-          state.liveAssistant = null;
-          state.liveAssistantText = "";
-          $("sendBtn").disabled = false;
-          if (!$("chatStatus").classList.contains("error")) setStatus("chatStatus", "Idle");
+        await submitPrompt();
+      });
+      $("promptInput").addEventListener("input", resizePromptInput);
+      $("promptInput").addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+          event.preventDefault();
+          $("promptForm").requestSubmit();
         }
       });
 

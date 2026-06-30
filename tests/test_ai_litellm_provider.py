@@ -8,7 +8,18 @@ from typing import Any
 
 import pytest
 
-from ai import AssistantMessage, Context, SimpleStreamOptions, StreamOptions, Tool, UserMessage, stream
+from ai import (
+    AssistantMessage,
+    Context,
+    ImageContent,
+    SimpleStreamOptions,
+    StreamOptions,
+    TextContent,
+    Tool,
+    ToolResultMessage,
+    UserMessage,
+    stream,
+)
 from ai.models import make_litellm_model
 from ai.providers import litellm_provider
 
@@ -69,6 +80,46 @@ def test_context_conversion_uses_empty_string_for_empty_assistant_content() -> N
     )
 
     assert messages[1] == {"role": "assistant", "content": ""}
+
+
+def test_context_conversion_preserves_tool_result_images() -> None:
+    messages = litellm_provider._context_to_litellm_messages(
+        Context(
+            messages=[
+                ToolResultMessage(
+                    toolCallId="call-1",
+                    toolName="screenshot",
+                    content=[
+                        TextContent(text="Captured current screen."),
+                        ImageContent(data="aW1hZ2U=", mimeType="image/png"),
+                    ],
+                    timestamp=int(time.time() * 1000),
+                ),
+            ]
+        )
+    )
+
+    assert messages == [
+        {
+            "role": "tool",
+            "tool_call_id": "call-1",
+            "name": "screenshot",
+            "content": "Captured current screen.",
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Image content returned by tool screenshot for tool call call-1:",
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,aW1hZ2U="},
+                },
+            ],
+        },
+    ]
 
 
 @pytest.mark.asyncio
@@ -196,6 +247,7 @@ async def test_stream_simple_uses_model_thinking_level_map(monkeypatch) -> None:
     model = make_litellm_model(
         provider="openai",
         model_id="reasoning-model",
+        reasoning=True,
         thinking_level_map={"xhigh": "max"},
     )
     stream = litellm_provider.LitellmApiProvider().stream_simple(
@@ -256,3 +308,51 @@ async def test_stream_tool_index_and_single_thinking_end(monkeypatch) -> None:
     assert final.stop_reason == "toolUse"
     assert sum(1 for event in events if event.type == "thinking_end") == 1
     assert [event.type for event in events].count("toolcall_start") == 1
+
+
+@pytest.mark.asyncio
+async def test_ollama_native_stream_emits_thinking(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_ollama_chat_stream(**kwargs):
+        captured.update(kwargs)
+        yield {"model": "gemma4:e4b", "message": {"thinking": "think "}, "done": False}
+        yield {"model": "gemma4:e4b", "message": {"thinking": "more"}, "done": False}
+        yield {"model": "gemma4:e4b", "message": {"content": "answer"}, "done": False}
+        yield {
+            "model": "gemma4:e4b",
+            "message": {"content": ""},
+            "done": True,
+            "prompt_eval_count": 3,
+            "eval_count": 4,
+        }
+
+    monkeypatch.setattr(litellm_provider, "_ollama_chat_stream", fake_ollama_chat_stream)
+
+    model = make_litellm_model(
+        provider="local",
+        model_id="gemma4-e4b",
+        litellm_model="openai/gemma4:e4b",
+        base_url="http://localhost:11434/v1",
+        reasoning=True,
+        provider_options={"ollama_native": True, "ollama_think": True},
+    )
+    stream = litellm_provider.LitellmApiProvider().stream_simple(
+        model,
+        _context(),
+        SimpleStreamOptions(reasoning="high"),
+    )
+
+    events = [event async for event in stream]
+    final = await stream.result()
+
+    assert captured["base_url"] == "http://localhost:11434"
+    assert captured["payload"]["model"] == "gemma4:e4b"
+    assert captured["payload"]["think"] is True
+    assert [event.type for event in events].count("thinking_delta") == 2
+    assert final.content[0].type == "thinking"
+    assert final.content[0].thinking == "think more"
+    assert final.content[1].type == "text"
+    assert final.content[1].text == "answer"
+    assert final.usage.input == 3
+    assert final.usage.output == 4

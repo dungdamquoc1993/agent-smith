@@ -33,7 +33,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, text
 
 from agent import AgentHarnessError, PostgresSessionRepo
-from ai import bootstrap_providers, get_model, make_litellm_model
+from ai import bootstrap_providers, get_model, make_litellm_model, register_model
 from ai.types import AssistantMessage, TextContent
 from config import get_settings
 from db.base import get_engine, get_session_factory
@@ -48,11 +48,6 @@ PORT = int(os.environ.get("AGENT_SMITH_TEST_APP_PORT", "8765"))
 ROOT = Path(__file__).resolve().parent
 REPO_ROOT = ROOT.parent
 STATIC_DIR = ROOT / "static"
-TEST_PRINCIPAL_DISPLAY_NAME = os.environ.get(
-    "AGENT_SMITH_TEST_PRINCIPAL_NAME",
-    "Test Principal",
-)
-DEFAULT_AGENT_NAME = os.environ.get("AGENT_SMITH_TEST_AGENT_NAME", "test_assistant")
 
 SseQueueItem = dict[str, Any] | None
 
@@ -75,6 +70,18 @@ def _load_dotenv(path: Path) -> None:
 
 
 _load_dotenv(REPO_ROOT / ".env")
+
+TEST_PRINCIPAL_DISPLAY_NAME = os.environ.get(
+    "AGENT_SMITH_TEST_PRINCIPAL_NAME",
+    "Test Principal",
+)
+DEFAULT_AGENT_NAME = os.environ.get("AGENT_SMITH_TEST_AGENT_NAME", "test_assistant")
+OPENAI_MODEL_ID = os.environ.get("AGENT_SMITH_TEST_OPENAI_MODEL", "gpt-4o-mini")
+GEMMA_MODEL_ID = os.environ.get("AGENT_SMITH_TEST_GEMMA_MODEL_ID", "gemma4-e2b")
+GEMMA_UPSTREAM_MODEL = os.environ.get("AGENT_SMITH_TEST_GEMMA_UPSTREAM_MODEL", "gemma4:e2b")
+GEMMA_BASE_URL = os.environ.get("AGENT_SMITH_TEST_GEMMA_BASE_URL", "http://localhost:11434/v1")
+GEMMA_API_KEY = os.environ.get("AGENT_SMITH_TEST_GEMMA_API_KEY", "local")
+DEFAULT_MODEL_KEY = os.environ.get("AGENT_SMITH_TEST_MODEL", "openai")
 
 
 def _log_server_error(message: str, exc: BaseException | None = None) -> None:
@@ -237,34 +244,44 @@ async def list_resources() -> dict[str, Any]:
     }
 
 
+def _test_agent_resource() -> dict[str, Any]:
+    return {
+        "kind": "agent_definition",
+        "name": DEFAULT_AGENT_NAME,
+        "description": "Minimal assistant for the local test app.",
+        "content": {
+            "name": DEFAULT_AGENT_NAME,
+            "description": "Minimal assistant for the local test app.",
+            "systemPrompt": (
+                "You are the Agent Smith local test assistant. "
+                "Keep answers concise and use the user's preferred language."
+            ),
+            "thinkingLevel": "high",
+            "model": "gpt-4o-mini",
+        },
+    }
+
+
 async def seed_resources() -> dict[str, Any]:
     store = PostgresResourceStore(get_session_factory())
+    resource = _test_agent_resource()
     existing = await store.get_resource("agent_definition", DEFAULT_AGENT_NAME)
     if existing is not None:
+        updated = await store.update_resource(
+            "agent_definition",
+            DEFAULT_AGENT_NAME,
+            {
+                "description": resource["description"],
+                "content": resource["content"],
+            },
+        )
         return {
-            "status": "exists",
-            "resource": existing.model_dump(mode="json", by_alias=True, exclude_none=True),
+            "status": "updated",
+            "resource": updated.model_dump(mode="json", by_alias=True, exclude_none=True),
         }
 
     try:
-        created = await store.create_resource(
-            {
-                "kind": "agent_definition",
-                "name": DEFAULT_AGENT_NAME,
-                "description": "Minimal assistant for the local test app.",
-                "content": {
-                    "name": DEFAULT_AGENT_NAME,
-                    "description": "Minimal assistant for the local test app.",
-                    "systemPrompt": (
-                        "You are the Agent Smith local test assistant. "
-                        "Keep answers concise and mention when persistence is being tested."
-                    ),
-                    "toolsAllow": [],
-                    "thinkingLevel": "off",
-                    "model": "gpt-4o-mini",
-                },
-            }
-        )
+        created = await store.create_resource(resource)
     except ResourceConflictError as exc:
         raise RuntimeError(
             f"Resource name is already reserved, possibly by a soft-deleted record: {DEFAULT_AGENT_NAME}"
@@ -286,15 +303,71 @@ async def bootstrap() -> dict[str, Any]:
         "principal": _principal_payload(principal),
         "sessions": await list_sessions(),
         "resources": (await list_resources())["resources"],
-        "defaults": {"agentName": DEFAULT_AGENT_NAME},
+        "defaults": {"agentName": DEFAULT_AGENT_NAME, "modelKey": _default_model_key()},
+        "models": _model_choices(),
     }
 
 
-def _default_model():
-    return get_model("openai", "gpt-4o-mini") or make_litellm_model(
+def _openai_model():
+    return get_model("openai", OPENAI_MODEL_ID) or make_litellm_model(
         provider="openai",
-        model_id="gpt-4o-mini",
+        model_id=OPENAI_MODEL_ID,
     )
+
+
+def _gemma_model():
+    return get_model("local", GEMMA_MODEL_ID) or make_litellm_model(
+        provider="local",
+        model_id=GEMMA_MODEL_ID,
+        name="Gemma 4 E2B local",
+        litellm_model=f"openai/{GEMMA_UPSTREAM_MODEL}",
+        base_url=GEMMA_BASE_URL,
+        reasoning=True,
+        input=["text", "image"],
+        context_window=128_000,
+        max_tokens=4096,
+        provider_options={
+            "api_key": GEMMA_API_KEY,
+            "ollama_native": True,
+            "ollama_think": True,
+        },
+    )
+
+
+def _register_test_models() -> None:
+    register_model(_gemma_model())
+
+
+def _model_choices() -> list[dict[str, str]]:
+    return [
+        {
+            "key": "openai",
+            "label": f"OpenAI · {OPENAI_MODEL_ID}",
+            "provider": "openai",
+            "modelId": OPENAI_MODEL_ID,
+        },
+        {
+            "key": "gemma",
+            "label": f"Gemma local · {GEMMA_UPSTREAM_MODEL}",
+            "provider": "local",
+            "modelId": GEMMA_MODEL_ID,
+            "baseUrl": GEMMA_BASE_URL,
+        },
+    ]
+
+
+def _default_model_key() -> str:
+    keys = {choice["key"] for choice in _model_choices()}
+    return DEFAULT_MODEL_KEY if DEFAULT_MODEL_KEY in keys else "openai"
+
+
+def _selected_model(model_key: str | None):
+    key = (model_key or _default_model_key()).strip()
+    if key == "openai":
+        return _openai_model()
+    if key == "gemma":
+        return _gemma_model()
+    raise ValueError(f"Unknown model selection: {key}")
 
 
 async def _open_or_create_session(session_id: str | None) -> Any:
@@ -324,6 +397,9 @@ async def run_prompt_stream(payload: dict[str, Any], out: "queue.Queue[SseQueueI
         session_id = payload.get("sessionId")
         if session_id is not None:
             session_id = str(session_id)
+        selected_model = _selected_model(
+            str(payload.get("modelKey")) if payload.get("modelKey") is not None else None
+        )
 
         store = PostgresResourceStore(get_session_factory())
         resolver = ResourceResolver([store])
@@ -335,7 +411,8 @@ async def run_prompt_stream(payload: dict[str, Any], out: "queue.Queue[SseQueueI
         factory = AgentFactory(
             resource_resolver=resolver,
             tool_registry=tool_registry,
-            default_model=_default_model(),
+            default_model=selected_model,
+            model_resolver=lambda _definition: selected_model,
             default_permission_mode=get_settings().default_permission_mode,
         )
         session = await _open_or_create_session(session_id)
@@ -495,10 +572,12 @@ class TestAppHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     bootstrap_providers()
+    _register_test_models()
     server = ThreadingHTTPServer((HOST, PORT), TestAppHandler)
     print(f"Agent Smith test app: http://{HOST}:{PORT}")
     print("Expected DB schema: poetry run alembic upgrade head")
     print(f"OPENAI_API_KEY loaded: {'yes' if os.environ.get('OPENAI_API_KEY') else 'no'}")
+    print(f"Gemma local endpoint: {GEMMA_BASE_URL} model={GEMMA_UPSTREAM_MODEL}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
