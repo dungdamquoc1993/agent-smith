@@ -23,6 +23,7 @@ from agent.harness.resources import (
     format_skill_invocation,
     format_skills_for_system_prompt,
     format_skills_for_system_reminder,
+    format_user_memory_for_system_reminder,
     parse_command_args,
     substitute_args,
 )
@@ -84,6 +85,7 @@ from agent.harness.types import (
     ToolResultPatch,
     ToolsUpdateEvent,
     TurnState,
+    UserMemorySnapshot,
 )
 
 __all__ = [
@@ -149,6 +151,7 @@ __all__ = [
     "ToolResultPatch",
     "ToolsUpdateEvent",
     "TurnState",
+    "UserMemorySnapshot",
     "build_session_context",
     "default_compaction_settings",
     "estimate_context_tokens",
@@ -157,6 +160,7 @@ __all__ = [
     "format_skill_invocation",
     "format_skills_for_system_prompt",
     "format_skills_for_system_reminder",
+    "format_user_memory_for_system_reminder",
     "microcompact_messages",
     "parse_command_args",
     "prepare_compaction",

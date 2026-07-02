@@ -8,6 +8,14 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 
 ## [Unreleased]
 
+### Added - User memory runtime context
+
+- Them resource kind `user_memory` cho catalog/resource CRUD; v1 auto-resolve `user_memory/default` thanh `AgentHarnessResources.userMemory`.
+- Harness snapshot `user_memory` vao session bang `custom` entry `user_memory_snapshot`, giu frozen theo session va khong luu nhu message hoi thoai.
+- Inject user memory vao provider context bang runtime-only `<system-reminder><user-memory>...</user-memory></system-reminder>` trong `transform_context`, khong sua `agent_loop` hay `build_projected_messages()`.
+- Them migration `006_user_memory_resource` de mo rong Postgres enum `resource_kind`.
+- Them tests cho CRUD, resolver priority/disabled/deleted, snapshot reuse va runtime reminder injection.
+
 ### Changed - Tools package layout
 
 - Reorganize [`src/tools/`](../src/tools/) from flat modules into one snake_case folder per tool (`skill/`, `task/`, `manage_resources/`, …).

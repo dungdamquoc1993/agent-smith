@@ -37,6 +37,8 @@ def record_to_summary(record: ResourceRecord, *, include_content: bool) -> JsonO
         return _agent_definition_summary(record, include_content=include_content)
     if record.kind == "mcp_server_config":
         return _mcp_server_config_summary(record, include_content=include_content)
+    if record.kind == "user_memory":
+        return _user_memory_summary(record, include_content=include_content)
     raise ValueError(f"Unsupported resource kind: {record.kind}")
 
 
@@ -46,6 +48,7 @@ def kind_label(kind: ResourceKind) -> str:
         "prompt_template": "prompt template",
         "agent_definition": "agent definition",
         "mcp_server_config": "MCP server config",
+        "user_memory": "user memory",
     }[kind]
 
 
@@ -101,4 +104,15 @@ def _mcp_server_config_summary(record: ResourceRecord, *, include_content: bool)
             "description": config.description,
             "config": config.config,
         }
+    return details
+
+
+def _user_memory_summary(record: ResourceRecord, *, include_content: bool) -> JsonObject:
+    details: JsonObject = {
+        "name": record.name,
+        "description": record.description,
+        "resource": resource_metadata(record),
+    }
+    if include_content:
+        details["content"] = record.content.get("content", "")
     return details

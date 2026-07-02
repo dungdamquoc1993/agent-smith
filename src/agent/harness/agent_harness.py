@@ -6,6 +6,8 @@ import asyncio
 from collections.abc import Callable
 from typing import Any
 
+from pydantic import ValidationError
+
 from ai import complete_simple
 from ai.events import AssistantMessageEventStream
 from ai.types import (
@@ -37,6 +39,7 @@ from agent.harness.resources import (
     format_prompt_template_invocation,
     format_skill_invocation,
     format_skills_for_system_reminder,
+    format_user_memory_for_system_reminder,
     parse_announced_agents_from_messages,
 )
 from agent.harness.session.types import PendingSessionWrite
@@ -74,6 +77,7 @@ from agent.harness.types import (
     ToolResultPatch,
     ToolsUpdateEvent,
     TurnState,
+    UserMemorySnapshot,
 )
 from agent.types import (
     AbortSignal,
@@ -97,6 +101,7 @@ from tools.skill.constants import SKILL_TOOL_NAME
 from tools.task.constants import TASK_TOOL_NAME
 
 SUBSCRIBER_EVENT_TYPE = "*"
+USER_MEMORY_SNAPSHOT_CUSTOM_TYPE = "user_memory_snapshot"
 
 
 def create_user_message(text: str, images: list[ImageContent] | None = None) -> UserMessage:
@@ -246,6 +251,16 @@ def prepend_catalog_reminders(
     if not reminders:
         return messages, next_announced
     return [*reminders, *messages], next_announced
+
+
+def prepend_user_memory_reminder(
+    messages: list[AgentMessage],
+    snapshot: UserMemorySnapshot | None,
+) -> list[AgentMessage]:
+    reminder = format_user_memory_for_system_reminder(snapshot)
+    if not reminder:
+        return messages
+    return [UserMessage(content=reminder, timestamp=now_ms()), *messages]
 
 
 class AgentHarness:
@@ -603,6 +618,7 @@ class AgentHarness:
                 )
             )
         metadata = await self.session.get_metadata()
+        user_memory_snapshot = await self._ensure_user_memory_snapshot(resources.user_memory)
         return {
             "messages": context.messages,
             "resources": resources,
@@ -613,7 +629,39 @@ class AgentHarness:
             "thinking_level": self.thinking_level,
             "tools": list(self.tools.values()),
             "active_tools": active_tools,
+            "user_memory_snapshot": user_memory_snapshot,
         }
+
+    async def _ensure_user_memory_snapshot(
+        self,
+        resource_snapshot: UserMemorySnapshot | None,
+    ) -> UserMemorySnapshot | None:
+        existing = await self._load_user_memory_snapshot()
+        if existing is not None:
+            return existing
+        if resource_snapshot is None or not resource_snapshot.content.strip():
+            return None
+        snapshot = resource_snapshot.model_copy(
+            update={"content": resource_snapshot.content.strip()}
+        )
+        await self.session.append_custom_entry(
+            USER_MEMORY_SNAPSHOT_CUSTOM_TYPE,
+            snapshot.model_dump(mode="json", by_alias=True, exclude_none=True),
+        )
+        return snapshot
+
+    async def _load_user_memory_snapshot(self) -> UserMemorySnapshot | None:
+        entries = await self.session.get_entries()
+        for entry in reversed(entries):
+            if entry.type != "custom" or entry.custom_type != USER_MEMORY_SNAPSHOT_CUSTOM_TYPE:
+                continue
+            try:
+                snapshot = UserMemorySnapshot.model_validate(entry.data)
+            except ValidationError:
+                continue
+            if snapshot.content.strip():
+                return snapshot.model_copy(update={"content": snapshot.content.strip()})
+        return None
 
     def _resolve_compaction_settings(
         self,
@@ -779,8 +827,12 @@ class AgentHarness:
                 reset_agent_catalog=self._agent_catalog_reset_pending,
             )
             self._agent_catalog_reset_pending = False
-            result = await self._emit_hook(ContextEvent(messages=with_catalog), ContextResult)
-            return result.messages if result else with_catalog
+            with_memory = prepend_user_memory_reminder(
+                with_catalog,
+                get_turn_state()["user_memory_snapshot"],
+            )
+            result = await self._emit_hook(ContextEvent(messages=with_memory), ContextResult)
+            return result.messages if result else with_memory
 
         async def before_tool_call(
             context: BeforeToolCallContext,

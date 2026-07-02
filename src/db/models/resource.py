@@ -19,6 +19,7 @@ class ResourceKindEnum(str, enum.Enum):
     prompt_template = "prompt_template"
     agent_definition = "agent_definition"
     mcp_server_config = "mcp_server_config"
+    user_memory = "user_memory"
 
 
 class ResourceScopeEnum(str, enum.Enum):

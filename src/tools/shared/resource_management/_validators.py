@@ -26,6 +26,8 @@ def validate_content_for_kind(kind: ResourceKind, content: JsonObject, *, name: 
         return _agent_definition_to_content(AgentDefinition.model_validate(normalized))
     if kind == "mcp_server_config":
         return _mcp_server_config_to_content(McpServerConfig.model_validate(normalized))
+    if kind == "user_memory":
+        return _user_memory_to_content(normalized)
     raise ValueError(f"Unsupported resource kind: {kind}")
 
 
@@ -63,6 +65,11 @@ def build_create_content(
         payload.setdefault("description", description)
         validated = validate_content_for_kind(kind, payload, name=name)
         return validated, description or validated.get("description")
+    if kind == "user_memory":
+        if "content" not in payload:
+            raise ValueError("content.content is required for user_memory create")
+        validated = validate_content_for_kind(kind, payload, name=name)
+        return validated, description
     raise ValueError(f"Unsupported resource kind: {kind}")
 
 
@@ -88,6 +95,8 @@ def merge_update_content(
             merged["description"] = description
         elif kind == "mcp_server_config":
             merged["description"] = description
+        elif kind == "user_memory":
+            pass
     validated = validate_content_for_kind(kind, merged, name=name)
     updated_description = description
     if kind == "agent_definition" and description is None:
@@ -97,6 +106,8 @@ def merge_update_content(
     elif kind == "prompt_template" and description is not None:
         updated_description = description
     elif kind == "mcp_server_config" and description is not None:
+        updated_description = description
+    elif kind == "user_memory" and description is not None:
         updated_description = description
     return validated, updated_description
 
@@ -115,6 +126,8 @@ def record_content_as_json(kind: ResourceKind, record: ResourceRecord) -> JsonOb
             "description": config.description,
             "config": config.config,
         }
+    if kind == "user_memory":
+        return _user_memory_to_content(dict(record.content))
     raise ValueError(f"Unsupported resource kind: {kind}")
 
 
@@ -152,6 +165,13 @@ def _mcp_server_config_to_content(config: McpServerConfig) -> JsonObject:
     if config.description is not None:
         data["description"] = config.description
     return data
+
+
+def _user_memory_to_content(data: JsonObject) -> JsonObject:
+    content = data.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("content.content must be a non-empty string for user_memory")
+    return {"content": content.strip()}
 
 
 def _default_skill_file_path(name: str) -> str:

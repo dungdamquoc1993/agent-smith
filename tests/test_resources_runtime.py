@@ -118,6 +118,12 @@ async def test_resource_resolver_priority_and_runtime_mapping() -> None:
                 "name": "github",
                 "content": {"name": "github", "config": {"command": "github-mcp"}},
             },
+            {
+                "kind": "user_memory",
+                "name": "default",
+                "content": {"content": "Base memory."},
+                "scope": "project",
+            },
         ]
     )
     override = MemoryResourceStore(
@@ -126,6 +132,12 @@ async def test_resource_resolver_priority_and_runtime_mapping() -> None:
                 "kind": "skill",
                 "name": "debug",
                 "content": _skill_content("debug", "override"),
+                "scope": "user",
+            },
+            {
+                "kind": "user_memory",
+                "name": "default",
+                "content": {"content": "Override memory."},
                 "scope": "user",
             }
         ]
@@ -138,8 +150,43 @@ async def test_resource_resolver_priority_and_runtime_mapping() -> None:
     assert resolved.harness_resources.skills[0].content == "override"
     assert resolved.harness_resources.prompt_templates is not None
     assert resolved.harness_resources.prompt_templates[0].name == "fix"
+    assert resolved.harness_resources.user_memory is not None
+    assert resolved.harness_resources.user_memory.content == "Override memory."
     assert resolved.agent_definitions[0].name == "reviewer"
     assert resolved.mcp_server_configs["github"] == {"command": "github-mcp"}
+
+
+@pytest.mark.asyncio
+async def test_resource_resolver_skips_disabled_user_memory() -> None:
+    store = MemoryResourceStore(
+        [
+            {
+                "kind": "user_memory",
+                "name": "default",
+                "content": {"content": "Disabled memory."},
+                "disabled": True,
+            }
+        ]
+    )
+
+    resolved = await ResourceResolver([store]).resolve()
+
+    assert resolved.harness_resources.user_memory is None
+
+    deleted_store = MemoryResourceStore(
+        [
+            {
+                "kind": "user_memory",
+                "name": "default",
+                "content": {"content": "Deleted memory."},
+            }
+        ]
+    )
+    await deleted_store.delete_resource("user_memory", "default")
+
+    deleted_resolved = await ResourceResolver([deleted_store]).resolve()
+
+    assert deleted_resolved.harness_resources.user_memory is None
 
 
 @pytest.mark.asyncio
@@ -155,6 +202,11 @@ async def test_agent_factory_compiles_definition_into_harness_options() -> None:
                 "kind": "agent_definition",
                 "name": "reviewer",
                 "content": _agent_content(),
+            },
+            {
+                "kind": "user_memory",
+                "name": "default",
+                "content": {"content": "Factory memory."},
             },
         ]
     )
@@ -172,6 +224,8 @@ async def test_agent_factory_compiles_definition_into_harness_options() -> None:
     assert [tool.name for tool in options.tools or []] == ["read_file"]
     assert options.resources is not None
     assert [skill.name for skill in options.resources.skills or []] == ["debug"]
+    assert options.resources.user_memory is not None
+    assert options.resources.user_memory.content == "Factory memory."
 
 
 @pytest.mark.asyncio

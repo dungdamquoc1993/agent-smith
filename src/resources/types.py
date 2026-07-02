@@ -20,6 +20,7 @@ ResourceKind = Literal[
     "prompt_template",
     "agent_definition",
     "mcp_server_config",
+    "user_memory",
 ]
 ResourceScope = Literal["builtin", "file", "project", "user", "session"]
 ResourceSourceType = Literal["builtin", "filesystem", "memory", "plugin", "postgres"]

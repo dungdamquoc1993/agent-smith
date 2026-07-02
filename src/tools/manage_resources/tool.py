@@ -90,7 +90,7 @@ def create_manage_resources_tool(
         label="Manage Resources",
         description=(
             "List, load, create, update, or delete catalog resources. "
-            "Kinds: skill, prompt_template, agent_definition, mcp_server_config. "
+            "Kinds: skill, prompt_template, agent_definition, mcp_server_config, user_memory. "
             "MCP credentials are managed separately from mcp_server_config records."
         ),
         parameters={
@@ -114,7 +114,8 @@ def create_manage_resources_tool(
                         "Kind-specific content. skill: {content, description?, filePath?, disableModelInvocation?}. "
                         "prompt_template: {content, description?}. "
                         "agent_definition: {systemPrompt, description?, whenToUse?, toolsAllow?, toolsDeny?, skills?, promptTemplates?, mcpServers?, model?, thinkingLevel?, maxTurns?, permissionMode?}. "
-                        "mcp_server_config: {config, description?}."
+                        "mcp_server_config: {config, description?}. "
+                        "user_memory: {content}."
                     ),
                     "additionalProperties": True,
                 },

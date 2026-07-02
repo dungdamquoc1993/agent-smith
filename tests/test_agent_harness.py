@@ -19,10 +19,12 @@ from agent import (
     PostgresSessionRepo,
     PromptTemplate,
     Skill,
+    UserMemorySnapshot,
     format_prompt_template_invocation,
     format_skill_invocation,
     format_skills_for_system_prompt,
     format_skills_for_system_reminder,
+    format_user_memory_for_system_reminder,
 )
 from db.base import Base
 from db.models.principal import Principal, PrincipalType
@@ -239,6 +241,9 @@ def test_resources_format_skill_and_template() -> None:
     assert "Read logs carefully." in format_skill_invocation(skill, "Be concise.")
     assert "<available_skills>" in format_skills_for_system_prompt([skill])
     assert format_skills_for_system_reminder([skill]).startswith("<system-reminder>")
+    assert "<user-memory>" in format_user_memory_for_system_reminder(
+        UserMemorySnapshot(content="User prefers concise replies.")
+    )
     assert format_prompt_template_invocation(template, ["bug", "tests"]) == (
         "Fix bug using bug tests and tests"
     )
@@ -566,6 +571,94 @@ async def test_harness_surfaces_agent_catalog_delta_as_system_reminder() -> None
     assert "agent-catalog-delta" in provider_context.messages[0].content
     assert "reviewer" in provider_context.messages[0].content
     assert provider_context.messages[-1].content == "hello"
+
+
+@pytest.mark.asyncio
+async def test_harness_injects_user_memory_snapshot_as_runtime_reminder() -> None:
+    repo = MemorySessionRepo()
+    session = await repo.create(principal_id="principal-1")
+    captured_contexts: list[Context] = []
+
+    def stream_fn(model: Model, context: Context, options: SimpleStreamOptions | None = None):
+        _ = model, options
+        captured_contexts.append(context)
+        return _stream_for(_assistant([TextContent(text="done")]))
+
+    harness = AgentHarness(
+        session=session,
+        model=_model(),
+        stream_fn=stream_fn,
+        resources=AgentHarnessResources(
+            user_memory=UserMemorySnapshot(
+                content="User prefers concise replies.",
+                source="resource:user_memory/default",
+                resource_id="memory-1",
+                resource_version_id="version-1",
+                version=1,
+                content_hash="abc",
+            ),
+        ),
+    )
+
+    await harness.prompt("hello")
+
+    provider_context = captured_contexts[0]
+    entries = await session.get_entries()
+    assert isinstance(provider_context.messages[0], UserMessage)
+    assert "<user-memory>" in provider_context.messages[0].content
+    assert "User prefers concise replies." in provider_context.messages[0].content
+    assert provider_context.messages[-1].content == "hello"
+    assert [entry.type for entry in entries] == ["custom", "message", "message"]
+    assert entries[0].custom_type == "user_memory_snapshot"
+    assert entries[0].data["content"] == "User prefers concise replies."
+
+
+@pytest.mark.asyncio
+async def test_harness_reuses_frozen_user_memory_snapshot_for_session() -> None:
+    repo = MemorySessionRepo()
+    session = await repo.create(principal_id="principal-1")
+    captured_contexts: list[Context] = []
+
+    def stream_fn(model: Model, context: Context, options: SimpleStreamOptions | None = None):
+        _ = model, options
+        captured_contexts.append(context)
+        return _stream_for(_assistant([TextContent(text="done")]))
+
+    harness = AgentHarness(
+        session=session,
+        model=_model(),
+        stream_fn=stream_fn,
+        resources=AgentHarnessResources(
+            user_memory=UserMemorySnapshot(
+                content="Original memory.",
+                resource_version_id="version-1",
+                version=1,
+            ),
+        ),
+    )
+
+    await harness.prompt("first")
+    await harness.set_resources(
+        AgentHarnessResources(
+            user_memory=UserMemorySnapshot(
+                content="Updated memory.",
+                resource_version_id="version-2",
+                version=2,
+            )
+        )
+    )
+    await harness.prompt("second")
+
+    entries = await session.get_entries()
+    snapshots = [
+        entry
+        for entry in entries
+        if entry.type == "custom" and entry.custom_type == "user_memory_snapshot"
+    ]
+    assert len(snapshots) == 1
+    assert "Original memory." in captured_contexts[0].messages[0].content
+    assert "Original memory." in captured_contexts[1].messages[0].content
+    assert "Updated memory." not in captured_contexts[1].messages[0].content
 
 
 @pytest.mark.asyncio

@@ -67,6 +67,17 @@ class AgentCatalogEntry(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class UserMemorySnapshot(BaseModel):
+    content: str
+    source: str = "resource:user_memory/default"
+    resource_id: str | None = Field(default=None, alias="resourceId")
+    resource_version_id: str | None = Field(default=None, alias="resourceVersionId")
+    version: int | None = None
+    content_hash: str | None = Field(default=None, alias="contentHash")
+
+    model_config = {"populate_by_name": True}
+
+
 class AgentHarnessResources(BaseModel):
     skills: list[Skill] | None = None
     prompt_templates: list[PromptTemplate] | None = Field(
@@ -77,6 +88,7 @@ class AgentHarnessResources(BaseModel):
         default=None,
         alias="agentCatalog",
     )
+    user_memory: UserMemorySnapshot | None = Field(default=None, alias="userMemory")
 
     model_config = {"populate_by_name": True}
 
@@ -137,6 +149,8 @@ class AgentHarnessSession(Protocol):
         details: HookPayload | None = None,
         from_hook: bool | None = None,
     ) -> str: ...
+
+    async def append_custom_entry(self, custom_type: str, data: JsonValue | None = None) -> str: ...
 
     async def append_session_name(self, name: str) -> str: ...
 
@@ -386,6 +400,7 @@ class TurnState(TypedDict):
     thinking_level: ModelThinkingLevel
     tools: list[AgentTool]
     active_tools: list[AgentTool]
+    user_memory_snapshot: UserMemorySnapshot | None
 
 
 class AgentHarnessOptions(BaseModel):

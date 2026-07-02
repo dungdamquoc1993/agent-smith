@@ -9,6 +9,7 @@ from resources.resolver import (
     mcp_server_config_from_record,
     prompt_template_from_record,
     skill_from_record,
+    user_memory_snapshot_from_record,
 )
 from resources.store import (
     ResourceConflictError,
@@ -56,4 +57,5 @@ __all__ = [
     "prompt_template_from_record",
     "resource_content_hash",
     "skill_from_record",
+    "user_memory_snapshot_from_record",
 ]

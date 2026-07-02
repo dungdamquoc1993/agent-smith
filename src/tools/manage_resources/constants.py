@@ -8,4 +8,5 @@ RESOURCE_KINDS: tuple[ResourceKind, ...] = (
     "prompt_template",
     "agent_definition",
     "mcp_server_config",
+    "user_memory",
 )

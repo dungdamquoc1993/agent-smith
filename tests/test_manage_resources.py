@@ -229,6 +229,62 @@ async def test_manage_resources_prompt_template_and_mcp_config() -> None:
 
 
 @pytest.mark.asyncio
+async def test_manage_resources_user_memory_crud() -> None:
+    store = MemoryResourceStore()
+    tool = create_manage_resources_tool(store)
+
+    created = await tool.execute(
+        "res-1",
+        {
+            "kind": "user_memory",
+            "action": "create",
+            "name": "default",
+            "description": "Default user memory",
+            "content": {"content": "User prefers concise replies."},
+        },
+        None,
+        None,
+    )
+    updated = await tool.execute(
+        "res-2",
+        {
+            "kind": "user_memory",
+            "action": "update",
+            "name": "default",
+            "content": {"content": "User prefers short direct answers."},
+        },
+        None,
+        None,
+    )
+    listed = await tool.execute(
+        "res-3",
+        {"kind": "user_memory", "action": "list"},
+        None,
+        None,
+    )
+    loaded = await tool.execute(
+        "res-4",
+        {"kind": "user_memory", "action": "read", "name": "default"},
+        None,
+        None,
+    )
+    await tool.execute(
+        "res-5",
+        {"kind": "user_memory", "action": "delete", "name": "default"},
+        None,
+        None,
+    )
+
+    assert created.details["resource"]["content"] == "User prefers concise replies."
+    assert updated.details["resource"]["resource"]["version"] == 2
+    assert updated.details["resource"]["content"] == "User prefers short direct answers."
+    assert listed.details["resources"][0]["name"] == "default"
+    assert "content" not in listed.details["resources"][0]
+    assert loaded.details["resource"]["content"] == "User prefers short direct answers."
+    assert await store.get_resource("user_memory", "default") is None
+
+
+@pytest.mark.asyncio
 async def test_manage_resources_validates_action_payloads() -> None:
     tool = create_manage_resources_tool(MemoryResourceStore())
 
@@ -261,6 +317,18 @@ async def test_manage_resources_validates_action_payloads() -> None:
                 "action": "update",
                 "name": "missing",
                 "description": "Missing",
+            },
+            None,
+            None,
+        )
+    with pytest.raises(ValueError, match="non-empty string"):
+        await tool.execute(
+            "res-5",
+            {
+                "kind": "user_memory",
+                "action": "create",
+                "name": "default",
+                "content": {"content": "   "},
             },
             None,
             None,
@@ -338,6 +406,7 @@ def test_manage_resources_schema_and_optional_registry() -> None:
         resources_resolver=ResourceResolver([store]),
     )
 
+    assert "user_memory" in tool.parameters["properties"]["kind"]["enum"]
     assert MANAGE_RESOURCES_TOOL_NAME not in base.names()
     assert MANAGE_RESOURCES_TOOL_NAME in with_resources.names()
     assert "skill" in with_resources.names()

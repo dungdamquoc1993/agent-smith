@@ -135,6 +135,7 @@ class AgentFactory:
             skills=resources.skills,
             prompt_templates=resources.prompt_templates,
             agent_catalog=_build_agent_catalog(resolved_resources.agent_definitions),
+            user_memory=resources.user_memory,
         )
         resolved_stream_options = (
             AgentHarnessStreamOptions.model_validate(stream_options)
@@ -290,6 +291,7 @@ class AgentFactory:
         return AgentHarnessResources(
             skills=selected_skills,
             prompt_templates=selected_templates,
+            user_memory=resources.user_memory,
         )
 
     def _require_names(

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from agent.harness.types import AgentHarnessResources, PromptTemplate, Skill
+from agent.harness.types import (
+    AgentHarnessResources,
+    PromptTemplate,
+    Skill,
+    UserMemorySnapshot,
+)
 from ai.types import JsonObject
 from resources.store import ResourceStore
 from resources.types import (
@@ -64,10 +69,23 @@ class ResourceResolver:
             for record in records
             if record.kind == "mcp_server_config"
         }
+        user_memory_record = next(
+            (
+                record
+                for record in records
+                if record.kind == "user_memory" and record.name == "default"
+            ),
+            None,
+        )
         return ResolvedResources(
             harness_resources=AgentHarnessResources(
                 skills=skills,
                 prompt_templates=prompt_templates,
+                user_memory=(
+                    user_memory_snapshot_from_record(user_memory_record)
+                    if user_memory_record is not None
+                    else None
+                ),
             ),
             agent_definitions=agent_definitions,
             mcp_server_configs=mcp_server_configs,
@@ -122,3 +140,17 @@ def mcp_server_config_from_record(record: ResourceRecord) -> McpServerConfig:
             "config": record.content,
         }
     return McpServerConfig.model_validate(data)
+
+
+def user_memory_snapshot_from_record(record: ResourceRecord) -> UserMemorySnapshot:
+    content = record.content.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("user_memory content.content must be a non-empty string")
+    return UserMemorySnapshot(
+        content=content.strip(),
+        source=f"resource:{record.kind}/{record.name}",
+        resource_id=record.id,
+        resource_version_id=record.current_version.id,
+        version=record.current_version.version,
+        content_hash=record.current_version.content_hash,
+    )
