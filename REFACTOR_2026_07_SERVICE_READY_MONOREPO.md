@@ -44,7 +44,7 @@ src/agent_smith/
 
   workers/          # queue-worker skeleton
 
-apps/web/           # placeholder for the future React/Vite test client
+clients/web/        # placeholder for the future React/Vite test client
 migrations/         # Alembic migrations
 ```
 

@@ -103,7 +103,7 @@ src/agent_smith/
 ├── transports/         # HTTP/SSE now, messaging contracts later
 └── workers/            # worker skeleton/entrypoints
 
-apps/web/               # future React/Vite test client
+clients/web/            # future React/Vite test client
 tests/                  # unit tests
 docs/                   # changelog, design notes
 migrations/             # Alembic migrations
