@@ -132,6 +132,22 @@ def _factory(
     )
 
 
+def _child_session_options(request: AgentChildSessionRequest) -> dict[str, Any]:
+    return {
+        "id": f"child-{request.task_id}",
+        "principal_id": request.principal_id,
+        "kind": "agent_run",
+        "parent_session_id": request.parent_session_id,
+        "agent_name": request.agent_name,
+        "origin_task_id": request.task_id,
+        "provenance": {
+            **request.provenance,
+            "trigger": "task_tool",
+            "mode": request.mode or "sync",
+        },
+    }
+
+
 @pytest.mark.asyncio
 async def test_agent_task_runner_success_uses_child_session_and_records_result() -> None:
     store = MemoryResourceStore([_agent_resource()])
@@ -140,10 +156,7 @@ async def test_agent_task_runner_success_uses_child_session_and_records_result()
     requests: dict[str, AgentChildSessionRequest] = {}
 
     async def session_factory(request: AgentChildSessionRequest):
-        session = await session_repo.create(
-            id=f"child-{request.task_id}",
-            principal_id=request.principal_id,
-        )
+        session = await session_repo.create(**_child_session_options(request))
         sessions[request.task_id] = session
         requests[request.task_id] = request
         return session
@@ -209,6 +222,18 @@ async def test_agent_task_runner_success_uses_child_session_and_records_result()
     assert request.mode == "sync"
     assert request.provenance == {"source": "test"}
 
+    child_metadata = await sessions[spawned.id].get_metadata()
+    assert child_metadata.kind == "agent_run"
+    assert child_metadata.principal_id == "principal-1"
+    assert child_metadata.parent_session_id == "parent-session-1"
+    assert child_metadata.agent_name == "reviewer"
+    assert child_metadata.origin_task_id == spawned.id
+    assert child_metadata.provenance == {
+        "source": "test",
+        "trigger": "task_tool",
+        "mode": "sync",
+    }
+
     entries = await sessions[spawned.id].get_entries()
     messages = [entry.message for entry in entries if entry.type == "message"]
     assert [message.role for message in messages if message is not None] == ["user", "assistant"]
@@ -237,7 +262,7 @@ async def test_agent_task_runner_applies_agent_factory_tool_selection() -> None:
             tool_registry=ToolRegistry([_tool("read_file"), _tool("write_file")]),
             stream_fn=stream_fn,
         ),
-        session_factory=lambda request: MemorySessionRepo().create(id=f"child-{request.task_id}"),
+        session_factory=lambda request: MemorySessionRepo().create(**_child_session_options(request)),
     )
     runtime = MemoryTaskRuntime()
 
@@ -261,7 +286,7 @@ async def test_agent_task_runner_factory_validation_failure_marks_task_failed() 
     store = MemoryResourceStore([_agent_resource(tools_allow=["missing_tool"])])
     runner = AgentTaskRunner(
         agent_factory=_factory(store),
-        session_factory=lambda request: MemorySessionRepo().create(id=f"child-{request.task_id}"),
+        session_factory=lambda request: MemorySessionRepo().create(**_child_session_options(request)),
     )
     runtime = MemoryTaskRuntime()
 
@@ -303,7 +328,7 @@ async def test_agent_task_runner_stop_aborts_child_harness_and_cancels_task() ->
 
     runner = AgentTaskRunner(
         agent_factory=_factory(store, stream_fn=stream_fn),
-        session_factory=lambda request: MemorySessionRepo().create(id=f"child-{request.task_id}"),
+        session_factory=lambda request: MemorySessionRepo().create(**_child_session_options(request)),
         abort_poll_seconds=0.01,
     )
     runtime = MemoryTaskRuntime()
@@ -335,7 +360,7 @@ async def test_agent_task_runner_recursion_guard_fails_before_creating_session()
 
     async def session_factory(request: AgentChildSessionRequest):
         created_sessions.append(request.task_id)
-        return await MemorySessionRepo().create(id=f"child-{request.task_id}")
+        return await MemorySessionRepo().create(**_child_session_options(request))
 
     runner = AgentTaskRunner(
         agent_factory=_factory(store),

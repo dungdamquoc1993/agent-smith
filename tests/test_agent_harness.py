@@ -26,7 +26,7 @@ from agent_smith.core.agent import (
     format_user_memory_for_system_reminder,
 )
 from agent_smith.infra.db.base import Base
-from agent_smith.infra.db.models.principal import Principal, PrincipalType
+from agent_smith.infra.db.models.principal import Principal
 from agent_smith.infra.persistence.postgres_sessions import PostgresSessionRepo
 from agent_smith.core.llm.events import create_assistant_message_event_stream
 from agent_smith.core.llm.models import make_litellm_model
@@ -143,13 +143,13 @@ async def test_memory_session_metadata_tracks_provenance_and_fork_overrides() ->
     main = await repo.create(principal_id="principal-1", title="main")
     main_metadata = await main.get_metadata()
 
-    assert main_metadata.kind == "main"
+    assert main_metadata.kind == "chat"
     assert main_metadata.provenance == {}
 
     child = await repo.create(
         principal_id="principal-1",
         title="child",
-        kind="sub_agent",
+        kind="agent_run",
         parent_session_id=main_metadata.id,
         agent_name="reviewer",
         origin_task_id="task-1",
@@ -158,7 +158,7 @@ async def test_memory_session_metadata_tracks_provenance_and_fork_overrides() ->
     reopened = await repo.open(await child.get_metadata())
     child_metadata = await reopened.get_metadata()
 
-    assert child_metadata.kind == "sub_agent"
+    assert child_metadata.kind == "agent_run"
     assert child_metadata.parent_session_id == main_metadata.id
     assert child_metadata.agent_name == "reviewer"
     assert child_metadata.origin_task_id == "task-1"
@@ -167,7 +167,7 @@ async def test_memory_session_metadata_tracks_provenance_and_fork_overrides() ->
     fork = await repo.fork(await child.get_metadata(), provenance={"mode": "async"})
     fork_metadata = await fork.get_metadata()
 
-    assert fork_metadata.kind == "sub_agent"
+    assert fork_metadata.kind == "agent_run"
     assert fork_metadata.parent_session_id == main_metadata.id
     assert fork_metadata.agent_name == "reviewer"
     assert fork_metadata.origin_task_id == "task-1"
@@ -191,7 +191,6 @@ async def test_postgres_session_repo_roundtrip_when_database_is_configured() -> 
             db.add(
                 Principal(
                     id=principal_id,
-                    type=PrincipalType.human,
                     display_name="Harness Test",
                 )
             )
@@ -204,7 +203,7 @@ async def test_postgres_session_repo_roundtrip_when_database_is_configured() -> 
         reopened_metadata = await reopened.get_metadata()
         context = await reopened.build_context()
 
-        assert reopened_metadata.kind == "main"
+        assert reopened_metadata.kind == "chat"
         assert reopened_metadata.provenance == {}
         assert context.messages[0].role == "user"
         assert context.messages[0].content == "hi"
@@ -212,7 +211,7 @@ async def test_postgres_session_repo_roundtrip_when_database_is_configured() -> 
         child = await repo.create(
             principal_id=str(principal_id),
             title="child",
-            kind="sub_agent",
+            kind="agent_run",
             parent_session_id=reopened_metadata.id,
             agent_name="reviewer",
             origin_task_id="task-1",
@@ -220,7 +219,7 @@ async def test_postgres_session_repo_roundtrip_when_database_is_configured() -> 
         )
         child_metadata = await (await repo.open(await child.get_metadata())).get_metadata()
 
-        assert child_metadata.kind == "sub_agent"
+        assert child_metadata.kind == "agent_run"
         assert child_metadata.parent_session_id == reopened_metadata.id
         assert child_metadata.agent_name == "reviewer"
         assert child_metadata.origin_task_id == "task-1"
@@ -535,7 +534,7 @@ async def test_harness_surfaces_agent_catalog_delta_as_system_reminder() -> None
     task_tool = AgentTool(
         name="task",
         label="Task",
-        description="Run a named sub-agent task.",
+        description="Run a named agent task.",
         parameters={"type": "object", "properties": {}},
         execute=execute,
     )

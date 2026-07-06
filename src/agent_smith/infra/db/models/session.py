@@ -15,8 +15,8 @@ from agent_smith.infra.db.base import Base
 
 
 class SessionKind(str, enum.Enum):
-    main = "main"
-    sub_agent = "sub_agent"
+    chat = "chat"
+    agent_run = "agent_run"
 
 
 class SessionEntryType(str, enum.Enum):
@@ -48,8 +48,8 @@ class Session(Base):
     kind: Mapped[SessionKind] = mapped_column(
         Enum(SessionKind, name="session_kind"),
         nullable=False,
-        default=SessionKind.main,
-        server_default=SessionKind.main.value,
+        default=SessionKind.chat,
+        server_default=SessionKind.chat.value,
     )
     parent_session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

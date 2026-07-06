@@ -13,14 +13,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from agent_smith.infra.db.base import Base
 
 
-class PrincipalType(str, enum.Enum):
-    human = "human"
-    service_account = "service_account"
-    agent = "agent"
-    subagent = "subagent"
-    system_job = "system_job"
-
-
 class PrincipalStatus(str, enum.Enum):
     active = "active"
     inactive = "inactive"
@@ -31,7 +23,6 @@ class Principal(Base):
     __tablename__ = "principals"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    type: Mapped[PrincipalType] = mapped_column(Enum(PrincipalType, name="principal_type"), nullable=False)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[PrincipalStatus] = mapped_column(
         Enum(PrincipalStatus, name="principal_status"),

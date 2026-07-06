@@ -1,4 +1,4 @@
-"""Sub-agent task spawning tool factory."""
+"""Agent task spawning tool factory."""
 
 from __future__ import annotations
 
@@ -48,6 +48,9 @@ def create_task_tool(
         payload = TaskToolInput.model_validate(args)
         mode = payload.mode or default_mode
         resolved_parent_metadata = _resolve_parent_metadata(parent_metadata)
+        parent_provenance = resolved_parent_metadata.get("provenance")
+        provenance = dict(parent_provenance) if isinstance(parent_provenance, Mapping) else {}
+        provenance.update({"trigger": "task_tool", "mode": mode})
         depth = resolved_parent_metadata.get(
             "agentDepth",
             resolved_parent_metadata.get("agent_depth", 0),
@@ -59,6 +62,7 @@ def create_task_tool(
             "mode": mode,
             "description": payload.description,
             "parentToolCallId": tool_call_id,
+            "provenance": provenance,
         }
         spawned = await task_runtime.spawn(
             kind="agent",
@@ -123,7 +127,7 @@ def create_task_tool(
         name=TASK_TOOL_NAME,
         label="Task",
         description=(
-            "Run a named sub-agent task, either synchronously or in the background. "
+            "Run a named agent task, either synchronously or in the background. "
             "Available agent definitions are listed in system-reminder messages in the conversation."
         ),
         parameters={
@@ -142,7 +146,7 @@ def create_task_tool(
                 "prompt": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Prompt to send to the sub-agent.",
+                    "description": "Prompt to send to the agent run.",
                 },
                 "mode": {
                     "type": "string",

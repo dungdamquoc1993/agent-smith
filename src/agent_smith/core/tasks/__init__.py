@@ -1,4 +1,4 @@
-"""Task runtime primitives for background and sub-agent work."""
+"""Task runtime primitives for background agent work."""
 
 from agent_smith.core.tasks.errors import (
     TaskAlreadyFinishedError,

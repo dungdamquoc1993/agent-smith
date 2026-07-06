@@ -85,7 +85,7 @@ class MemorySessionRepo:
             id=session_id,
             principal_id=options.get("principal_id"),
             title=options.get("title"),
-            kind=options.get("kind", "main"),
+            kind=options.get("kind", "chat"),
             parent_session_id=options.get("parent_session_id"),
             agent_name=options.get("agent_name"),
             origin_task_id=options.get("origin_task_id"),

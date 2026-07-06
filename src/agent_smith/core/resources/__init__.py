@@ -1,7 +1,6 @@
 """Resource catalog and resolution APIs."""
 
 from agent_smith.core.resources.memory import MemoryResourceStore
-from agent_smith.infra.persistence.postgres_resources import PostgresResourceStore
 from agent_smith.core.resources.resolver import (
     ResolvedResources,
     ResourceResolver,
@@ -31,6 +30,15 @@ from agent_smith.core.resources.types import (
     ResourceVersion,
     resource_content_hash,
 )
+
+
+def __getattr__(name: str):
+    if name == "PostgresResourceStore":
+        from agent_smith.infra.persistence.postgres_resources import PostgresResourceStore
+
+        return PostgresResourceStore
+    raise AttributeError(name)
+
 
 __all__ = [
     "AgentDefinition",

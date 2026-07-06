@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from agent_smith.infra.db.models.principal import Principal, PrincipalType
+from agent_smith.infra.db.models.principal import Principal
 from agent_smith.infra.db.models.session import Session as DbSession
 from agent_smith.infra.persistence.postgres_sessions import PostgresSessionRepo
 
@@ -35,7 +35,6 @@ class SessionService:
             if principal is None:
                 principal = Principal(
                     id=uuid.uuid4(),
-                    type=PrincipalType.human,
                     display_name=self.principal_display_name,
                 )
                 db.add(principal)
@@ -62,7 +61,7 @@ class SessionService:
         session = await repo.create(
             principal_id=str(principal.id),
             title=title or "Test chat",
-            provenance={"source": "http_adapter"},
+            provenance={"source": "http_adapter", "trigger": "user"},
         )
         metadata = await session.get_metadata()
         return metadata.model_dump(mode="json", by_alias=True, exclude_none=True)
@@ -99,14 +98,13 @@ class SessionService:
         return await repo.create(
             principal_id=str(principal.id),
             title="Test chat",
-            provenance={"source": "http_adapter"},
+            provenance={"source": "http_adapter", "trigger": "user"},
         )
 
 
 def principal_payload(row: Principal) -> dict[str, Any]:
     return {
         "id": str(row.id),
-        "type": row.type.value if hasattr(row.type, "value") else row.type,
         "displayName": row.display_name,
         "status": row.status.value if hasattr(row.status, "value") else row.status,
         "createdAt": row.created_at.isoformat() if row.created_at else None,

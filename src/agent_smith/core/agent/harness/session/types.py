@@ -27,14 +27,14 @@ SessionEntryType = Literal[
     "session_info",
     "leaf",
 ]
-SessionKind = Literal["main", "sub_agent"]
+SessionKind = Literal["chat", "agent_run"]
 
 
 class SessionMetadata(BaseModel):
     id: str
     principal_id: str | None = Field(default=None, alias="principalId")
     title: str | None = None
-    kind: SessionKind = "main"
+    kind: SessionKind = "chat"
     parent_session_id: str | None = Field(default=None, alias="parentSessionId")
     agent_name: str | None = Field(default=None, alias="agentName")
     origin_task_id: str | None = Field(default=None, alias="originTaskId")

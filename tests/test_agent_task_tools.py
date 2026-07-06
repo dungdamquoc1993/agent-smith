@@ -125,16 +125,32 @@ def _factory(store: MemoryResourceStore, *, stream_fn=None) -> AgentFactory:
     )
 
 
+def _child_session_options(request: AgentChildSessionRequest) -> dict[str, Any]:
+    return {
+        "id": f"child-{request.task_id}",
+        "principal_id": request.principal_id,
+        "kind": "agent_run",
+        "parent_session_id": request.parent_session_id,
+        "agent_name": request.agent_name,
+        "origin_task_id": request.task_id,
+        "provenance": {
+            **request.provenance,
+            "trigger": "task_tool",
+            "mode": request.mode or "sync",
+        },
+    }
+
+
 def _runner(runtime_store: MemoryResourceStore, *, stream_fn=None) -> AgentTaskRunner:
     return AgentTaskRunner(
         agent_factory=_factory(runtime_store, stream_fn=stream_fn),
-        session_factory=lambda request: MemorySessionRepo().create(id=f"child-{request.task_id}"),
+        session_factory=lambda request: MemorySessionRepo().create(**_child_session_options(request)),
         abort_poll_seconds=0.01,
     )
 
 
 @pytest.mark.asyncio
-async def test_agent_tool_sync_runs_sub_agent_to_final_response() -> None:
+async def test_agent_tool_sync_runs_agent_run_to_final_response() -> None:
     store = MemoryResourceStore([_agent_resource()])
     runtime = MemoryTaskRuntime()
 
@@ -181,7 +197,7 @@ async def test_agent_tool_merges_parent_metadata_into_task_and_session_request()
 
     async def session_factory(request: AgentChildSessionRequest):
         captured_requests.append(request)
-        return await MemorySessionRepo().create(id=f"child-{request.task_id}")
+        return await MemorySessionRepo().create(**_child_session_options(request))
 
     runner = AgentTaskRunner(
         agent_factory=_factory(store, stream_fn=stream_fn),
@@ -194,8 +210,8 @@ async def test_agent_tool_merges_parent_metadata_into_task_and_session_request()
         parent_metadata=lambda: {
             "agentDepth": 1,
             "principalId": "principal-1",
-            "parentSessionId": "main-session-1",
-            "provenance": {"scope": "main"},
+            "parentSessionId": "chat-session-1",
+            "provenance": {"scope": "chat"},
         },
     )
 
@@ -215,17 +231,25 @@ async def test_agent_tool_merges_parent_metadata_into_task_and_session_request()
     assert metadata["agentDepth"] == 1
     assert metadata["parentToolCallId"] == "agent-call-1"
     assert metadata["principalId"] == "principal-1"
-    assert metadata["parentSessionId"] == "main-session-1"
-    assert metadata["provenance"] == {"scope": "main"}
+    assert metadata["parentSessionId"] == "chat-session-1"
+    assert metadata["provenance"] == {
+        "scope": "chat",
+        "trigger": "task_tool",
+        "mode": "sync",
+    }
 
     request = captured_requests[0]
     assert request.agent_depth == 2
     assert request.principal_id == "principal-1"
-    assert request.parent_session_id == "main-session-1"
+    assert request.parent_session_id == "chat-session-1"
     assert request.parent_tool_call_id == "agent-call-1"
     assert request.description == "Review change"
     assert request.mode == "sync"
-    assert request.provenance == {"scope": "main"}
+    assert request.provenance == {
+        "scope": "chat",
+        "trigger": "task_tool",
+        "mode": "sync",
+    }
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,6 @@
 # tasks
 
-Background / sub-agent task runtime. Spawn work, track lifecycle, stream output, read results.
+Background / agent task runtime. Spawn work, track lifecycle, stream output, read results.
 
 ## Layout
 
@@ -22,7 +22,7 @@ caller → TaskRuntime.get / wait / read_output   (observe from outside)
 - **Runner** writes via `TaskContext` (`append_output`, `set_result_metadata`); returns final `result`.
 - **Runtime** owns lifecycle; does not auto-dispatch by `kind` — tools wire `kind` + runner.
 - **AgentTaskRunner** creates child sessions through
-  `AgentChildSessionRequest`, so callers can preserve sub-agent provenance
+  `AgentChildSessionRequest`, so callers can preserve agent-run provenance
   without coupling the runner to Postgres.
 
 ## Extending
@@ -34,7 +34,7 @@ caller → TaskRuntime.get / wait / read_output   (observe from outside)
 
 Current defaults are in-memory only.
 
-Persisting task records is separate from persisting agent sessions. A sub-agent
+Persisting task records is separate from persisting agent sessions. An agent run
 can use a Postgres-backed child session even while `MemoryTaskRuntime` owns the
 task lifecycle.
 

@@ -33,7 +33,7 @@ and `__init__.py` (package re-exports).
 | `create_web_fetch_tool()` | `web_fetch` | Fetch HTTP/HTTPS content and return extracted text. |
 | `create_web_search_tool()` | `web_search` | Search through configured Tavily or Brave providers. |
 | `create_skill_tool()` | `skill` | Invoke a skill by name with optional arguments. |
-| `create_task_tool()` | `task` | Spawn a named sub-agent task sync or async. |
+| `create_task_tool()` | `task` | Spawn a named agent task sync or async. |
 | `create_manage_resources_tool()` | `manage_resources` | List, load, create, update, or delete catalog resources. |
 | `create_task_output_tool()` | `task_output` | Read or wait for task output/result snapshots. |
 | `create_task_stop_tool()` | `task_stop` | Stop a running task. |
@@ -68,7 +68,7 @@ tool_registry = create_base_tool_registry(
 Task tools are added only when `task_runtime` is provided; `task` is added only
 when both `task_runtime` and `agent_runner` are provided. Pass
 `agent_parent_metadata` to propagate parent session/principal provenance into
-sub-agent tasks.
+agent tasks.
 
 ## Resource Behavior
 
