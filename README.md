@@ -67,9 +67,12 @@ poetry install
 cp .env.example .env
 # Chỉnh .env: OPENAI_API_KEY, DATABASE_URL, ...
 
-docker compose up -d
+docker compose -f docker/compose.yml up -d
 poetry run alembic upgrade head
 ```
+
+Docker and local dependency files live in
+[`docker`](docker/README.md).
 
 ## Demo unified AI layer
 
