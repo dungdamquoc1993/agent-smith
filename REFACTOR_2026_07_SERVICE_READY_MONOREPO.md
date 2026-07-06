@@ -45,7 +45,6 @@ src/agent_smith/
   workers/          # queue-worker skeleton
 
 apps/web/           # placeholder for the future React/Vite test client
-test_app/static/    # current static test UI
 migrations/         # Alembic migrations
 ```
 
@@ -94,19 +93,18 @@ AppEventEnvelope:
   payload
 ```
 
-## Local Test App
+## Local HTTP Adapter
 
-The old `test_app/server.py` is now only a compatibility entrypoint. The actual
-HTTP adapter lives in:
+The local HTTP adapter lives in:
 
 ```text
 agent_smith.transports.http
 ```
 
-Run it the same way as before:
+Run it with:
 
 ```bash
-PYTHONPATH=src poetry run python test_app/server.py
+poetry run python -m agent_smith.transports.http.main
 ```
 
 ## Packaging And Imports
@@ -136,7 +134,7 @@ The refactor was verified with:
 ```bash
 poetry run pytest -q
 poetry run ruff check src tests
-poetry run python -m compileall -q src tests migrations test_app
+poetry run python -m compileall -q src tests migrations
 ```
 
 At the time of the refactor, the full test suite passed with:
@@ -144,4 +142,3 @@ At the time of the refactor, the full test suite passed with:
 ```text
 110 passed, 6 skipped
 ```
-

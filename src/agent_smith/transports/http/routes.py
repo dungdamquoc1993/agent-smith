@@ -46,7 +46,7 @@ def create_handler(
     *,
     container: AppContainer,
     runtime: AsyncRuntime,
-    static_dir: Path,
+    static_dir: Path | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     class AgentSmithHttpHandler(BaseHTTPRequestHandler):
         server_version = "AgentSmithHTTP/0.1"
@@ -58,7 +58,20 @@ def create_handler(
             try:
                 path = urlparse(self.path).path
                 if path in {"/", "/index.html"}:
-                    return self._serve_file(static_dir / "index.html", "text/html; charset=utf-8")
+                    if static_dir is not None:
+                        return self._serve_file(static_dir / "index.html", "text/html; charset=utf-8")
+                    return self._send_json(
+                        {
+                            "service": "agent_smith_http",
+                            "routes": [
+                                "/api/bootstrap",
+                                "/api/sessions",
+                                "/api/resources",
+                                "/api/resources/seed",
+                                "/api/prompt/stream",
+                            ],
+                        }
+                    )
                 if path == "/api/bootstrap":
                     return self._send_json(runtime.run(container.bootstrap()))
                 if path == "/api/sessions":
@@ -163,4 +176,3 @@ def create_handler(
                 self.close_connection = True
 
     return AgentSmithHttpHandler
-

@@ -44,7 +44,7 @@ core/resources/         ← skill, prompt_template, agent_definition, mcp_server
 | `agent_smith.core.runtime` | Assembly: blueprint → harness instance | `AgentFactory` |
 | `agent_smith.app` | Use-case services transport-neutral | session/resource/task/agent-run orchestration |
 | `agent_smith.infra` | Concrete adapters | Postgres, LiteLLM, MCP SDK, settings |
-| `agent_smith.transports` | API/message adapters | HTTP/SSE test app now, message adapters later |
+| `agent_smith.transports` | API/message adapters | HTTP/SSE adapter now, message adapters later |
 
 **Khi nào dùng gì?**
 
@@ -104,7 +104,6 @@ src/agent_smith/
 └── workers/            # worker skeleton/entrypoints
 
 apps/web/               # future React/Vite test client
-test_app/static/        # current local static test UI
 tests/                  # unit tests
 docs/                   # changelog, design notes
 migrations/             # Alembic migrations

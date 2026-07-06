@@ -59,12 +59,12 @@ class ResourceService:
         return {
             "kind": "agent_definition",
             "name": self.default_agent_name,
-            "description": "Minimal assistant for the local test app.",
+            "description": "Minimal assistant for local HTTP testing.",
             "content": {
                 "name": self.default_agent_name,
-                "description": "Minimal assistant for the local test app.",
+                "description": "Minimal assistant for local HTTP testing.",
                 "systemPrompt": (
-                    "You are the Agent Smith local test assistant. "
+                    "You are the Agent Smith local assistant. "
                     "Keep answers concise and use the user's preferred language."
                 ),
                 "thinkingLevel": "high",
@@ -72,4 +72,3 @@ class ResourceService:
                 "toolsAllow": [],
             },
         }
-

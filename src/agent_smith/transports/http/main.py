@@ -19,14 +19,13 @@ warnings.filterwarnings(
 HOST = os.environ.get("AGENT_SMITH_TEST_APP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("AGENT_SMITH_TEST_APP_PORT", "8765"))
 REPO_ROOT = Path(__file__).resolve().parents[4]
-DEFAULT_STATIC_DIR = REPO_ROOT / "test_app" / "static"
 
 
 def create_server(
     *,
     host: str = HOST,
     port: int = PORT,
-    static_dir: Path = DEFAULT_STATIC_DIR,
+    static_dir: Path | None = None,
 ) -> tuple[ThreadingHTTPServer, AsyncRuntime, AppContainer]:
     load_dotenv(REPO_ROOT / ".env")
     container = AppContainer()
@@ -39,7 +38,7 @@ def create_server(
 
 def main() -> None:
     server, runtime, container = create_server()
-    print(f"Agent Smith test app: http://{HOST}:{PORT}")
+    print(f"Agent Smith HTTP adapter: http://{HOST}:{PORT}")
     print("Expected DB schema: poetry run alembic upgrade head")
     print(f"OPENAI_API_KEY loaded: {'yes' if os.environ.get('OPENAI_API_KEY') else 'no'}")
     print(
@@ -49,7 +48,7 @@ def main() -> None:
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping test app...")
+        print("\nStopping HTTP adapter...")
     finally:
         server.server_close()
         runtime.stop()

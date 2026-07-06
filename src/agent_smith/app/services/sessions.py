@@ -62,7 +62,7 @@ class SessionService:
         session = await repo.create(
             principal_id=str(principal.id),
             title=title or "Test chat",
-            provenance={"source": "http_test_app"},
+            provenance={"source": "http_adapter"},
         )
         metadata = await session.get_metadata()
         return metadata.model_dump(mode="json", by_alias=True, exclude_none=True)
@@ -99,7 +99,7 @@ class SessionService:
         return await repo.create(
             principal_id=str(principal.id),
             title="Test chat",
-            provenance={"source": "http_test_app"},
+            provenance={"source": "http_adapter"},
         )
 
 
@@ -128,4 +128,3 @@ def session_payload(row: DbSession) -> dict[str, Any]:
         "createdAt": row.created_at.isoformat() if row.created_at else None,
         "updatedAt": row.updated_at.isoformat() if row.updated_at else None,
     }
-
