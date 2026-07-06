@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from tasks import (
+from agent_smith.core.tasks import (
     MemoryTaskOutputStore,
     MemoryTaskRuntime,
     TaskAlreadyFinishedError,

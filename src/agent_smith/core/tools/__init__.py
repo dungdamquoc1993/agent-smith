@@ -1,0 +1,106 @@
+"""Built-in tool factories for Agent Smith agents."""
+
+from __future__ import annotations
+
+from typing import Any
+
+__all__ = [
+    "MANAGE_RESOURCES_TOOL_NAME",
+    "TASK_TOOL_NAME",
+    "ManageResourcesToolInput",
+    "TaskToolInput",
+    "ASK_USER_QUESTION_TOOL_NAME",
+    "AskUserQuestionHandler",
+    "AskUserQuestionRequest",
+    "AskUserQuestionResponse",
+    "BraveSearchProvider",
+    "QuestionAnnotation",
+    "QuestionOption",
+    "SLEEP_TOOL_NAME",
+    "SearchProvider",
+    "SearchProviderRegistry",
+    "SearchRequest",
+    "SearchResult",
+    "SKILL_TOOL_NAME",
+    "TASK_OUTPUT_TOOL_NAME",
+    "TASK_STOP_TOOL_NAME",
+    "TODO_WRITE_TOOL_NAME",
+    "TavilySearchProvider",
+    "TodoItem",
+    "TodoWriteInput",
+    "SkillToolInput",
+    "TaskOutputToolInput",
+    "TaskStopToolInput",
+    "UserQuestion",
+    "WEB_FETCH_TOOL_NAME",
+    "WEB_SEARCH_PROVIDER_ENV",
+    "WEB_SEARCH_TOOL_NAME",
+    "WebFetchResponse",
+    "create_manage_resources_tool",
+    "create_task_tool",
+    "create_ask_user_question_tool",
+    "create_base_tool_registry",
+    "create_sleep_tool",
+    "create_skill_tool",
+    "create_task_output_tool",
+    "create_task_stop_tool",
+    "create_todo_write_tool",
+    "create_web_fetch_tool",
+    "create_web_search_tool",
+]
+
+_LAZY_EXPORTS: dict[str, tuple[str, str]] = {
+    "ASK_USER_QUESTION_TOOL_NAME": ("agent_smith.core.tools.ask_user.constants", "ASK_USER_QUESTION_TOOL_NAME"),
+    "AskUserQuestionHandler": ("agent_smith.core.tools.ask_user.tool", "AskUserQuestionHandler"),
+    "AskUserQuestionRequest": ("agent_smith.core.tools.ask_user.tool", "AskUserQuestionRequest"),
+    "AskUserQuestionResponse": ("agent_smith.core.tools.ask_user.tool", "AskUserQuestionResponse"),
+    "QuestionAnnotation": ("agent_smith.core.tools.ask_user.tool", "QuestionAnnotation"),
+    "QuestionOption": ("agent_smith.core.tools.ask_user.tool", "QuestionOption"),
+    "UserQuestion": ("agent_smith.core.tools.ask_user.tool", "UserQuestion"),
+    "create_ask_user_question_tool": ("agent_smith.core.tools.ask_user.tool", "create_ask_user_question_tool"),
+    "MANAGE_RESOURCES_TOOL_NAME": ("agent_smith.core.tools.manage_resources.constants", "MANAGE_RESOURCES_TOOL_NAME"),
+    "ManageResourcesToolInput": ("agent_smith.core.tools.manage_resources.tool", "ManageResourcesToolInput"),
+    "create_manage_resources_tool": ("agent_smith.core.tools.manage_resources.tool", "create_manage_resources_tool"),
+    "SKILL_TOOL_NAME": ("agent_smith.core.tools.skill.constants", "SKILL_TOOL_NAME"),
+    "SkillToolInput": ("agent_smith.core.tools.skill.tool", "SkillToolInput"),
+    "create_skill_tool": ("agent_smith.core.tools.skill.tool", "create_skill_tool"),
+    "SLEEP_TOOL_NAME": ("agent_smith.core.tools.sleep.constants", "SLEEP_TOOL_NAME"),
+    "create_sleep_tool": ("agent_smith.core.tools.sleep.tool", "create_sleep_tool"),
+    "TASK_TOOL_NAME": ("agent_smith.core.tools.task.constants", "TASK_TOOL_NAME"),
+    "TaskToolInput": ("agent_smith.core.tools.task.tool", "TaskToolInput"),
+    "create_task_tool": ("agent_smith.core.tools.task.tool", "create_task_tool"),
+    "TASK_OUTPUT_TOOL_NAME": ("agent_smith.core.tools.task_output.constants", "TASK_OUTPUT_TOOL_NAME"),
+    "TaskOutputToolInput": ("agent_smith.core.tools.task_output.tool", "TaskOutputToolInput"),
+    "create_task_output_tool": ("agent_smith.core.tools.task_output.tool", "create_task_output_tool"),
+    "TASK_STOP_TOOL_NAME": ("agent_smith.core.tools.task_stop.constants", "TASK_STOP_TOOL_NAME"),
+    "TaskStopToolInput": ("agent_smith.core.tools.task_stop.tool", "TaskStopToolInput"),
+    "create_task_stop_tool": ("agent_smith.core.tools.task_stop.tool", "create_task_stop_tool"),
+    "TODO_WRITE_TOOL_NAME": ("agent_smith.core.tools.todo.constants", "TODO_WRITE_TOOL_NAME"),
+    "TodoItem": ("agent_smith.core.tools.todo.tool", "TodoItem"),
+    "TodoWriteInput": ("agent_smith.core.tools.todo.tool", "TodoWriteInput"),
+    "create_todo_write_tool": ("agent_smith.core.tools.todo.tool", "create_todo_write_tool"),
+    "create_base_tool_registry": ("agent_smith.core.tools.registry", "create_base_tool_registry"),
+    "WEB_FETCH_TOOL_NAME": ("agent_smith.core.tools.web_fetch.constants", "WEB_FETCH_TOOL_NAME"),
+    "WebFetchResponse": ("agent_smith.core.tools.web_fetch.tool", "WebFetchResponse"),
+    "create_web_fetch_tool": ("agent_smith.core.tools.web_fetch.tool", "create_web_fetch_tool"),
+    "WEB_SEARCH_PROVIDER_ENV": ("agent_smith.core.tools.web_search.constants", "WEB_SEARCH_PROVIDER_ENV"),
+    "WEB_SEARCH_TOOL_NAME": ("agent_smith.core.tools.web_search.constants", "WEB_SEARCH_TOOL_NAME"),
+    "BraveSearchProvider": ("agent_smith.core.tools.web_search.tool", "BraveSearchProvider"),
+    "SearchProvider": ("agent_smith.core.tools.web_search.tool", "SearchProvider"),
+    "SearchProviderRegistry": ("agent_smith.core.tools.web_search.tool", "SearchProviderRegistry"),
+    "SearchRequest": ("agent_smith.core.tools.web_search.tool", "SearchRequest"),
+    "SearchResult": ("agent_smith.core.tools.web_search.tool", "SearchResult"),
+    "TavilySearchProvider": ("agent_smith.core.tools.web_search.tool", "TavilySearchProvider"),
+    "create_web_search_tool": ("agent_smith.core.tools.web_search.tool", "create_web_search_tool"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    target = _LAZY_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attr_name = target
+    import importlib
+
+    module = importlib.import_module(module_name)
+    return getattr(module, attr_name)

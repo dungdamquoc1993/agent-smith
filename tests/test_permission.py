@@ -2,34 +2,31 @@ from __future__ import annotations
 
 import pytest
 
-from agent import AgentContext, AgentLoopConfig, AgentTool, AgentToolResult, agent_loop
-from agent.harness import AgentHarness, MemorySessionRepo
-from ai.events import create_assistant_message_event_stream
-from ai.models import make_litellm_model
-from ai.types import (
+from agent_smith.core.agent import AgentContext, AgentLoopConfig, AgentTool, AgentToolResult, agent_loop
+from agent_smith.core.agent.harness import AgentHarness, MemorySessionRepo
+from agent_smith.core.llm.events import create_assistant_message_event_stream
+from agent_smith.core.llm.models import make_litellm_model
+from agent_smith.core.llm.types import (
     AssistantMessage,
     AssistantMessageEventDone,
     AssistantMessageEventStart,
     AssistantMessageEventToolcallEnd,
     AssistantMessageEventToolcallStart,
-    Context,
     Model,
-    SimpleStreamOptions,
     TextContent,
     ToolCall,
     UserMessage,
 )
-from permission import (
+from agent_smith.core.permissions import (
     InMemoryPermissionRuleStore,
     PermissionDecision,
     PermissionRequest,
     PermissionResolver,
     PermissionRule,
-    ToolPermissionSpec,
     rule_provider_from_store,
 )
-from permission.host import create_can_use_tool
-from permission.tool_specs import MUTATING_ASK, READ_ONLY_ALLOW
+from agent_smith.core.permissions.host import create_can_use_tool
+from agent_smith.core.permissions.tool_specs import MUTATING_ASK, READ_ONLY_ALLOW
 
 
 def _now() -> int:
@@ -160,7 +157,7 @@ async def test_permission_resolver_accept_edits_allows_mutating_tool() -> None:
 
 @pytest.mark.asyncio
 async def test_permission_resolver_background_ask_becomes_deny_in_harness() -> None:
-    from permission.harness import resolve_harness_tool_permission
+    from agent_smith.core.permissions.harness import resolve_harness_tool_permission
 
     tool = AgentTool(
         name="task",
@@ -340,7 +337,7 @@ async def test_can_use_tool_persists_session_rule_on_approval() -> None:
     )
     assert decision.behavior == "ask"
 
-    from permission.harness import resolve_harness_tool_permission
+    from agent_smith.core.permissions.harness import resolve_harness_tool_permission
 
     tool = AgentTool(
         name="task",
@@ -411,8 +408,8 @@ async def test_session_rules_isolated_between_unrelated_sessions() -> None:
 
 @pytest.mark.asyncio
 async def test_subagent_inherits_parent_session_rules() -> None:
-    from agent.harness.session.types import SessionMetadata
-    from permission.session_context import visible_session_ids_for_rules
+    from agent_smith.core.agent.harness.session.types import SessionMetadata
+    from agent_smith.core.permissions.session_context import visible_session_ids_for_rules
 
     store = InMemoryPermissionRuleStore(
         [
@@ -462,7 +459,7 @@ async def test_subagent_inherits_parent_session_rules() -> None:
 
 @pytest.mark.asyncio
 async def test_persist_rule_stamps_session_id() -> None:
-    from permission.harness import resolve_harness_tool_permission
+    from agent_smith.core.permissions.harness import resolve_harness_tool_permission
 
     store = InMemoryPermissionRuleStore()
     session_id = "sess-stamp"

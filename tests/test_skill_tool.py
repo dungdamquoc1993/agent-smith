@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from resources import MemoryResourceStore, ResourceNotFoundError, ResourceResolver
-from tools import create_skill_tool
+from agent_smith.core.resources import MemoryResourceStore, ResourceNotFoundError, ResourceResolver
+from agent_smith.core.tools import create_skill_tool
 
 
 def _skill_resource(name: str, content: str, *, disable_model_invocation: bool | None = None) -> dict:

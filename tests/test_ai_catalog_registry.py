@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from ai import (
+from agent_smith.core.llm import (
     Context,
     Model,
     UserMessage,
@@ -21,15 +21,15 @@ from ai import (
     register_model,
     register_models,
 )
-from ai.events import create_assistant_message_event_stream
-from ai.registry import (
+from agent_smith.core.llm.events import create_assistant_message_event_stream
+from agent_smith.core.llm.registry import (
     clear_api_providers,
     get_api_provider,
     get_api_providers,
     register_api_provider,
     unregister_api_providers,
 )
-from ai.types import StreamOptions
+from agent_smith.core.llm.types import StreamOptions
 
 
 @pytest.fixture()
@@ -44,7 +44,7 @@ def restore_models():
 def restore_api_providers():
     yield
     clear_api_providers()
-    from ai import bootstrap_providers
+    from agent_smith.core.llm import bootstrap_providers
 
     bootstrap_providers()
 

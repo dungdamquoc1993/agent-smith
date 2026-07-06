@@ -5,16 +5,7 @@ description = "Enterprise agent runtime - unified AI layer and control plane"
 authors = ["Agent Smith Team"]
 readme = "README.md"
 packages = [
-    { include = "agent", from = "src" },
-    { include = "agent_mcp", from = "src" },
-    { include = "ai", from = "src" },
-    { include = "db", from = "src" },
-    { include = "resources", from = "src" },
-    { include = "permission", from = "src" },
-    { include = "runtime", from = "src" },
-    { include = "tasks", from = "src" },
-    { include = "tools", from = "src" },
-    { include = "config.py", from = "src" },
+    { include = "agent_smith", from = "src" },
 ]
 
 [tool.poetry.dependencies]

@@ -32,6 +32,6 @@ def _bootstrap_ai() -> None:
     if GCP_CREDENTIALS.is_file():
         os.environ.setdefault("GOOGLE_APPLICATION_CREDENTIALS", str(GCP_CREDENTIALS))
 
-    from ai import bootstrap_providers
+    from agent_smith.core.llm import bootstrap_providers
 
     bootstrap_providers()

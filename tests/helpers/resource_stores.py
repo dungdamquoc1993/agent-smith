@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from resources.store import ResourceReadOnlyError, ResourceStore
-from resources.types import ResourceCreate, ResourceKind, ResourceRecord, ResourceUpdate
+from agent_smith.core.resources.store import ResourceReadOnlyError, ResourceStore
+from agent_smith.core.resources.types import ResourceCreate, ResourceKind, ResourceRecord, ResourceUpdate
 
 
 class ReadOnlyResourceStore:

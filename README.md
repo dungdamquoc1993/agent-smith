@@ -8,43 +8,51 @@ Enterprise agent runtime — Python core với unified AI layer, agent loop/harn
 Caller (app / service)
        │
        ▼
-  runtime/              ← AgentDefinition → AgentHarnessOptions → AgentHarness
+  app/services/         ← transport-neutral use cases
+       │
+       ▼
+  core/runtime/         ← AgentDefinition → AgentHarnessOptions → AgentHarness
        │                    (ResourceResolver + ToolRegistry)
        ▼
-  harness/              ← stateful: session, hooks, compaction, queues
+  core/agent/harness/   ← stateful: session, hooks, compaction, queues
        │
        ▼
-  agent_loop/           ← turn loop: stream → tool → lặp
+  core/agent/agent_loop/← turn loop: stream → tool → lặp
        │
        ▼
-  ai/                   ← stream / complete LLM (LiteLLM)
+  core/llm/             ← stream / complete LLM abstraction
+       │
+       ▼
+  infra/                ← Postgres, LiteLLM, MCP SDK, config
 ```
 
 **Catalog & persistence** tách riêng:
 
 ```
-resources/              ← skill, prompt_template, agent_definition, mcp_server_config
+core/resources/         ← skill, prompt_template, agent_definition, mcp_server_config
        │
        ▼
-  harness/session/      ← session tree (memory hoặc Postgres)
+  core/agent/harness/session/ + infra/persistence/
+                         ← session tree (memory hoặc Postgres)
 ```
 
 | Package | Vai trò | Chi tiết |
 |---------|---------|----------|
-| [`ai`](src/agent_smith/ai/README.md) | Gọi LLM thống nhất: catalog model, registry provider, stream events | Entry: `stream` / `complete` |
-| [`agent`](src/agent_smith/agent/README.md) | Runtime agent nhiều turn: loop engine + harness shell | Types, events, validation |
-| [`agent_loop`](src/agent_smith/agent/agent_loop/README.md) | Orchestration **stateless**: stream → tool → lặp | `run_agent_loop`, hooks qua config |
-| [`harness`](src/agent_smith/agent/harness/README.md) | Orchestration **stateful**: session, compact, steer/follow-up | `AgentHarness.prompt()` |
-| [`session`](src/agent_smith/agent/harness/session/README.md) | Session tree append-only, fork/branch | Memory / Postgres backend |
-| [`resources`](src/agent_smith/resources/README.md) | Catalog definitions (memory, Postgres) | Resolve → snapshot cho harness |
-| [`runtime`](src/agent_smith/runtime/README.md) | Assembly: blueprint → harness instance | `AgentFactory` |
+| `agent_smith.core.llm` | Gọi LLM thống nhất: catalog model, registry provider, stream events | Entry: `stream` / `complete` |
+| `agent_smith.core.agent` | Runtime agent nhiều turn: loop engine + harness shell | Types, events, validation |
+| `agent_smith.core.resources` | Catalog definitions và resolver contract | Resolve → snapshot cho harness |
+| `agent_smith.core.runtime` | Assembly: blueprint → harness instance | `AgentFactory` |
+| `agent_smith.app` | Use-case services transport-neutral | session/resource/task/agent-run orchestration |
+| `agent_smith.infra` | Concrete adapters | Postgres, LiteLLM, MCP SDK, settings |
+| `agent_smith.transports` | API/message adapters | HTTP/SSE test app now, message adapters later |
 
 **Khi nào dùng gì?**
 
-- Chỉ gọi model (test, script) → `ai`
-- Embed loop tối thiểu, tự quản context → `agent_loop`
-- Production multi-turn, persist session → `harness` (+ `session`)
-- Load skill/template/agent config từ catalog → `resources` → `runtime`
+- Chỉ gọi model (test, script) → `agent_smith.core.llm`
+- Embed loop tối thiểu, tự quản context → `agent_smith.core.agent.agent_loop`
+- Production multi-turn, persist session → `agent_smith.core.agent.harness`
+- Load skill/template/agent config từ catalog → `agent_smith.core.resources` → `agent_smith.core.runtime`
+- Expose HTTP/SSE hoặc queue consumer → `agent_smith.app` service trước, transport adapter sau
 
 ## Prerequisites
 
@@ -89,17 +97,17 @@ poetry run ruff check src tests
 
 ```
 src/agent_smith/
-├── ai/                 # LLM layer
-├── agent/
-│   ├── agent_loop/     # stateless turn engine
-│   └── harness/        # stateful shell + session/
-├── resources/          # catalog stores & resolver
-├── runtime/            # AgentFactory assembly
-└── db/                 # SQLAlchemy models, migrations ở migrations/
+├── core/               # pure runtime contracts and orchestration
+├── app/                # transport-neutral use-case services
+├── infra/              # DB/provider/MCP concrete adapters
+├── transports/         # HTTP/SSE now, messaging contracts later
+└── workers/            # worker skeleton/entrypoints
 
-examples/               # demo scripts
+apps/web/               # future React/Vite test client
+test_app/static/        # current local static test UI
 tests/                  # unit tests
 docs/                   # changelog, design notes
+migrations/             # Alembic migrations
 ```
 
 Lịch sử thay đổi implementation: [`docs/CHANGELOG.md`](docs/CHANGELOG.md).

@@ -6,11 +6,11 @@ from typing import Any
 
 import pytest
 
-from agent import AgentTool, AgentToolResult, MemorySessionRepo
-from agent.validation import validate_tool_arguments
-from ai.events import create_assistant_message_event_stream
-from ai.models import make_litellm_model
-from ai.types import (
+from agent_smith.core.agent import AgentTool, AgentToolResult, MemorySessionRepo
+from agent_smith.core.agent.validation import validate_tool_arguments
+from agent_smith.core.llm.events import create_assistant_message_event_stream
+from agent_smith.core.llm.models import make_litellm_model
+from agent_smith.core.llm.types import (
     AssistantMessage,
     AssistantMessageEventDone,
     AssistantMessageEventStart,
@@ -23,16 +23,16 @@ from ai.types import (
     TextContent,
     ToolCall,
 )
-from resources import MemoryResourceStore, ResourceResolver
-from runtime import AgentFactory, ToolRegistry
-from tasks import (
+from agent_smith.core.resources import MemoryResourceStore, ResourceResolver
+from agent_smith.core.runtime import AgentFactory, ToolRegistry
+from agent_smith.core.tasks import (
     AgentChildSessionRequest,
     AgentTaskRunner,
     MemoryTaskRuntime,
     TaskContext,
     UnknownTaskError,
 )
-from tools import (
+from agent_smith.core.tools import (
     TASK_TOOL_NAME,
     TASK_OUTPUT_TOOL_NAME,
     TASK_STOP_TOOL_NAME,

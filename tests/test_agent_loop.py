@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from agent import (
+from agent_smith.core.agent import (
     AfterToolCallContext,
     AgentContext,
     AgentLoopConfig,
@@ -16,9 +16,9 @@ from agent import (
     agent_loop,
     agent_loop_continue,
 )
-from ai.events import create_assistant_message_event_stream
-from ai.models import make_litellm_model
-from ai.types import (
+from agent_smith.core.llm.events import create_assistant_message_event_stream
+from agent_smith.core.llm.models import make_litellm_model
+from agent_smith.core.llm.types import (
     AssistantMessage,
     AssistantMessageEventDone,
     AssistantMessageEventStart,

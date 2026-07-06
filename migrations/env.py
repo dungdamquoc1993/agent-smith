@@ -10,11 +10,11 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from config import get_settings
-from db.base import Base
+from agent_smith.infra.config import get_settings
+from agent_smith.infra.db.base import Base
 
 # Import models so metadata is populated
-from db.models import (  # noqa: F401
+from agent_smith.infra.db.models import (  # noqa: F401
     ExternalIdentity,
     McpCredentialRecord,
     Principal,

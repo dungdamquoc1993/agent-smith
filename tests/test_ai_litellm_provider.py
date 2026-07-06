@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from ai import (
+from agent_smith.core.llm import (
     AssistantMessage,
     Context,
     ImageContent,
@@ -20,8 +20,8 @@ from ai import (
     UserMessage,
     stream,
 )
-from ai.models import make_litellm_model
-from ai.providers import litellm_provider
+from agent_smith.core.llm.models import make_litellm_model
+from agent_smith.infra.llm import litellm_provider
 
 
 class _FakeLiteLLMStream:

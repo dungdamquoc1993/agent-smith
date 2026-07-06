@@ -6,9 +6,9 @@ import time
 
 import pytest
 
-from ai import Context, StreamOptions, UserMessage, get_model, stream
-from ai.env_keys import is_provider_configured
-from ai.types import Provider
+from agent_smith.core.llm import Context, StreamOptions, UserMessage, get_model, stream
+from agent_smith.core.llm.env_keys import is_provider_configured
+from agent_smith.core.llm.types import Provider
 
 
 def _simple_context(prompt: str) -> Context:
