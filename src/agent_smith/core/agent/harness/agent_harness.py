@@ -339,8 +339,10 @@ class AgentHarness:
         self.phase = "turn"
         self._run_signal = asyncio.Event()
         try:
-            turn_state = await self._create_turn_state()
             prompt_options = resolve_prompt_options(options)
+            turn_state = await self._create_turn_state()
+            if prompt_options and prompt_options.turn_context_metadata is not None:
+                turn_state["turn_context_metadata"] = dict(prompt_options.turn_context_metadata)
             return await self._execute_turn(
                 turn_state,
                 text,
@@ -649,6 +651,7 @@ class AgentHarness:
             "active_tools": active_tools,
             "user_memory_snapshot": user_memory_snapshot,
             "runtime_metadata_snapshot": runtime_metadata_snapshot,
+            "turn_context_metadata": None,
             "recent_conversations": recent_conversations,
         }
 
@@ -899,6 +902,7 @@ class AgentHarness:
             state = get_turn_state()
             frame = context_frame_messages(
                 metadata=state["runtime_metadata_snapshot"],
+                turn_metadata=state["turn_context_metadata"],
                 recent_conversations=state["recent_conversations"],
                 user_memory=state["user_memory_snapshot"],
                 timestamp=now_ms(),

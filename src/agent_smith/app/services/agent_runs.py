@@ -3,20 +3,40 @@
 from __future__ import annotations
 
 import inspect
+import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, TypeAlias
 
+from agent_smith.app.auth import AppAssertionError, AppAssertionVerifier
+from agent_smith.app.context import ContextResolutionError, ContextResolver
+from agent_smith.app.invocation import AgentInvocation, VerifiedActor
+from agent_smith.app.services.identity import PrincipalIdentityService
 from agent_smith.app.services.resources import ResourceService
 from agent_smith.app.services.sessions import SessionService
 from agent_smith.core.agent import AgentHarnessError
+from agent_smith.core.agent.harness.session.session import Session
 from agent_smith.core.llm import get_model, make_litellm_model, register_model
-from agent_smith.core.llm.types import AssistantMessage, TextContent
+from agent_smith.core.llm.types import AssistantMessage, JsonObject, TextContent
 from agent_smith.core.resources import ResourceResolver
 from agent_smith.core.runtime import AgentFactory
 from agent_smith.core.tools.registry import create_base_tool_registry
 from agent_smith.infra.persistence import PostgresRecentConversationProvider
 
 AgentRunEventSink: TypeAlias = Callable[[str, Any], Awaitable[None] | None]
+SMITH_STREAM_VERSION = "2026-07-07"
+
+
+@dataclass
+class PreparedAgentInvocation:
+    invocation: AgentInvocation
+    actor: VerifiedActor
+    principal_id: str
+    stable_context: JsonObject
+    turn_context: JsonObject
+    session_provenance: JsonObject
+    session: Session
 
 
 class AgentRunService:
@@ -32,9 +52,15 @@ class AgentRunService:
         gemma_base_url: str,
         gemma_api_key: str,
         default_model_key: str,
+        assertion_verifier: AppAssertionVerifier | None = None,
+        identity_service: PrincipalIdentityService | None = None,
+        context_resolver: ContextResolver | None = None,
     ) -> None:
         self._session_service = session_service
         self._resource_service = resource_service
+        self._assertion_verifier = assertion_verifier
+        self._identity_service = identity_service
+        self._context_resolver = context_resolver or ContextResolver()
         self.default_permission_mode = default_permission_mode
         self.openai_model_id = openai_model_id
         self.gemma_model_id = gemma_model_id
@@ -144,6 +170,149 @@ class AgentRunService:
                 },
             )
 
+    async def prepare_invocation(
+        self,
+        *,
+        authorization: str | None,
+        body: dict[str, Any],
+    ) -> PreparedAgentInvocation:
+        if self._assertion_verifier is None or self._identity_service is None:
+            raise AppAssertionError(
+                "assertion_auth_not_configured",
+                "App assertion authentication is not configured.",
+            )
+        invocation = AgentInvocation.model_validate(body)
+        actor = self._assertion_verifier.verify_authorization(authorization)
+        principal = await self._identity_service.resolve_principal(actor)
+        principal_id = str(principal.id)
+        stable_context, turn_context, provenance = self._context_resolver.resolve(
+            invocation=invocation,
+            actor=actor,
+            principal_id=principal_id,
+        )
+        session = await self._session_service.open_or_create_session_for_principal(
+            principal_id=principal_id,
+            session_id=invocation.session.smith_session_id,
+            provenance=provenance,
+        )
+        return PreparedAgentInvocation(
+            invocation=invocation,
+            actor=actor,
+            principal_id=principal_id,
+            stable_context=stable_context,
+            turn_context=turn_context,
+            session_provenance=provenance,
+            session=session,
+        )
+
+    async def run_prepared_invocation_stream(
+        self,
+        prepared: PreparedAgentInvocation,
+        emit: AgentRunEventSink,
+    ) -> None:
+        run_id = str(uuid.uuid4())
+        sequence = 0
+
+        async def emit_smith(event: str, data: JsonObject | dict[str, Any]) -> None:
+            nonlocal sequence
+            sequence += 1
+            metadata = await prepared.session.get_metadata()
+            await _emit(
+                emit,
+                event,
+                {
+                    "version": SMITH_STREAM_VERSION,
+                    "event": event,
+                    "runId": run_id,
+                    "sessionId": metadata.id,
+                    "sequence": sequence,
+                    "createdAt": datetime.now(UTC).isoformat(),
+                    "data": data,
+                },
+            )
+
+        try:
+            payload = prepared.invocation.payload
+            prompt = payload.prompt.strip()
+            if not prompt:
+                raise ValueError("prompt is required")
+            agent_name = (payload.agent_name or self._resource_service.default_agent_name).strip()
+            selected_model = self._selected_model(payload.model_key)
+
+            await emit_smith(
+                "run.started",
+                {
+                    "principalId": prepared.principal_id,
+                    "issuer": prepared.actor.issuer,
+                    "actorProvider": prepared.actor.actor.provider,
+                    "actorSubject": prepared.actor.actor.subject,
+                },
+            )
+            await emit_smith(
+                "session.resolved",
+                (await prepared.session.get_metadata()).model_dump(
+                    mode="json", by_alias=True, exclude_none=True
+                ),
+            )
+
+            store = self._resource_service.store()
+            resolver = ResourceResolver([store])
+            tool_registry = create_base_tool_registry(
+                resources_store=store,
+                resources_resolver=resolver,
+                sleep_max_seconds=5,
+            )
+            factory = AgentFactory(
+                resource_resolver=resolver,
+                tool_registry=tool_registry,
+                default_model=selected_model,
+                model_resolver=lambda _definition: selected_model,
+                default_permission_mode=self.default_permission_mode,
+                context_metadata=prepared.stable_context,
+                recent_conversation_provider=PostgresRecentConversationProvider(
+                    self._session_service.session_factory
+                ),
+            )
+            harness = await factory.create_harness(agent_name, session=prepared.session)
+
+            async def emit_harness(event: Any) -> None:
+                mapped = _map_harness_event(event)
+                if mapped is not None:
+                    await emit_smith(mapped[0], mapped[1])
+
+            unsubscribe = harness.subscribe(emit_harness)
+            try:
+                response = await harness.prompt(
+                    prompt,
+                    {"turnContextMetadata": prepared.turn_context},
+                )
+            finally:
+                unsubscribe()
+
+            text = assistant_text(response)
+            usage = response.usage.model_dump(mode="json", by_alias=True, exclude_none=True)
+            await emit_smith("usage.updated", usage)
+            await emit_smith(
+                "run.completed",
+                {
+                    "message": response.model_dump(mode="json", by_alias=True, exclude_none=True),
+                    "finalText": text,
+                    "usage": usage,
+                    "session": (await prepared.session.get_metadata()).model_dump(
+                        mode="json", by_alias=True, exclude_none=True
+                    ),
+                },
+            )
+        except Exception as exc:
+            await emit_smith(
+                "run.failed",
+                {
+                    "code": exc.__class__.__name__,
+                    "message": _public_error_message(exc),
+                    "retryable": isinstance(exc, (ContextResolutionError,)),
+                },
+            )
+
     def _openai_model(self):
         return get_model("openai", self.openai_model_id) or make_litellm_model(
             provider="openai",
@@ -185,3 +354,69 @@ async def _emit(emit: AgentRunEventSink, event: str, data: Any) -> None:
     result = emit(event, data)
     if inspect.isawaitable(result):
         await result
+
+
+def _map_harness_event(event: Any) -> tuple[str, dict[str, Any]] | None:
+    event_type = getattr(event, "type", None)
+    if event_type == "message_update":
+        assistant_event = getattr(event, "assistant_message_event", None)
+        if getattr(assistant_event, "type", None) == "text_delta":
+            return ("message.delta", {"text": assistant_event.delta})
+        return None
+    if event_type == "message_end":
+        message = getattr(event, "message", None)
+        if isinstance(message, AssistantMessage):
+            return (
+                "message.completed",
+                {
+                    "message": message.model_dump(mode="json", by_alias=True, exclude_none=True),
+                    "text": assistant_text(message),
+                },
+            )
+    if event_type in {"tool_execution_start", "tool_call"}:
+        return (
+            "tool.started",
+            {
+                "toolCallId": getattr(event, "tool_call_id", None),
+                "name": getattr(event, "tool_name", None),
+            },
+        )
+    if event_type in {"tool_execution_end", "tool_result"}:
+        is_error = bool(getattr(event, "is_error", False))
+        name = getattr(event, "tool_name", None)
+        tool_call_id = getattr(event, "tool_call_id", None)
+        if event_type == "tool_result":
+            content = getattr(event, "content", None)
+            details = getattr(event, "details", None)
+        else:
+            result = getattr(event, "result", None)
+            content = getattr(result, "content", None) if result is not None else None
+            details = getattr(result, "details", None) if result is not None else None
+        return (
+            "tool.failed" if is_error else "tool.completed",
+            {
+                "toolCallId": tool_call_id,
+                "name": name,
+                "content": _jsonable_model(content),
+                "details": _jsonable_model(details),
+            },
+        )
+    return None
+
+
+def _jsonable_model(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json", by_alias=True, exclude_none=True)
+    if isinstance(value, list):
+        return [_jsonable_model(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _jsonable_model(item) for key, item in value.items()}
+    return value
+
+
+def _public_error_message(exc: Exception) -> str:
+    if isinstance(exc, AgentHarnessError):
+        return "Prompt failed. Check the server log for details."
+    if isinstance(exc, ContextResolutionError):
+        return str(exc)
+    return "Prompt failed. Check the server log for details."

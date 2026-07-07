@@ -91,18 +91,32 @@ class SessionService:
 
     async def open_or_create_session(self, session_id: str | None):
         principal = await self.ensure_principal()
+        return await self.open_or_create_session_for_principal(
+            principal_id=str(principal.id),
+            session_id=session_id,
+            provenance={"source": "http_adapter", "trigger": "user"},
+        )
+
+    async def open_or_create_session_for_principal(
+        self,
+        *,
+        principal_id: str,
+        session_id: str | None,
+        provenance: dict[str, Any] | None = None,
+    ):
+        principal_uuid = uuid.UUID(principal_id)
         repo = PostgresSessionRepo(self._session_factory)
         if session_id:
             session_uuid = uuid.UUID(session_id)
             async with self._session_factory() as db:
                 row = await db.get(DbSession, session_uuid)
-                if row is None or row.principal_id != principal.id:
+                if row is None or row.principal_id != principal_uuid:
                     raise LookupError(f"Unknown test session: {session_id}")
             return await repo.open({"id": session_id})
         return await repo.create(
-            principal_id=str(principal.id),
+            principal_id=str(principal_uuid),
             title="Test chat",
-            provenance={"source": "http_adapter", "trigger": "user"},
+            provenance=dict(provenance or {}),
         )
 
 

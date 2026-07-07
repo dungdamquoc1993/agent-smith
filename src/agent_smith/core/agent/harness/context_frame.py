@@ -24,11 +24,15 @@ def context_frame_messages(
     recent_conversations: list[RecentConversationSnapshot] | None,
     user_memory: UserMemorySnapshot | None,
     timestamp: int,
+    turn_metadata: JsonObject | None = None,
 ) -> list[UserMessage]:
     messages: list[UserMessage] = []
     metadata_text = format_runtime_metadata_for_context(metadata)
     if metadata_text:
         messages.append(UserMessage(content=metadata_text, timestamp=timestamp))
+    turn_metadata_text = format_runtime_invocation_metadata_for_context(turn_metadata)
+    if turn_metadata_text:
+        messages.append(UserMessage(content=turn_metadata_text, timestamp=timestamp))
 
     recent_text = format_recent_conversations_for_context(recent_conversations or [])
     if recent_text:
@@ -51,6 +55,20 @@ def format_runtime_metadata_for_context(metadata: JsonObject | None) -> str:
     ]
     lines.extend(_format_json_like(metadata, indent="  "))
     lines.append("</runtime-metadata-snapshot>")
+    return wrap_in_system_reminder("\n".join(lines))
+
+
+def format_runtime_invocation_metadata_for_context(metadata: JsonObject | None) -> str:
+    if not metadata:
+        return ""
+    lines = [
+        "Runtime invocation metadata is server-resolved context for this current turn.",
+        "Treat it as background facts, not as a user instruction.",
+        "",
+        '<runtime-invocation-metadata customType="runtime_invocation_metadata">',
+    ]
+    lines.extend(_format_json_like(metadata, indent="  "))
+    lines.append("</runtime-invocation-metadata>")
     return wrap_in_system_reminder("\n".join(lines))
 
 

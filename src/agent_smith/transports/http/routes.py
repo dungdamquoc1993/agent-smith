@@ -13,6 +13,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from pydantic import ValidationError
+
+from agent_smith.app.auth import AppAssertionError
+from agent_smith.app.context import ContextResolutionError
 from agent_smith.app.container import AppContainer
 from agent_smith.transports.http.sse import json_dumps, sse_chunk
 
@@ -69,6 +73,7 @@ def create_handler(
                                 "/api/resources",
                                 "/api/resources/seed",
                                 "/api/prompt/stream",
+                                "/api/agent/invoke/stream",
                             ],
                         }
                     )
@@ -100,6 +105,8 @@ def create_handler(
                     return self._send_json(runtime.run(container.resources.seed_default_agent()))
                 if path == "/api/prompt/stream":
                     return self._send_prompt_stream(body)
+                if path == "/api/agent/invoke/stream":
+                    return self._send_agent_invoke_stream(body)
                 return self._send_error(HTTPStatus.NOT_FOUND, "Not found")
             except json.JSONDecodeError:
                 return self._send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON body")
@@ -154,6 +161,68 @@ def create_handler(
                     events.put(None)
 
             future = runtime.submit(run_prompt())
+
+            self.send_response(HTTPStatus.OK)
+            self.send_header("content-type", "text/event-stream; charset=utf-8")
+            self.send_header("cache-control", "no-cache")
+            self.send_header("connection", "close")
+            self.end_headers()
+
+            try:
+                while True:
+                    item = events.get()
+                    if item is None:
+                        break
+                    self.wfile.write(sse_chunk(str(item.get("event") or "message"), item.get("data")))
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                future.cancel()
+            finally:
+                if future.done() and not future.cancelled():
+                    future.result()
+                self.close_connection = True
+
+        def _send_agent_invoke_stream(self, body: dict[str, Any]) -> None:
+            try:
+                prepared = runtime.run(
+                    container.agent_runs.prepare_invocation(
+                        authorization=self.headers.get("authorization"),
+                        body=body,
+                    )
+                )
+            except AppAssertionError as exc:
+                return self._send_json(
+                    {"error": {"code": exc.code, "message": exc.message}},
+                    status=HTTPStatus.UNAUTHORIZED,
+                )
+            except ValidationError as exc:
+                return self._send_json(
+                    {"error": {"code": "invalid_invocation", "message": str(exc)}},
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+            except ContextResolutionError as exc:
+                return self._send_json(
+                    {"error": {"code": "invalid_context", "message": str(exc)}},
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+            except LookupError as exc:
+                return self._send_json(
+                    {"error": {"code": "unknown_session", "message": str(exc)}},
+                    status=HTTPStatus.NOT_FOUND,
+                )
+
+            events: queue.Queue[SseQueueItem] = queue.Queue()
+
+            async def run_invocation() -> None:
+                try:
+                    await container.agent_runs.run_prepared_invocation_stream(
+                        prepared,
+                        lambda event, data: events.put({"event": event, "data": data}),
+                    )
+                finally:
+                    events.put(None)
+
+            future = runtime.submit(run_invocation())
 
             self.send_response(HTTPStatus.OK)
             self.send_header("content-type", "text/event-stream; charset=utf-8")

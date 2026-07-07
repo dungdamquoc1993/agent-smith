@@ -119,6 +119,9 @@ class AgentHarnessAuth(BaseModel):
 
 class AgentHarnessPromptOptions(BaseModel):
     images: list[ImageContent] | None = None
+    turn_context_metadata: JsonObject | None = Field(default=None, alias="turnContextMetadata")
+
+    model_config = {"populate_by_name": True}
 
 
 @runtime_checkable
@@ -402,6 +405,7 @@ class TurnState(TypedDict):
     active_tools: list[AgentTool]
     user_memory_snapshot: UserMemorySnapshot | None
     runtime_metadata_snapshot: JsonObject | None
+    turn_context_metadata: JsonObject | None
     recent_conversations: list[Any]
 
 

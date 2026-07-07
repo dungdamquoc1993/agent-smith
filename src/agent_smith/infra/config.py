@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +18,14 @@ class Settings(BaseSettings):
     openrouter_api_key: str | None = None
     mcp_credentials_key: str | None = None
     default_permission_mode: str = "default"
+    assertion_audience: str = Field(
+        default="agent-smith",
+        validation_alias="AGENT_SMITH_ASSERTION_AUDIENCE",
+    )
+    trusted_apps_json: str = Field(
+        default="{}",
+        validation_alias="AGENT_SMITH_TRUSTED_APPS_JSON",
+    )
 
 
 @lru_cache

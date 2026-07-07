@@ -691,6 +691,42 @@ async def test_harness_snapshots_runtime_metadata_once_per_session() -> None:
 
 
 @pytest.mark.asyncio
+async def test_harness_injects_turn_context_metadata_without_snapshotting_it() -> None:
+    repo = MemorySessionRepo()
+    session = await repo.create(principal_id="principal-1")
+    captured_contexts: list[Context] = []
+
+    def stream_fn(model: Model, context: Context, options: SimpleStreamOptions | None = None):
+        _ = model, options
+        captured_contexts.append(context)
+        return _stream_for(_assistant([TextContent(text="done")]))
+
+    harness = AgentHarness(
+        session=session,
+        model=_model(),
+        stream_fn=stream_fn,
+        context_metadata={"actor": {"principalId": "principal-1"}},
+    )
+
+    await harness.prompt("first", {"turnContextMetadata": {"surface": {"userAgent": "first"}}})
+    await harness.prompt("second", {"turnContextMetadata": {"surface": {"userAgent": "second"}}})
+
+    assert "runtime-metadata-snapshot" in captured_contexts[0].messages[0].content
+    assert "runtime-invocation-metadata" in captured_contexts[0].messages[1].content
+    assert "userAgent: first" in captured_contexts[0].messages[1].content
+    assert "userAgent: second" in captured_contexts[1].messages[1].content
+    assert "userAgent: first" not in captured_contexts[1].messages[1].content
+
+    entries = await session.get_entries()
+    turn_snapshots = [
+        entry
+        for entry in entries
+        if entry.type == "custom" and entry.custom_type == "runtime_invocation_metadata"
+    ]
+    assert turn_snapshots == []
+
+
+@pytest.mark.asyncio
 async def test_memory_recent_conversation_provider_scopes_to_same_principal_chats() -> None:
     repo = MemorySessionRepo()
     first = await repo.create(principal_id="principal-1", title="Include me")

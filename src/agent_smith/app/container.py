@@ -8,7 +8,9 @@ from typing import Any
 
 from sqlalchemy import text
 
+from agent_smith.app.auth import AppAssertionVerifier, parse_trusted_apps
 from agent_smith.app.services.agent_runs import AgentRunService
+from agent_smith.app.services.identity import PrincipalIdentityService
 from agent_smith.app.services.resources import ResourceService
 from agent_smith.app.services.sessions import SessionService, principal_payload
 from agent_smith.app.services.tasks import TaskService
@@ -40,6 +42,7 @@ class AppContainer:
                 DEFAULT_PRINCIPAL_DISPLAY_NAME,
             ),
         )
+        self.identities = PrincipalIdentityService(session_factory)
         self.resources = ResourceService(
             session_factory,
             default_agent_name=os.environ.get("AGENT_SMITH_TEST_AGENT_NAME", DEFAULT_AGENT_NAME),
@@ -58,6 +61,13 @@ class AppContainer:
             gemma_base_url=os.environ.get("AGENT_SMITH_TEST_GEMMA_BASE_URL", DEFAULT_GEMMA_BASE_URL),
             gemma_api_key=os.environ.get("AGENT_SMITH_TEST_GEMMA_API_KEY", DEFAULT_GEMMA_API_KEY),
             default_model_key=os.environ.get("AGENT_SMITH_TEST_MODEL", DEFAULT_MODEL_KEY),
+            assertion_verifier=AppAssertionVerifier(
+                parse_trusted_apps(
+                    audience=settings.assertion_audience,
+                    raw_json=settings.trusted_apps_json,
+                )
+            ),
+            identity_service=self.identities,
         )
 
     def bootstrap_providers(self) -> None:
@@ -97,4 +107,3 @@ def load_dotenv(path: Path) -> None:
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             value = value[1:-1]
         os.environ.setdefault(key, value)
-
