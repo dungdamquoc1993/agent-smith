@@ -22,7 +22,7 @@ from agent_smith.core.llm.types import (
 from agent_smith.core.agent.types import AgentEvent, AgentMessage, AgentTool, StreamFn
 from agent_smith.core.agent.harness.compaction import CompactionPreparation, CompactionSettings
 from agent_smith.core.agent.harness.session.types import SessionContext, SessionMetadata, SessionTreeEntry
-from agent_smith.core.permissions.types import PermissionMode
+from agent_smith.core.permissions.types import PermissionModeInput
 
 
 class Result(BaseModel):
@@ -427,7 +427,7 @@ class AgentHarnessOptions(BaseModel):
         default=None,
         alias="compactionSettings",
     )
-    permission_mode: PermissionMode = Field(default="default", alias="permissionMode")
+    permission_mode: PermissionModeInput = Field(default="default", alias="permissionMode")
     permission_resolver: Any | None = Field(
         default=None,
         alias="permissionResolver",

@@ -11,10 +11,12 @@ from agent_smith.core.permissions.types import (
     PermissionBehavior,
     PermissionDecision,
     PermissionMode,
+    PermissionModeInput,
     PermissionRequest,
     PermissionRule,
     SCOPE_PRECEDENCE,
     ToolPermissionSpec,
+    normalize_permission_mode,
 )
 
 
@@ -45,7 +47,7 @@ class PermissionResolver:
         self,
         *,
         rule_provider: Callable[[], list[PermissionRule]] | None = None,
-        default_mode: PermissionMode = "default",
+        default_mode: PermissionModeInput = "default",
         hard_deny: list[str] | None = None,
     ) -> None:
         self._rule_provider = rule_provider or (lambda: [])
@@ -60,11 +62,11 @@ class PermissionResolver:
         request: PermissionRequest,
         *,
         check_permissions: CheckPermissionsFn | None = None,
-        mode: PermissionMode | None = None,
+        mode: PermissionModeInput | None = None,
     ) -> PermissionDecision:
         tool_name = request.tool_name
         tool_spec = request.tool_spec
-        resolved_mode = mode or request.mode or self.default_mode
+        resolved_mode = normalize_permission_mode(mode or request.mode, self.default_mode)
         rules = self._rule_provider()
 
         if self._is_hard_denied(tool_name, tool_spec):
@@ -83,12 +85,12 @@ class PermissionResolver:
         if resolved_mode == "bypass":
             return PermissionDecision.allow(source="mode:bypass")
 
-        if resolved_mode == "plan":
+        if resolved_mode == "read_only":
             if tool_spec.read_only:
-                return PermissionDecision.allow(source="mode:plan")
+                return PermissionDecision.allow(source="mode:read_only")
             return PermissionDecision.deny(
-                reason=f"Permission mode 'plan' blocks mutating tool {tool_name}.",
-                source="mode:plan",
+                reason=f"Permission mode 'read_only' blocks mutating tool {tool_name}.",
+                source="mode:read_only",
             )
 
         allow_rule = _best_matching_rule(rules, tool_name, "allow")

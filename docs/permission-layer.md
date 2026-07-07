@@ -23,7 +23,7 @@ Resolver hiện đánh giá permission theo thứ tự:
 1. `hard_deny`
 2. matching `deny` rule
 3. `bypass` mode
-4. `plan` mode
+4. `read_only` mode
 5. matching `allow` rule
 6. tool-specific `check_permissions`
 7. `accept_edits` mode cho tool mutating files/resources
@@ -37,11 +37,11 @@ Resolver hiện đánh giá permission theo thứ tự:
 Các mode hiện có:
 
 - `default`: đi theo rule, tool checks, và tool defaults.
-- `plan`: chỉ cho tool có `read_only=True`; deny các tool còn lại.
+- `read_only`: chỉ cho tool có `read_only=True`; deny các tool còn lại.
 - `accept_edits`: auto-allow tool có `mutates_files=True`; các tool `ask` khác vẫn cần approval.
 - `bypass`: allow hầu hết tool sau khi đã check `hard_deny` và `deny` rules.
 
-Lưu ý: `plan` hiện là vocabulary khá giống Claude Code. Agent Smith chưa có một plan-mode workflow riêng trong harness. Trong codebase hiện tại, `plan` chỉ là permission mode để block tool không read-only.
+Lưu ý: mode này trước đây được gọi là `plan`, nhưng tên đó khá giống Claude Code và gợi ý một plan-mode workflow mà Agent Smith chưa có trong harness. Tên canonical hiện là `read_only`, mô tả đúng behavior hơn: chỉ cho tool read-only chạy. Legacy value `plan` có thể được normalize về `read_only` để tránh làm gãy config cũ ngay lập tức.
 
 `accept_edits` không đơn giản là "chỉ kém bypass một chút". Nó hẹp hơn nhiều: chỉ auto-allow tool được đánh dấu mutating files/resources. Các tool như task spawning hoặc non-read-only MCP vẫn rơi về `ask` nếu không được cover bởi allow rule hoặc custom tool check.
 
@@ -125,8 +125,7 @@ App service hiện tạo `AgentFactory` chỉ với `default_permission_mode`, c
 
 Các việc đáng cân nhắc:
 
-1. Quyết định giữ tên `plan` hay đổi sang tên sát behavior hiện tại hơn, ví dụ `read_only`.
-2. Wire `can_use_tool` vào app/UI path để `ask` thật sự là approval thay vì implicit deny.
-3. Thêm persistent permission rule storage nếu session/user/project rules cần sống qua process restart.
-4. Thêm MCP-specific permission config nếu read-only vs ask là quá thô.
-5. Cân nhắc argument-aware rules cho tool như `manage_resources`, vì `list/read/create/update/delete` có risk profile khác nhau nhưng hiện chung một tool name.
+1. Wire `can_use_tool` vào app/UI path để `ask` thật sự là approval thay vì implicit deny.
+2. Thêm persistent permission rule storage nếu session/user/project rules cần sống qua process restart.
+3. Thêm MCP-specific permission config nếu read-only vs ask là quá thô.
+4. Cân nhắc argument-aware rules cho tool như `manage_resources`, vì `list/read/create/update/delete` có risk profile khác nhau nhưng hiện chung một tool name.

@@ -10,8 +10,22 @@ from pydantic import BaseModel, Field
 from agent_smith.core.llm.types import JsonObject, MaybeAwaitable
 
 PermissionBehavior = Literal["allow", "deny", "ask"]
-PermissionMode = Literal["plan", "default", "accept_edits", "bypass"]
+PermissionMode = Literal["default", "read_only", "accept_edits", "bypass"]
+PermissionModeInput = PermissionMode | Literal["plan", "readonly"]
 RuleScope = Literal["session", "user", "project", "builtin"]
+
+PERMISSION_MODE_ALIASES: dict[str, PermissionMode] = {
+    "plan": "read_only",
+    "readonly": "read_only",
+}
+
+
+def normalize_permission_mode(value: str | None, default: str = "default") -> PermissionMode:
+    resolved = value or default
+    normalized = PERMISSION_MODE_ALIASES.get(resolved, resolved)
+    if normalized not in {"default", "read_only", "accept_edits", "bypass"}:
+        raise ValueError(f"Unknown permission mode: {resolved}")
+    return normalized  # type: ignore[return-value]
 
 SCOPE_PRECEDENCE: dict[RuleScope, int] = {
     "session": 0,
@@ -44,7 +58,7 @@ class PermissionRequest(BaseModel):
     tool_name: str = Field(alias="toolName")
     tool_call_id: str = Field(alias="toolCallId")
     input: JsonObject
-    mode: PermissionMode = "default"
+    mode: PermissionModeInput = "default"
     is_background: bool = Field(default=False, alias="isBackground")
     tool_spec: ToolPermissionSpec = Field(default_factory=ToolPermissionSpec, alias="toolSpec")
     message: str | None = None

@@ -12,11 +12,13 @@ from agent_smith.core.permissions.types import (
     PermissionBehavior,
     PermissionDecision,
     PermissionMode,
+    PermissionModeInput,
     PermissionRequest,
     PermissionRule,
     RuleScope,
     SCOPE_PRECEDENCE,
     ToolPermissionSpec,
+    normalize_permission_mode,
 )
 
 __all__ = [
@@ -26,6 +28,7 @@ __all__ = [
     "PermissionBehavior",
     "PermissionDecision",
     "PermissionMode",
+    "PermissionModeInput",
     "PermissionRequest",
     "PermissionResolver",
     "PermissionRule",
@@ -33,5 +36,6 @@ __all__ = [
     "RuleScope",
     "SCOPE_PRECEDENCE",
     "ToolPermissionSpec",
+    "normalize_permission_mode",
     "rule_provider_from_store",
 ]

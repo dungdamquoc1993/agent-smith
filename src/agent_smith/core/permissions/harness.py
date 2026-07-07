@@ -6,7 +6,13 @@ from agent_smith.core.permissions.utils import maybe_await
 from agent_smith.core.agent.types import AgentTool
 from agent_smith.core.permissions.resolver import PermissionResolver
 from agent_smith.core.permissions.store import PermissionRuleStore
-from agent_smith.core.permissions.types import CanUseTool, PermissionDecision, PermissionMode, PermissionRequest, PermissionRule
+from agent_smith.core.permissions.types import (
+    CanUseTool,
+    PermissionDecision,
+    PermissionModeInput,
+    PermissionRequest,
+    PermissionRule,
+)
 
 
 def _coerce_input(args: object) -> dict:
@@ -30,7 +36,7 @@ async def resolve_harness_tool_permission(
     tool: AgentTool,
     tool_call_id: str,
     args: object,
-    permission_mode: PermissionMode,
+    permission_mode: PermissionModeInput,
     is_background: bool,
     permission_resolver: PermissionResolver | None,
     can_use_tool: CanUseTool | None,

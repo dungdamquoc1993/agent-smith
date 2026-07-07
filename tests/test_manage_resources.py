@@ -119,7 +119,7 @@ async def test_manage_resources_agent_create_update_delete() -> None:
             "content": {
                 "systemPrompt": "Review carefully and mention tests.",
                 "skills": [],
-                "permissionMode": "readonly",
+                "permissionMode": "read_only",
             },
         },
         None,
@@ -143,7 +143,7 @@ async def test_manage_resources_agent_create_update_delete() -> None:
     assert updated.details["resource"]["resource"]["version"] == 2
     assert updated_definition.system_prompt == "Review carefully and mention tests."
     assert updated_definition.skills == []
-    assert updated_definition.permission_mode == "readonly"
+    assert updated_definition.permission_mode == "read_only"
     assert await store.get_resource("agent_definition", "reviewer") is None
     assert deleted is not None
     assert deleted.deleted_at is not None

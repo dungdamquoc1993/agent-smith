@@ -23,6 +23,7 @@ from agent_smith.core.permissions import (
     InMemoryPermissionRuleStore,
     PermissionMode,
     PermissionResolver,
+    normalize_permission_mode,
     rule_provider_from_store,
 )
 from agent_smith.core.permissions.session_context import visible_session_ids_for_rules
@@ -321,10 +322,10 @@ def _resolve_permission_mode(
 ) -> PermissionMode:
     if value is None and is_background:
         return "accept_edits"
-    resolved = value or default
-    if resolved not in {"plan", "default", "accept_edits", "bypass"}:
-        raise AgentFactoryError(f"Unknown permission mode: {resolved}")
-    return resolved  # type: ignore[return-value]
+    try:
+        return normalize_permission_mode(value, default)
+    except ValueError as exc:
+        raise AgentFactoryError(str(exc)) from exc
 
 
 def _build_agent_catalog(definitions: list[AgentDefinition]) -> list[AgentCatalogEntry] | None:

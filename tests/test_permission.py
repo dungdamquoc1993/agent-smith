@@ -124,7 +124,23 @@ async def test_permission_resolver_scope_precedence() -> None:
 
 
 @pytest.mark.asyncio
-async def test_permission_resolver_plan_mode_blocks_mutating_tool() -> None:
+async def test_permission_resolver_read_only_mode_blocks_mutating_tool() -> None:
+    resolver = PermissionResolver()
+    decision = await resolver.resolve(
+        PermissionRequest(
+            tool_name="manage_resources",
+            tool_call_id="tc-1",
+            input={"kind": "skill", "action": "create", "name": "demo", "content": {}},
+            mode="read_only",
+            tool_spec=MUTATING_ASK,
+        )
+    )
+    assert decision.behavior == "deny"
+    assert decision.source == "mode:read_only"
+
+
+@pytest.mark.asyncio
+async def test_permission_resolver_legacy_plan_mode_aliases_to_read_only() -> None:
     resolver = PermissionResolver()
     decision = await resolver.resolve(
         PermissionRequest(
@@ -136,7 +152,7 @@ async def test_permission_resolver_plan_mode_blocks_mutating_tool() -> None:
         )
     )
     assert decision.behavior == "deny"
-    assert decision.source == "mode:plan"
+    assert decision.source == "mode:read_only"
 
 
 @pytest.mark.asyncio
@@ -233,7 +249,7 @@ async def test_agent_loop_applies_updated_args_from_before_tool_call() -> None:
 
 
 @pytest.mark.asyncio
-async def test_harness_permission_denies_mutating_tool_in_plan_mode() -> None:
+async def test_harness_permission_denies_mutating_tool_in_read_only_mode() -> None:
     executed = False
 
     async def execute(tool_call_id, args, signal=None, on_update=None):
@@ -271,7 +287,7 @@ async def test_harness_permission_denies_mutating_tool_in_plan_mode() -> None:
         model=_model(),
         tools=[tool],
         active_tool_names=[tool.name],
-        permission_mode="plan",
+        permission_mode="read_only",
         permission_resolver=resolver,
         permission_rule_store=store,
     )
