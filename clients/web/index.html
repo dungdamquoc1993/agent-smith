@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fake HRIS Parent App</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="sidebar" aria-label="Fake HRIS users">
+        <div class="brand">
+          <span class="brand-mark">AS</span>
+          <div>
+            <h1>HRIS Sandbox</h1>
+            <p>Parent-app simulator</p>
+          </div>
+        </div>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Signed-in user</h2>
+            <button id="signOutButton" class="ghost-button" type="button">Sign out</button>
+          </div>
+          <div id="currentUser" class="current-user"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Fake people</h2>
+          <div id="userList" class="user-list"></div>
+        </section>
+      </aside>
+
+      <section class="workspace" aria-label="Agent chat">
+        <header class="topbar">
+          <div>
+            <h2>OneAI test console</h2>
+            <p id="sessionLabel">No Smith session yet</p>
+          </div>
+          <div class="controls">
+            <label>
+              Model
+              <select id="modelSelect">
+                <option value="openai">OpenAI</option>
+                <option value="gemma">Gemma local</option>
+              </select>
+            </label>
+            <button id="newSessionButton" type="button">New session</button>
+          </div>
+        </header>
+
+        <div id="messages" class="messages" aria-live="polite"></div>
+
+        <form id="promptForm" class="composer">
+          <textarea
+            id="promptInput"
+            rows="3"
+            placeholder="Ask as the selected HRIS user..."
+          ></textarea>
+          <button id="sendButton" type="submit">Send</button>
+        </form>
+      </section>
+
+      <aside class="events" aria-label="Stream events">
+        <div class="panel-header">
+          <h2>Stream events</h2>
+          <button id="clearEventsButton" class="ghost-button" type="button">Clear</button>
+        </div>
+        <ol id="eventList" class="event-list"></ol>
+      </aside>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

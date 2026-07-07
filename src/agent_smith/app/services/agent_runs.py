@@ -12,6 +12,7 @@ from typing import Any, TypeAlias
 from agent_smith.app.auth import AppAssertionError, AppAssertionVerifier
 from agent_smith.app.context import ContextResolutionError, ContextResolver
 from agent_smith.app.invocation import AgentInvocation, VerifiedActor
+from agent_smith.app.services.agent_run_traces import create_agent_run_trace, install_trace_hooks
 from agent_smith.app.services.identity import PrincipalIdentityService
 from agent_smith.app.services.resources import ResourceService
 from agent_smith.app.services.sessions import SessionService
@@ -131,6 +132,12 @@ class AgentRunService:
             await _emit(emit, "session", metadata)
 
             harness = await factory.create_harness(agent_name, session=session)
+            trace = create_agent_run_trace(
+                flow="prompt_stream",
+                run_id=str(uuid.uuid4()),
+                session_id=metadata.id,
+            )
+            install_trace_hooks(harness, trace)
 
             async def emit_harness(event: Any) -> None:
                 await _emit(emit, "harness", event)
@@ -151,6 +158,7 @@ class AgentRunService:
                     "entries": await session.get_entries(),
                 },
             )
+            await trace.write_session_entries(session)
         except AgentHarnessError as exc:
             await _emit(
                 emit,
@@ -274,6 +282,18 @@ class AgentRunService:
                 ),
             )
             harness = await factory.create_harness(agent_name, session=prepared.session)
+            trace = create_agent_run_trace(
+                flow="agent_invoke_stream",
+                run_id=run_id,
+                session_id=(await prepared.session.get_metadata()).id,
+                stable_context=prepared.stable_context,
+                turn_context=prepared.turn_context,
+                invocation=prepared.invocation.model_dump(
+                    mode="json", by_alias=True, exclude_none=True
+                ),
+                actor=prepared.actor,
+            )
+            install_trace_hooks(harness, trace)
 
             async def emit_harness(event: Any) -> None:
                 mapped = _map_harness_event(event)
@@ -292,6 +312,7 @@ class AgentRunService:
             text = assistant_text(response)
             usage = response.usage.model_dump(mode="json", by_alias=True, exclude_none=True)
             await emit_smith("usage.updated", usage)
+            await trace.write_session_entries(prepared.session)
             await emit_smith(
                 "run.completed",
                 {

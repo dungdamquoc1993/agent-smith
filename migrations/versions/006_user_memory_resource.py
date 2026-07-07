@@ -11,8 +11,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    with op.get_context().autocommit_block():
-        op.execute("ALTER TYPE resource_kind ADD VALUE IF NOT EXISTS 'user_memory'")
+    op.execute("ALTER TYPE resource_kind ADD VALUE IF NOT EXISTS 'user_memory'")
 
 
 def downgrade() -> None:
