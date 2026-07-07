@@ -31,6 +31,9 @@ secrets.json
 
 # Local reference clones (not part of Agent Smith source)
 khowledge_references/
+docs/khowledge_references/
+docs/knowledege_references/
+docs/knowledge_references/
 
 # IDE / editor
 .cursor/
