@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from agent_smith.core.agent.harness.context_types import RecentConversationSnapshot
 from agent_smith.infra.db.models.session import (
     Session as DbSession,
     SessionEntry as DbSessionEntry,
@@ -242,3 +243,45 @@ class PostgresSessionRepo:
             )
             await target_storage.append_entry(cloned)
         return target_session
+
+
+class PostgresRecentConversationProvider:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._session_factory = session_factory
+
+    async def get_recent_conversations(
+        self,
+        *,
+        principal_id: str,
+        current_session_id: str,
+        limit: int = 40,
+    ) -> list[RecentConversationSnapshot]:
+        async with self._session_factory() as db:
+            rows = (
+                await db.scalars(
+                    select(DbSession)
+                    .where(
+                        DbSession.principal_id == _uuid(principal_id),
+                        DbSession.kind == DbSessionKind.chat,
+                        DbSession.id != _uuid(current_session_id),
+                    )
+                    .order_by(DbSession.updated_at.desc(), DbSession.created_at.desc())
+                    .limit(limit)
+                )
+            ).all()
+
+        repo = PostgresSessionRepo(self._session_factory)
+        snapshots: list[RecentConversationSnapshot] = []
+        for row in rows:
+            metadata = _metadata_from_row(row)
+            session = await repo.open(metadata)
+            context = await session.build_context()
+            snapshots.append(
+                RecentConversationSnapshot(
+                    id=metadata.id,
+                    title=metadata.title,
+                    updated_at=row.updated_at.isoformat() if row.updated_at else None,
+                    messages=context.messages,
+                )
+            )
+        return snapshots

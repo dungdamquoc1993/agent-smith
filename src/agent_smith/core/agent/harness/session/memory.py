@@ -12,6 +12,7 @@ from agent_smith.core.agent.harness.session.types import (
     SessionMetadata,
     SessionTreeEntry,
 )
+from agent_smith.core.agent.harness.context_types import RecentConversationSnapshot
 
 
 class MemorySessionStorage:
@@ -131,3 +132,34 @@ class MemorySessionRepo:
         storage = source_storage.clone(metadata, leaf_id=leaf_id)
         self._storages[metadata.id] = storage
         return Session(storage)
+
+
+class MemoryRecentConversationProvider:
+    def __init__(self, repo: MemorySessionRepo) -> None:
+        self.repo = repo
+
+    async def get_recent_conversations(
+        self,
+        *,
+        principal_id: str,
+        current_session_id: str,
+        limit: int = 40,
+    ) -> list[RecentConversationSnapshot]:
+        snapshots: list[RecentConversationSnapshot] = []
+        for storage in reversed(list(self.repo._storages.values())):
+            metadata = await storage.get_metadata()
+            if metadata.id == current_session_id:
+                continue
+            if metadata.principal_id != principal_id or metadata.kind != "chat":
+                continue
+            context = await Session(storage).build_context()
+            snapshots.append(
+                RecentConversationSnapshot(
+                    id=metadata.id,
+                    title=metadata.title,
+                    messages=context.messages,
+                )
+            )
+            if len(snapshots) >= limit:
+                break
+        return snapshots

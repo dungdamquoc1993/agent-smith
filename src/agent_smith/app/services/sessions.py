@@ -23,6 +23,10 @@ class SessionService:
         self._session_factory = session_factory
         self.principal_display_name = principal_display_name
 
+    @property
+    def session_factory(self) -> async_sessionmaker[AsyncSession]:
+        return self._session_factory
+
     async def ensure_principal(self) -> Principal:
         async with self._session_factory() as db, db.begin():
             principal = (

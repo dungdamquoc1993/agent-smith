@@ -27,13 +27,17 @@ from agent_smith.core.llm.types import (
     UserMessage,
 )
 from agent_smith.core.tools import (
+    BIO_UPDATE_TOOL_NAME,
     BraveSearchProvider,
+    PERSONAL_CONTEXT_SEARCH_TOOL_NAME,
     SearchProviderRegistry,
     SearchRequest,
     SearchResult,
     TavilySearchProvider,
     create_ask_user_question_tool,
     create_base_tool_registry,
+    create_bio_update_tool,
+    create_personal_context_search_tool,
     create_sleep_tool,
     create_todo_write_tool,
     create_web_fetch_tool,
@@ -423,6 +427,8 @@ def test_base_tool_registry_contains_phase_1_tools() -> None:
         "ask_user_question",
         "web_fetch",
         "web_search",
+        "personal_context_search",
+        "bio_update",
     ]
 
 
@@ -440,6 +446,51 @@ def test_base_tool_registry_optionally_includes_resource_tools() -> None:
         "ask_user_question",
         "web_fetch",
         "web_search",
+        "personal_context_search",
+        "bio_update",
         "skill",
         "manage_resources",
     ]
+
+
+@pytest.mark.asyncio
+async def test_personal_context_and_bio_tool_interfaces_are_stubbed() -> None:
+    search = create_personal_context_search_tool()
+    bio = create_bio_update_tool()
+
+    assert search.name == PERSONAL_CONTEXT_SEARCH_TOOL_NAME
+    assert search.label == "personal_context.search"
+    assert search.permission.read_only is True
+    assert search.parameters["required"] == ["query"]
+
+    search_result = await search.execute(
+        "context-1",
+        {
+            "query": "Find previous conversations about Agent Smith context framing.",
+            "sources": ["conversations"],
+            "limit": 5,
+        },
+        None,
+        None,
+    )
+    assert search_result.details["implemented"] is False
+    assert "not implemented yet" in search_result.content[0].text
+
+    assert bio.name == BIO_UPDATE_TOOL_NAME
+    assert bio.label == "bio.update"
+    assert bio.permission.default == "ask"
+    assert bio.permission.mutates_files is True
+    assert bio.parameters["properties"]["action"]["enum"] == ["add", "update", "forget"]
+
+    bio_result = await bio.execute(
+        "bio-1",
+        {
+            "action": "add",
+            "request": "Remember that the user is designing Agent Smith context frames.",
+            "section_hint": "Project Goal",
+        },
+        None,
+        None,
+    )
+    assert bio_result.details["implemented"] is False
+    assert "was not changed" in bio_result.content[0].text

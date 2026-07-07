@@ -14,6 +14,7 @@ from agent_smith.core.llm.types import AssistantMessage, TextContent
 from agent_smith.core.resources import ResourceResolver
 from agent_smith.core.runtime import AgentFactory
 from agent_smith.core.tools.registry import create_base_tool_registry
+from agent_smith.infra.persistence import PostgresRecentConversationProvider
 
 AgentRunEventSink: TypeAlias = Callable[[str, Any], Awaitable[None] | None]
 
@@ -75,6 +76,8 @@ class AgentRunService:
             session_id = payload.get("sessionId")
             if session_id is not None:
                 session_id = str(session_id)
+            raw_context_metadata = payload.get("contextMetadata")
+            context_metadata = raw_context_metadata if isinstance(raw_context_metadata, dict) else None
             selected_model = self._selected_model(
                 str(payload.get("modelKey")) if payload.get("modelKey") is not None else None
             )
@@ -92,6 +95,10 @@ class AgentRunService:
                 default_model=selected_model,
                 model_resolver=lambda _definition: selected_model,
                 default_permission_mode=self.default_permission_mode,
+                context_metadata=context_metadata,
+                recent_conversation_provider=PostgresRecentConversationProvider(
+                    self._session_service.session_factory
+                ),
             )
             session = await self._session_service.open_or_create_session(session_id)
             metadata = await session.get_metadata()
@@ -178,4 +185,3 @@ async def _emit(emit: AgentRunEventSink, event: str, data: Any) -> None:
     result = emit(event, data)
     if inspect.isawaitable(result):
         await result
-

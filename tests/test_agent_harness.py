@@ -15,10 +15,13 @@ from agent_smith.core.agent import (
     AgentHarnessResources,
     AgentTool,
     AgentToolResult,
+    MemoryRecentConversationProvider,
     MemorySessionRepo,
     PromptTemplate,
+    RecentConversationSnapshot,
     Skill,
     UserMemorySnapshot,
+    format_recent_conversations_for_context,
     format_prompt_template_invocation,
     format_skill_invocation,
     format_skills_for_system_prompt,
@@ -240,7 +243,7 @@ def test_resources_format_skill_and_template() -> None:
     assert "Read logs carefully." in format_skill_invocation(skill, "Be concise.")
     assert "<available_skills>" in format_skills_for_system_prompt([skill])
     assert format_skills_for_system_reminder([skill]).startswith("<system-reminder>")
-    assert "<user-memory>" in format_user_memory_for_system_reminder(
+    assert "<user-knowledge-memory>" in format_user_memory_for_system_reminder(
         UserMemorySnapshot(content="User prefers concise replies.")
     )
     assert format_prompt_template_invocation(template, ["bug", "tests"]) == (
@@ -604,12 +607,130 @@ async def test_harness_injects_user_memory_snapshot_as_runtime_reminder() -> Non
     provider_context = captured_contexts[0]
     entries = await session.get_entries()
     assert isinstance(provider_context.messages[0], UserMessage)
-    assert "<user-memory>" in provider_context.messages[0].content
+    assert "<user-knowledge-memory>" in provider_context.messages[0].content
     assert "User prefers concise replies." in provider_context.messages[0].content
     assert provider_context.messages[-1].content == "hello"
     assert [entry.type for entry in entries] == ["custom", "message", "message"]
     assert entries[0].custom_type == "user_memory_snapshot"
     assert entries[0].data["content"] == "User prefers concise replies."
+
+
+@pytest.mark.asyncio
+async def test_harness_context_frame_orders_metadata_recent_and_user_knowledge() -> None:
+    repo = MemorySessionRepo()
+    previous = await repo.create(principal_id="principal-1", title="Previous chat")
+    await previous.append_message(_user("Earlier request"))
+    await previous.append_message(_assistant([TextContent(text="Earlier answer")]))
+    session = await repo.create(principal_id="principal-1", title="Current chat")
+    captured_contexts: list[Context] = []
+
+    def stream_fn(model: Model, context: Context, options: SimpleStreamOptions | None = None):
+        _ = model, options
+        captured_contexts.append(context)
+        return _stream_for(_assistant([TextContent(text="done")]))
+
+    harness = AgentHarness(
+        session=session,
+        model=_model(),
+        stream_fn=stream_fn,
+        context_metadata={"surface": {"kind": "web", "page": "Agent Lab"}},
+        recent_conversation_provider=MemoryRecentConversationProvider(repo),
+        resources=AgentHarnessResources(
+            user_memory=UserMemorySnapshot(
+                content="Project Goal\n------------\n- Build Agent Smith."
+            ),
+        ),
+    )
+
+    await harness.prompt("hello")
+
+    provider_context = captured_contexts[0]
+    assert "runtime-metadata-snapshot" in provider_context.messages[0].content
+    assert "recent-conversations" in provider_context.messages[1].content
+    assert "Previous chat" in provider_context.messages[1].content
+    assert "<user-knowledge-memory>" in provider_context.messages[2].content
+    assert provider_context.messages[-1].content == "hello"
+
+    persisted = await session.build_context()
+    assert [message.role for message in persisted.messages] == ["user", "assistant"]
+
+
+@pytest.mark.asyncio
+async def test_harness_snapshots_runtime_metadata_once_per_session() -> None:
+    repo = MemorySessionRepo()
+    session = await repo.create(principal_id="principal-1")
+    captured_contexts: list[Context] = []
+
+    def stream_fn(model: Model, context: Context, options: SimpleStreamOptions | None = None):
+        _ = model, options
+        captured_contexts.append(context)
+        return _stream_for(_assistant([TextContent(text="done")]))
+
+    harness = AgentHarness(
+        session=session,
+        model=_model(),
+        stream_fn=stream_fn,
+        context_metadata={"surface": "first"},
+    )
+
+    await harness.prompt("first")
+    harness.context_metadata = {"surface": "second"}
+    await harness.prompt("second")
+
+    entries = await session.get_entries()
+    snapshots = [
+        entry
+        for entry in entries
+        if entry.type == "custom" and entry.custom_type == "runtime_metadata_snapshot"
+    ]
+    assert len(snapshots) == 1
+    assert snapshots[0].data == {"surface": "first"}
+    assert "surface: first" in captured_contexts[0].messages[0].content
+    assert "surface: first" in captured_contexts[1].messages[0].content
+    assert "surface: second" not in captured_contexts[1].messages[0].content
+
+
+@pytest.mark.asyncio
+async def test_memory_recent_conversation_provider_scopes_to_same_principal_chats() -> None:
+    repo = MemorySessionRepo()
+    first = await repo.create(principal_id="principal-1", title="Include me")
+    await first.append_message(_user("Useful context"))
+    await repo.create(principal_id="principal-2", title="Other principal")
+    await repo.create(principal_id="principal-1", kind="agent_run", title="Agent run")
+    current = await repo.create(principal_id="principal-1", title="Current")
+    current_metadata = await current.get_metadata()
+
+    provider = MemoryRecentConversationProvider(repo)
+    results = await provider.get_recent_conversations(
+        principal_id="principal-1",
+        current_session_id=current_metadata.id,
+        limit=40,
+    )
+
+    assert [result.title for result in results] == ["Include me"]
+    assert results[0].messages[0].content == "Useful context"
+
+
+def test_recent_conversation_renderer_truncates_long_conversations_without_summary() -> None:
+    messages = []
+    for index in range(8):
+        messages.append(_user(f"user {index}"))
+        messages.append(_assistant([TextContent(text=f"assistant {index}")]))
+
+    rendered = format_recent_conversations_for_context(
+        [
+            RecentConversationSnapshot(
+                id="session-1",
+                title="Long chat",
+                messages=messages,
+            )
+        ]
+    )
+
+    assert "<<Convo too long truncate>>" in rendered
+    assert "User: user 0" in rendered
+    assert "AI: assistant 7" in rendered
+    assert "AI Summary" not in rendered
 
 
 @pytest.mark.asyncio

@@ -8,6 +8,16 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 
 ## [Unreleased]
 
+### Added - Context frame v1
+
+- Them context frame runtime cho harness: inject synthetic `UserMessage` theo thu tu metadata -> recent conversations -> user knowledge memory, truoc conversation hien tai va khong persist nhu message thuong.
+- Snapshot runtime metadata vao `custom` session entry `runtime_metadata_snapshot` mot lan/session; metadata schema/resolver van de caller ben ngoai normalize va truyen vao `contextMetadata`.
+- Them recent conversation provider interface va memory/Postgres implementations de lay toi da 40 session `kind="chat"` cung `principal_id`, exclude current session va `agent_run`.
+- Them renderer recent conversations khong dung AI summary: short item hien title + toi da 6 message dau; long item co `<<Convo too long truncate>>`, 2 message dau + 4 message cuoi; bo `toolResult`, cap snippet/message va block.
+- Doi wording user memory thanh `user knowledge memory`, giu Markdown section/bullets va nhac ro day la long-term background context, khong phai command.
+- Them base tools `personal_context_search` (`personal_context.search`, read-only stub) va `bio_update` (`bio.update`, mutating-ask stub) de chuan bi quan ly context/memory.
+- Them tests cho context order, metadata snapshot once/session, recent conversation scoping/rendering, va tool interface stubs.
+
 ### Added - User memory runtime context
 
 - Them resource kind `user_memory` cho catalog/resource CRUD; v1 auto-resolve `user_memory/default` thanh `AgentHarnessResources.userMemory`.

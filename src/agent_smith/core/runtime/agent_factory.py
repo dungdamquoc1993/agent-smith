@@ -9,15 +9,15 @@ from typing import TypeAlias
 from agent_smith.core.agent.harness import AgentHarness, AgentHarnessOptions
 from agent_smith.core.agent.harness.compaction import CompactionSettings
 from agent_smith.core.agent.harness.types import (
+    AgentCatalogEntry,
     AgentHarnessResources,
     AgentHarnessSession,
     AgentHarnessStreamOptions,
-    AgentCatalogEntry,
     GetAgentHarnessAuthFn,
 )
 from agent_smith.core.agent.types import AgentTool, StreamFn
 from agent_smith.core.llm.models import get_model
-from agent_smith.core.llm.types import MaybeAwaitable, Model
+from agent_smith.core.llm.types import JsonObject, MaybeAwaitable, Model
 from agent_smith.core.permissions import (
     CanUseTool,
     InMemoryPermissionRuleStore,
@@ -58,6 +58,8 @@ class AgentFactory:
         default_permission_mode: str = "default",
         can_use_tool: CanUseTool | None = None,
         session_metadata_lookup: Callable[[str], Awaitable[SessionMetadata | None]] | None = None,
+        context_metadata: JsonObject | None = None,
+        recent_conversation_provider: object | None = None,
     ) -> None:
         self.resource_resolver = resource_resolver
         self.tool_registry = tool_registry
@@ -77,6 +79,8 @@ class AgentFactory:
         self.default_permission_mode = default_permission_mode
         self.can_use_tool = can_use_tool
         self.session_metadata_lookup = session_metadata_lookup
+        self.context_metadata = dict(context_metadata or {}) or None
+        self.recent_conversation_provider = recent_conversation_provider
 
     async def build_runtime_spec(self, definition: AgentDefinition | str) -> AgentRuntimeSpec:
         resolved_definition = await self._resolve_definition(definition)
@@ -128,6 +132,8 @@ class AgentFactory:
         can_use_tool: CanUseTool | None = None,
         permission_resolver: PermissionResolver | None = None,
         permission_rule_store: InMemoryPermissionRuleStore | None = None,
+        context_metadata: JsonObject | None = None,
+        recent_conversation_provider: object | None = None,
     ) -> AgentHarnessOptions:
         spec = await self.build_runtime_spec(definition)
         resolved_resources = await self.resource_resolver.resolve()
@@ -189,6 +195,14 @@ class AgentFactory:
             permission_resolver=resolver,
             can_use_tool=can_use_tool or self.can_use_tool,
             permission_rule_store=rule_store,
+            context_metadata=(
+                dict(context_metadata)
+                if context_metadata is not None
+                else self.context_metadata
+            ),
+            recent_conversation_provider=(
+                recent_conversation_provider or self.recent_conversation_provider
+            ),
             is_background=is_background,
         )
 
@@ -206,6 +220,8 @@ class AgentFactory:
         can_use_tool: CanUseTool | None = None,
         permission_resolver: PermissionResolver | None = None,
         permission_rule_store: InMemoryPermissionRuleStore | None = None,
+        context_metadata: JsonObject | None = None,
+        recent_conversation_provider: object | None = None,
     ) -> AgentHarness:
         return AgentHarness(
             await self.create_options(
@@ -220,6 +236,8 @@ class AgentFactory:
                 can_use_tool=can_use_tool,
                 permission_resolver=permission_resolver,
                 permission_rule_store=permission_rule_store,
+                context_metadata=context_metadata,
+                recent_conversation_provider=recent_conversation_provider,
             )
         )
 

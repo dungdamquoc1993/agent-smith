@@ -401,6 +401,8 @@ class TurnState(TypedDict):
     tools: list[AgentTool]
     active_tools: list[AgentTool]
     user_memory_snapshot: UserMemorySnapshot | None
+    runtime_metadata_snapshot: JsonObject | None
+    recent_conversations: list[Any]
 
 
 class AgentHarnessOptions(BaseModel):
@@ -437,6 +439,12 @@ class AgentHarnessOptions(BaseModel):
     permission_rule_store: Any | None = Field(
         default=None,
         alias="permissionRuleStore",
+        exclude=True,
+    )
+    context_metadata: JsonObject | None = Field(default=None, alias="contextMetadata")
+    recent_conversation_provider: Any | None = Field(
+        default=None,
+        alias="recentConversationProvider",
         exclude=True,
     )
     is_background: bool = Field(default=False, alias="isBackground")

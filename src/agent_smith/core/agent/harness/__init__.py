@@ -18,6 +18,12 @@ from agent_smith.core.agent.harness.compaction import (
     should_compact,
     summarization_prompt,
 )
+from agent_smith.core.agent.harness.context_frame import (
+    format_recent_conversations_for_context,
+    format_runtime_metadata_for_context,
+    format_user_knowledge_memory_for_context,
+)
+from agent_smith.core.agent.harness.context_types import RecentConversationSnapshot
 from agent_smith.core.agent.harness.resources import (
     format_prompt_template_invocation,
     format_skill_invocation,
@@ -28,6 +34,7 @@ from agent_smith.core.agent.harness.resources import (
     substitute_args,
 )
 from agent_smith.core.agent.harness.session import (
+    MemoryRecentConversationProvider,
     MemorySessionRepo,
     MemorySessionStorage,
     PendingSessionWrite,
@@ -121,10 +128,12 @@ __all__ = [
     "MemorySessionStorage",
     "MicrocompactSettings",
     "ModelUpdateEvent",
+    "MemoryRecentConversationProvider",
     "PendingSessionWrite",
     "PromptTemplate",
     "QueueUpdateEvent",
     "ResourcesUpdateEvent",
+    "RecentConversationSnapshot",
     "SavePointEvent",
     "Session",
     "SessionBeforeCompactEvent",
@@ -153,9 +162,12 @@ __all__ = [
     "estimate_context_tokens",
     "estimate_tokens",
     "format_prompt_template_invocation",
+    "format_recent_conversations_for_context",
+    "format_runtime_metadata_for_context",
     "format_skill_invocation",
     "format_skills_for_system_prompt",
     "format_skills_for_system_reminder",
+    "format_user_knowledge_memory_for_context",
     "format_user_memory_for_system_reminder",
     "microcompact_messages",
     "parse_command_args",

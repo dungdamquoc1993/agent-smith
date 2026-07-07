@@ -15,6 +15,7 @@ from agent_smith.core.llm.types import (
     Context,
     HookPayload,
     ImageContent,
+    JsonObject,
     Model,
     SimpleStreamOptions,
     TextContent,
@@ -34,12 +35,16 @@ from agent_smith.core.agent.harness.compaction import (
     should_compact,
     summarization_prompt,
 )
+from agent_smith.core.agent.harness.context_frame import (
+    MAX_RECENT_CONVERSATIONS,
+    context_frame_messages,
+)
+from agent_smith.core.agent.harness.context_types import RecentConversationSnapshot
 from agent_smith.core.agent.harness.resources import (
     format_agent_catalog_delta,
     format_prompt_template_invocation,
     format_skill_invocation,
     format_skills_for_system_reminder,
-    format_user_memory_for_system_reminder,
     parse_announced_agents_from_messages,
 )
 from agent_smith.core.agent.harness.session.types import PendingSessionWrite
@@ -102,6 +107,7 @@ from agent_smith.core.tools.task.constants import TASK_TOOL_NAME
 
 SUBSCRIBER_EVENT_TYPE = "*"
 USER_MEMORY_SNAPSHOT_CUSTOM_TYPE = "user_memory_snapshot"
+RUNTIME_METADATA_SNAPSHOT_CUSTOM_TYPE = "runtime_metadata_snapshot"
 
 
 def create_user_message(text: str, images: list[ImageContent] | None = None) -> UserMessage:
@@ -257,10 +263,15 @@ def prepend_user_memory_reminder(
     messages: list[AgentMessage],
     snapshot: UserMemorySnapshot | None,
 ) -> list[AgentMessage]:
-    reminder = format_user_memory_for_system_reminder(snapshot)
-    if not reminder:
+    frame = context_frame_messages(
+        metadata=None,
+        recent_conversations=None,
+        user_memory=snapshot,
+        timestamp=now_ms(),
+    )
+    if not frame:
         return messages
-    return [UserMessage(content=reminder, timestamp=now_ms()), *messages]
+    return [*frame, *messages]
 
 
 class AgentHarness:
@@ -299,6 +310,8 @@ class AgentHarness:
         self.permission_resolver = resolved.permission_resolver
         self.can_use_tool = resolved.can_use_tool
         self.permission_rule_store = resolved.permission_rule_store
+        self.context_metadata = dict(resolved.context_metadata or {}) or None
+        self.recent_conversation_provider = resolved.recent_conversation_provider
         self.is_background = resolved.is_background
 
         self.phase = "idle"
@@ -619,6 +632,11 @@ class AgentHarness:
             )
         metadata = await self.session.get_metadata()
         user_memory_snapshot = await self._ensure_user_memory_snapshot(resources.user_memory)
+        runtime_metadata_snapshot = await self._ensure_runtime_metadata_snapshot(self.context_metadata)
+        recent_conversations = await self._load_recent_conversations(
+            principal_id=metadata.principal_id,
+            current_session_id=metadata.id,
+        )
         return {
             "messages": context.messages,
             "resources": resources,
@@ -630,6 +648,8 @@ class AgentHarness:
             "tools": list(self.tools.values()),
             "active_tools": active_tools,
             "user_memory_snapshot": user_memory_snapshot,
+            "runtime_metadata_snapshot": runtime_metadata_snapshot,
+            "recent_conversations": recent_conversations,
         }
 
     async def _ensure_user_memory_snapshot(
@@ -662,6 +682,55 @@ class AgentHarness:
             if snapshot.content.strip():
                 return snapshot.model_copy(update={"content": snapshot.content.strip()})
         return None
+
+    async def _ensure_runtime_metadata_snapshot(
+        self,
+        metadata: JsonObject | None,
+    ) -> JsonObject | None:
+        existing = await self._load_runtime_metadata_snapshot()
+        if existing is not None:
+            return existing
+        if not metadata:
+            return None
+        snapshot = dict(metadata)
+        await self.session.append_custom_entry(RUNTIME_METADATA_SNAPSHOT_CUSTOM_TYPE, snapshot)
+        return snapshot
+
+    async def _load_runtime_metadata_snapshot(self) -> JsonObject | None:
+        entries = await self.session.get_entries()
+        for entry in reversed(entries):
+            if entry.type != "custom" or entry.custom_type != RUNTIME_METADATA_SNAPSHOT_CUSTOM_TYPE:
+                continue
+            if isinstance(entry.data, dict) and entry.data:
+                return dict(entry.data)
+        return None
+
+    async def _load_recent_conversations(
+        self,
+        *,
+        principal_id: str | None,
+        current_session_id: str,
+    ) -> list[RecentConversationSnapshot]:
+        provider = self.recent_conversation_provider
+        if provider is None or not principal_id:
+            return []
+        if hasattr(provider, "get_recent_conversations"):
+            raw = await call(
+                provider.get_recent_conversations(
+                    principal_id=principal_id,
+                    current_session_id=current_session_id,
+                    limit=MAX_RECENT_CONVERSATIONS,
+                )
+            )
+        else:
+            raw = await call(
+                provider(
+                    principal_id=principal_id,
+                    current_session_id=current_session_id,
+                    limit=MAX_RECENT_CONVERSATIONS,
+                )
+            )
+        return [RecentConversationSnapshot.model_validate(item) for item in raw or []]
 
     def _resolve_compaction_settings(
         self,
@@ -827,12 +896,16 @@ class AgentHarness:
                 reset_agent_catalog=self._agent_catalog_reset_pending,
             )
             self._agent_catalog_reset_pending = False
-            with_memory = prepend_user_memory_reminder(
-                with_catalog,
-                get_turn_state()["user_memory_snapshot"],
+            state = get_turn_state()
+            frame = context_frame_messages(
+                metadata=state["runtime_metadata_snapshot"],
+                recent_conversations=state["recent_conversations"],
+                user_memory=state["user_memory_snapshot"],
+                timestamp=now_ms(),
             )
-            result = await self._emit_hook(ContextEvent(messages=with_memory), ContextResult)
-            return result.messages if result else with_memory
+            with_frame = [*frame, *with_catalog] if frame else with_catalog
+            result = await self._emit_hook(ContextEvent(messages=with_frame), ContextResult)
+            return result.messages if result else with_frame
 
         async def before_tool_call(
             context: BeforeToolCallContext,

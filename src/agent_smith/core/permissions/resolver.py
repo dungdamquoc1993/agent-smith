@@ -10,7 +10,6 @@ from agent_smith.core.permissions.types import (
     CheckPermissionsFn,
     PermissionBehavior,
     PermissionDecision,
-    PermissionMode,
     PermissionModeInput,
     PermissionRequest,
     PermissionRule,

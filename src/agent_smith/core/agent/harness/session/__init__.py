@@ -1,6 +1,10 @@
 """Harness session storage backends."""
 
-from agent_smith.core.agent.harness.session.memory import MemorySessionRepo, MemorySessionStorage
+from agent_smith.core.agent.harness.session.memory import (
+    MemoryRecentConversationProvider,
+    MemorySessionRepo,
+    MemorySessionStorage,
+)
 from agent_smith.core.agent.harness.session.session import Session
 from agent_smith.core.agent.harness.session.types import (
     PendingSessionWrite,
@@ -17,6 +21,7 @@ from agent_smith.core.agent.harness.session.types import (
 
 __all__ = [
     "MemorySessionRepo",
+    "MemoryRecentConversationProvider",
     "MemorySessionStorage",
     "PendingSessionWrite",
     "Session",
