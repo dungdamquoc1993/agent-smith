@@ -16,6 +16,7 @@ src/tools/
   registry.py       # create_base_tool_registry()
   shared/           # common helpers (not part of public API)
   sleep/, todo/, ask_user/, web_fetch/, web_search/
+  heartbeat/, cronjob/
   skill/, manage_resources/
   task/, task_output/, task_stop/
 ```
@@ -32,6 +33,8 @@ and `__init__.py` (package re-exports).
 | `create_ask_user_question_tool()` | `ask_user_question` | Pause tool execution on an injected handler and resume with user answers. |
 | `create_web_fetch_tool()` | `web_fetch` | Fetch HTTP/HTTPS content and return extracted text. |
 | `create_web_search_tool()` | `web_search` | Search through configured Tavily or Brave providers. |
+| `create_heartbeat_tool()` | `heartbeat` | Mock interface for recurring interval-based execution. |
+| `create_cronjob_tool()` | `cronjob` | Mock interface for fixed-time scheduled execution. |
 | `create_skill_tool()` | `skill` | Invoke a skill by name with optional arguments. |
 | `create_task_tool()` | `task` | Spawn a named agent task sync or async. |
 | `create_manage_resources_tool()` | `manage_resources` | List, load, create, update, or delete catalog resources. |
@@ -79,6 +82,9 @@ agent tasks.
   `ResourceResolver` for resolved `list` / `read` views when provided.
 - `task` task metadata includes `parentToolCallId`; child session persistence is
   controlled by the injected `AgentTaskRunner.session_factory`.
+- `heartbeat` and `cronjob` are interface-only scheduling mocks. Their core scope is
+  still undecided: they may eventually wake an agent, enqueue a system-owned job, or
+  support both models with separate lifecycle, permission, and audit semantics.
 
 ## Web Search Configuration
 

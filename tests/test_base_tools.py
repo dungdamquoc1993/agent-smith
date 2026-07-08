@@ -29,6 +29,8 @@ from agent_smith.core.llm.types import (
 from agent_smith.core.tools import (
     BIO_UPDATE_TOOL_NAME,
     BraveSearchProvider,
+    CRONJOB_TOOL_NAME,
+    HEARTBEAT_TOOL_NAME,
     PERSONAL_CONTEXT_SEARCH_TOOL_NAME,
     SearchProviderRegistry,
     SearchRequest,
@@ -37,6 +39,8 @@ from agent_smith.core.tools import (
     create_ask_user_question_tool,
     create_base_tool_registry,
     create_bio_update_tool,
+    create_cronjob_tool,
+    create_heartbeat_tool,
     create_personal_context_search_tool,
     create_sleep_tool,
     create_todo_write_tool,
@@ -429,6 +433,8 @@ def test_base_tool_registry_contains_phase_1_tools() -> None:
         "web_search",
         "personal_context_search",
         "bio_update",
+        "heartbeat",
+        "cronjob",
     ]
 
 
@@ -448,6 +454,8 @@ def test_base_tool_registry_optionally_includes_resource_tools() -> None:
         "web_search",
         "personal_context_search",
         "bio_update",
+        "heartbeat",
+        "cronjob",
         "skill",
         "manage_resources",
     ]
@@ -494,3 +502,61 @@ async def test_personal_context_and_bio_tool_interfaces_are_stubbed() -> None:
     )
     assert bio_result.details["implemented"] is False
     assert "was not changed" in bio_result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_scheduled_tool_interfaces_are_stubbed() -> None:
+    heartbeat = create_heartbeat_tool()
+    cronjob = create_cronjob_tool()
+
+    assert heartbeat.name == HEARTBEAT_TOOL_NAME
+    assert heartbeat.label == "Heartbeat"
+    assert heartbeat.permission.default == "ask"
+    assert heartbeat.parameters["required"] == ["interval_seconds", "description", "prompt"]
+    assert heartbeat.parameters["properties"]["execution_model"]["enum"] == [
+        "wake_agent",
+        "system_job",
+        "either",
+        "undecided",
+    ]
+
+    heartbeat_result = await heartbeat.execute(
+        "heartbeat-1",
+        {
+            "interval_seconds": 300,
+            "description": "Periodic check for pending follow-up work.",
+            "prompt": "Check whether there is follow-up work to prepare.",
+            "execution_model": "undecided",
+        },
+        None,
+        None,
+    )
+    assert heartbeat_result.details["implemented"] is False
+    assert heartbeat_result.details["design"]["scopeDecision"] == "open"
+    assert "no timer" in heartbeat_result.content[0].text
+
+    assert cronjob.name == CRONJOB_TOOL_NAME
+    assert cronjob.label == "Cronjob"
+    assert cronjob.permission.default == "ask"
+    assert cronjob.parameters["required"] == ["run_at", "description", "prompt"]
+    assert cronjob.parameters["properties"]["execution_model"]["enum"] == [
+        "wake_agent",
+        "system_job",
+        "either",
+        "undecided",
+    ]
+
+    cronjob_result = await cronjob.execute(
+        "cronjob-1",
+        {
+            "run_at": "2026-07-09T09:00:00+07:00",
+            "timezone": "Asia/Ho_Chi_Minh",
+            "description": "Run a fixed-time reminder.",
+            "prompt": "Prepare a fixed-time reminder.",
+        },
+        None,
+        None,
+    )
+    assert cronjob_result.details["implemented"] is False
+    assert cronjob_result.details["design"]["scopeDecision"] == "open"
+    assert "no scheduler entry" in cronjob_result.content[0].text

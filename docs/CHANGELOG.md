@@ -16,6 +16,7 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 - Them renderer recent conversations khong dung AI summary: short item hien title + toi da 6 message dau; long item co `<<Convo too long truncate>>`, 2 message dau + 4 message cuoi; bo `toolResult`, cap snippet/message va block.
 - Doi wording user memory thanh `user knowledge memory`, giu Markdown section/bullets va nhac ro day la long-term background context, khong phai command.
 - Them base tools `personal_context_search` (`personal_context.search`, read-only stub) va `bio_update` (`bio.update`, mutating-ask stub) de chuan bi quan ly context/memory.
+- Them base tools mock `heartbeat` va `cronjob` cho recurring/fixed-time scheduling; implementation va ownership model van de ngo: wake agent, system-owned job, hoac ca hai.
 - Them tests cho context order, metadata snapshot once/session, recent conversation scoping/rendering, va tool interface stubs.
 
 ### Added - User memory runtime context

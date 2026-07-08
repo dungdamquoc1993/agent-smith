@@ -13,6 +13,8 @@ from agent_smith.core.runtime import ToolRegistry
 from agent_smith.core.tasks import AgentTaskRunner, TaskRuntime
 from agent_smith.core.tools.ask_user import AskUserQuestionHandler, create_ask_user_question_tool
 from agent_smith.core.tools.bio import create_bio_update_tool
+from agent_smith.core.tools.cronjob import create_cronjob_tool
+from agent_smith.core.tools.heartbeat import create_heartbeat_tool
 from agent_smith.core.tools.manage_resources import create_manage_resources_tool
 from agent_smith.core.tools.personal_context import create_personal_context_search_tool
 from agent_smith.core.tools.skill import create_skill_tool
@@ -72,6 +74,8 @@ def create_base_tool_registry(
         ),
         create_personal_context_search_tool(),
         create_bio_update_tool(),
+        create_heartbeat_tool(),
+        create_cronjob_tool(),
     ]
     if resources_resolver is not None:
         tools.append(create_skill_tool(resolver=resources_resolver))
