@@ -131,6 +131,35 @@ signed short-lived assertion
 The API key identifies the integration. The assertion identifies the actor for a
 specific invocation.
 
+## Provider Control Plane
+
+Provider records and credentials are managed through admin-only HTTP APIs under
+`/api/admin`. These APIs require:
+
+```text
+Authorization: Bearer <AGENT_SMITH_ADMIN_TOKEN>
+```
+
+The first version is intentionally admin-created:
+
+```text
+POST /api/admin/identity-providers
+POST /api/admin/identity-providers/{providerId}/api-keys
+POST /api/admin/identity-providers/{providerId}/assertion-keys
+```
+
+Smith generates both credentials:
+
+- Provider API key: raw value returned once, stored as one-way hash plus prefix.
+- Assertion signing secret: raw value returned once, stored encrypted at rest.
+
+Runtime invocation then uses both:
+
+```text
+X-Agent-Smith-Provider-Key: <raw-api-key>
+Authorization: Bearer <signed-short-lived-assertion>
+```
+
 ## Identity Namespace Rule
 
 Smith must not treat a request-provided `(provider, subject)` pair as globally
@@ -167,25 +196,26 @@ identity_providers
   id
   issuer
   slug
-  type
   status
-  config
   metadata
 
-provider_api_keys
+identity_provider_api_keys
   id
-  identity_provider_id
+  provider_id
+  name
   key_hash
+  key_prefix
   status
   expires_at
   revoked_at
 
 identity_provider_assertion_keys
   id
-  identity_provider_id
+  provider_id
   kid
   alg
   encrypted_secret
+  encryption_scheme
   status
   expires_at
   revoked_at
@@ -245,6 +275,8 @@ explicit, auditable operation, not an automatic side effect of matching email.
 - Keep Smith core free from product-specific login flows.
 - Treat Smith Auth, if built, as just another trusted issuer/provider.
 - Require provider API key plus signed short-lived assertion for external invoke.
+- Manage providers and credentials through admin-only `/api/admin` endpoints.
+- Return raw API keys and assertion secrets only once at creation time.
 - Scope external identity uniqueness by provider record, not bare provider name.
 - Treat `sub` as the external user id inside the API-key-resolved provider.
 - Keep `jti` replay protection and short `exp`.

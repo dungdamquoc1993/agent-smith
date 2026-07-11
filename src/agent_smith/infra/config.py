@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     openrouter_api_key: str | None = None
     mcp_credentials_key: str | None = None
+    admin_token: str | None = Field(
+        default=None,
+        validation_alias="AGENT_SMITH_ADMIN_TOKEN",
+    )
     identity_secrets_key: str | None = Field(
         default=None,
         validation_alias="AGENT_SMITH_IDENTITY_SECRETS_KEY",

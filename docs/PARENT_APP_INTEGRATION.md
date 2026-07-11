@@ -6,6 +6,62 @@ streams normalized run events back to the parent backend.
 
 Design background: [Identity And Trusted App Assertions](IDENTITY_TRUSTED_ASSERTIONS.md).
 
+## Admin Setup
+
+Provider onboarding is an admin-only control-plane flow. Configure:
+
+```bash
+AGENT_SMITH_ADMIN_TOKEN=<admin-token>
+AGENT_SMITH_IDENTITY_SECRETS_KEY=<fernet-key>
+```
+
+Create the provider:
+
+```http
+POST /api/admin/identity-providers
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+```
+
+```json
+{
+  "slug": "adw",
+  "issuer": "adw",
+  "displayName": "ADW"
+}
+```
+
+Create a Provider API key:
+
+```http
+POST /api/admin/identity-providers/{providerId}/api-keys
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+```
+
+```json
+{ "name": "runtime-v1" }
+```
+
+The response includes `apiKey.rawKey` exactly once. Smith stores only a hash and
+prefix after that.
+
+Create an assertion signing key:
+
+```http
+POST /api/admin/identity-providers/{providerId}/assertion-keys
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+```
+
+```json
+{ "kid": "v1" }
+```
+
+The response includes `assertionKey.rawSecret` exactly once. Smith stores the
+secret encrypted at rest and uses `kid` to select it during assertion
+verification.
+
 ## Invoke Stream
 
 ```http

@@ -11,6 +11,7 @@ from sqlalchemy import text
 from agent_smith.app.auth import AppAssertionVerifier, parse_trusted_apps
 from agent_smith.app.services.agent_runs import AgentRunService
 from agent_smith.app.services.identity import PrincipalIdentityService
+from agent_smith.app.services.identity_providers import IdentityProviderManagementService
 from agent_smith.app.services.provider_auth import IdentityProviderAuthService, IdentityProviderSecretCodec
 from agent_smith.app.services.resources import ResourceService
 from agent_smith.app.services.sessions import SessionService, principal_payload
@@ -58,6 +59,10 @@ class AppContainer:
         self.provider_auth = IdentityProviderAuthService(
             session_factory,
             assertion_verifier=assertion_verifier,
+            secret_codec=identity_secret_codec,
+        )
+        self.identity_providers = IdentityProviderManagementService(
+            session_factory,
             secret_codec=identity_secret_codec,
         )
         self.resources = ResourceService(
