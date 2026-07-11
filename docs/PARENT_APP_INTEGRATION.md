@@ -6,6 +6,23 @@ streams normalized run events back to the parent backend.
 
 Design background: [Identity And Trusted App Assertions](IDENTITY_TRUSTED_ASSERTIONS.md).
 
+## Running Smith HTTP
+
+The HTTP transport is a FastAPI app served by uvicorn:
+
+```bash
+poetry run python -m agent_smith.transports.http.main
+```
+
+or:
+
+```bash
+poetry run uvicorn agent_smith.transports.http.main:app --host 127.0.0.1 --port 8765
+```
+
+FastAPI docs are enabled by default at `/docs` and `/openapi.json`. Set
+`AGENT_SMITH_HTTP_DOCS_ENABLED=false` to disable them for deployed environments.
+
 ## Admin Setup
 
 Provider onboarding is an admin-only control-plane flow. Configure:

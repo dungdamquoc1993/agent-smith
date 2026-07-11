@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import date, datetime
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel
@@ -14,6 +16,10 @@ def jsonable(value: Any) -> Any:
         return value.model_dump(mode="json", by_alias=True, exclude_none=True)
     if isinstance(value, uuid.UUID):
         return str(value)
+    if isinstance(value, datetime | date):
+        return value.isoformat()
+    if isinstance(value, Enum):
+        return value.value
     if isinstance(value, list):
         return [jsonable(item) for item in value]
     if isinstance(value, tuple):
@@ -29,4 +35,3 @@ def json_dumps(value: Any) -> str:
 
 def sse_chunk(event_name: str, data: Any) -> bytes:
     return f"event: {event_name}\ndata: {json_dumps(data)}\n\n".encode("utf-8")
-

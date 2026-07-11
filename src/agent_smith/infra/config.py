@@ -25,6 +25,10 @@ class Settings(BaseSettings):
         default=None,
         validation_alias="AGENT_SMITH_IDENTITY_SECRETS_KEY",
     )
+    http_docs_enabled: bool = Field(
+        default=True,
+        validation_alias="AGENT_SMITH_HTTP_DOCS_ENABLED",
+    )
     default_permission_mode: str = "default"
     assertion_audience: str = Field(
         default="agent-smith",

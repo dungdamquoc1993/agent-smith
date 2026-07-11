@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import http.client
-import http.server
 import json
-import threading
 import uuid
 from os import getenv
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -28,7 +26,7 @@ from agent_smith.infra.db.models.principal import (
     IdentityProviderApiKey,
     IdentityProviderAssertionKey,
 )
-from agent_smith.transports.http.routes import AsyncRuntime, create_handler
+from agent_smith.transports.http.main import create_app
 
 
 @pytest.mark.asyncio
@@ -144,8 +142,8 @@ async def test_identity_provider_management_lifecycle_when_database_is_configure
 
 def test_admin_identity_provider_routes_require_configured_admin_token() -> None:
     container = _fake_container(admin_token=None)
-    with _test_server(container) as base_url:
-        status, payload = _request(base_url, "GET", "/api/admin/identity-providers")
+    with TestClient(create_app(container=container)) as client:
+        status, payload = _request(client, "GET", "/api/admin/identity-providers")
 
     assert status == 500
     assert payload["error"]["code"] == "admin_auth_not_configured"
@@ -153,10 +151,10 @@ def test_admin_identity_provider_routes_require_configured_admin_token() -> None
 
 def test_admin_identity_provider_routes_reject_missing_or_wrong_admin_token() -> None:
     container = _fake_container(admin_token="secret-admin")
-    with _test_server(container) as base_url:
-        status, payload = _request(base_url, "GET", "/api/admin/identity-providers")
+    with TestClient(create_app(container=container)) as client:
+        status, payload = _request(client, "GET", "/api/admin/identity-providers")
         wrong_status, wrong_payload = _request(
-            base_url,
+            client,
             "GET",
             "/api/admin/identity-providers",
             token="wrong",
@@ -171,36 +169,36 @@ def test_admin_identity_provider_routes_reject_missing_or_wrong_admin_token() ->
 def test_admin_identity_provider_routes_dispatch_provider_management() -> None:
     service = _FakeIdentityProviderService()
     container = _fake_container(admin_token="secret-admin", service=service)
-    with _test_server(container) as base_url:
+    with TestClient(create_app(container=container)) as client:
         create_status, created = _request(
-            base_url,
+            client,
             "POST",
             "/api/admin/identity-providers",
             token="secret-admin",
             body={"slug": "acme", "issuer": "acme", "displayName": "Acme"},
         )
         list_status, listed = _request(
-            base_url,
+            client,
             "GET",
             "/api/admin/identity-providers",
             token="secret-admin",
         )
         update_status, updated = _request(
-            base_url,
+            client,
             "PATCH",
             "/api/admin/identity-providers/provider-1",
             token="secret-admin",
             body={"displayName": "Acme Updated"},
         )
         api_key_status, api_key = _request(
-            base_url,
+            client,
             "POST",
             "/api/admin/identity-providers/provider-1/api-keys",
             token="secret-admin",
             body={"name": "runtime"},
         )
         assertion_key_status, assertion_key = _request(
-            base_url,
+            client,
             "POST",
             "/api/admin/identity-providers/provider-1/assertion-keys",
             token="secret-admin",
@@ -220,6 +218,39 @@ def test_admin_identity_provider_routes_dispatch_provider_management() -> None:
     assert assertion_key["assertionKey"]["rawSecret"] == "raw-secret"
     assert "encryptedSecret" not in assertion_key["assertionKey"]
     assert service.created_provider == {"slug": "acme", "issuer": "acme", "displayName": "Acme"}
+
+
+def test_fastapi_root_route_listing() -> None:
+    container = _fake_container(admin_token="secret-admin")
+    with TestClient(create_app(container=container)) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["service"] == "agent_smith_http"
+    assert "/api/agent/invoke/stream" in payload["routes"]
+    assert "/api/admin/identity-providers" in payload["routes"]
+
+
+def test_agent_invoke_stream_reads_provider_headers() -> None:
+    agent_runs = _FakeAgentRunService()
+    container = _fake_container(admin_token="secret-admin", agent_runs=agent_runs)
+    with TestClient(create_app(container=container)) as client:
+        response = client.post(
+            "/api/agent/invoke/stream",
+            headers={
+                "X-Agent-Smith-Provider-Key": "ask_raw",
+                "Authorization": "Bearer signed-assertion",
+            },
+            json={"payload": {"prompt": "hi"}},
+        )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "event: run.completed" in response.text
+    assert agent_runs.prepared_body == {"payload": {"prompt": "hi"}}
+    assert agent_runs.provider_api_key == "ask_raw"
+    assert agent_runs.authorization == "Bearer signed-assertion"
 
 
 class _FakeIdentityProviderService:
@@ -274,54 +305,54 @@ class _FakeIdentityProviderService:
         return {"assertionKey": {"id": key_id, "status": "revoked"}}
 
 
+class _FakeAgentRunService:
+    def __init__(self) -> None:
+        self.provider_api_key: str | None = None
+        self.authorization: str | None = None
+        self.prepared_body: dict[str, Any] | None = None
+
+    async def prepare_invocation(
+        self,
+        *,
+        provider_api_key: str | None,
+        authorization: str | None,
+        body: dict[str, Any],
+    ) -> dict[str, str]:
+        self.provider_api_key = provider_api_key
+        self.authorization = authorization
+        self.prepared_body = body
+        return {"prepared": "ok"}
+
+    async def run_prepared_invocation_stream(self, prepared: Any, emit: Any) -> None:
+        await emit("run.completed", {"prepared": prepared})
+
+
 def _fake_container(
     *,
     admin_token: str | None,
     service: _FakeIdentityProviderService | None = None,
+    agent_runs: _FakeAgentRunService | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         settings=SimpleNamespace(admin_token=admin_token),
         identity_providers=service or _FakeIdentityProviderService(),
+        agent_runs=agent_runs or _FakeAgentRunService(),
     )
 
 
-class _test_server:
-    def __init__(self, container: SimpleNamespace) -> None:
-        self.runtime = AsyncRuntime()
-        handler = create_handler(container=container, runtime=self.runtime)
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-
-    def __enter__(self) -> str:
-        self.thread.start()
-        host, port = self.server.server_address
-        return f"{host}:{port}"
-
-    def __exit__(self, *args: object) -> None:
-        self.server.shutdown()
-        self.server.server_close()
-        self.runtime.stop()
-        self.thread.join(timeout=2)
-
-
 def _request(
-    base_url: str,
+    client: TestClient,
     method: str,
     path: str,
     *,
     token: str | None = None,
     body: dict[str, Any] | None = None,
 ) -> tuple[int, dict[str, Any]]:
-    connection = http.client.HTTPConnection(base_url, timeout=5)
     headers = {"content-type": "application/json"}
     if token is not None:
         headers["authorization"] = f"Bearer {token}"
-    payload = json.dumps(body).encode("utf-8") if body is not None else None
-    connection.request(method, path, body=payload, headers=headers)
-    response = connection.getresponse()
-    raw = response.read().decode("utf-8")
-    connection.close()
-    return response.status, json.loads(raw)
+    response = client.request(method, path, content=json.dumps(body) if body is not None else None, headers=headers)
+    return response.status_code, response.json()
 
 
 def _fernet_key() -> str:

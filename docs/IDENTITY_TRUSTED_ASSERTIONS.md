@@ -140,6 +140,12 @@ Provider records and credentials are managed through admin-only HTTP APIs under
 Authorization: Bearer <AGENT_SMITH_ADMIN_TOKEN>
 ```
 
+The HTTP transport is a FastAPI app. Run it locally with:
+
+```bash
+poetry run uvicorn agent_smith.transports.http.main:app --host 127.0.0.1 --port 8765
+```
+
 The first version is intentionally admin-created:
 
 ```text

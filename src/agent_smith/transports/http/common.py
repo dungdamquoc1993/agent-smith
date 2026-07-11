@@ -1,120 +1,130 @@
-"""Shared helpers for the stdlib HTTP transport."""
+"""Shared helpers for the FastAPI HTTP transport."""
 
 from __future__ import annotations
 
+import asyncio
 import hmac
-import json
-import queue
-from concurrent.futures import Future
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import suppress
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler
-from pathlib import Path
 from typing import Any
 
+from fastapi import Depends, Header, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+
 from agent_smith.app.container import AppContainer
-from agent_smith.transports.http.sse import json_dumps, sse_chunk
+from agent_smith.app.services.agent_runs import AgentRunEventSink
+from agent_smith.transports.http.sse import jsonable, sse_chunk
 
 SseQueueItem = dict[str, Any] | None
+SseRunner = Callable[[AgentRunEventSink], Awaitable[None]]
 
 
-def read_json(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
-    length = int(handler.headers.get("content-length") or "0")
-    if length <= 0:
-        return {}
-    raw = handler.rfile.read(length).decode("utf-8")
-    data = json.loads(raw)
-    if not isinstance(data, dict):
-        raise json.JSONDecodeError("Expected JSON object", raw, 0)
-    return data
+class AgentSmithHttpError(Exception):
+    def __init__(
+        self,
+        status_code: HTTPStatus | int,
+        code: str,
+        message: str,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = int(status_code)
+        self.code = code
+        self.message = message
 
 
-def serve_file(handler: BaseHTTPRequestHandler, path: Path, content_type: str) -> None:
-    if not path.is_file():
-        return send_error(handler, HTTPStatus.NOT_FOUND, "File not found")
-    content = path.read_bytes()
-    handler.send_response(HTTPStatus.OK)
-    handler.send_header("content-type", content_type)
-    handler.send_header("content-length", str(len(content)))
-    handler.end_headers()
-    handler.wfile.write(content)
+def get_container(request: Request) -> AppContainer:
+    return request.app.state.container
 
 
-def send_json(
-    handler: BaseHTTPRequestHandler,
-    data: Any,
-    *,
-    status: HTTPStatus | int = HTTPStatus.OK,
-) -> None:
-    content = json_dumps(data).encode("utf-8")
-    handler.send_response(int(status))
-    handler.send_header("content-type", "application/json; charset=utf-8")
-    handler.send_header("content-length", str(len(content)))
-    handler.end_headers()
-    handler.wfile.write(content)
+def json_response(data: Any, *, status_code: HTTPStatus | int = HTTPStatus.OK) -> JSONResponse:
+    return JSONResponse(content=jsonable(data), status_code=int(status_code))
 
 
-def send_error(
-    handler: BaseHTTPRequestHandler,
-    status: HTTPStatus | int,
+def error_response(
+    status_code: HTTPStatus | int,
+    code: str,
     message: str,
-    *,
-    code: str | None = None,
-) -> None:
-    status_code = HTTPStatus(int(status))
-    send_json(
-        handler,
-        {"error": {"code": code or status_code.phrase, "message": message}},
-        status=status_code,
+) -> JSONResponse:
+    return json_response(
+        {"error": {"code": code, "message": message}},
+        status_code=status_code,
     )
 
 
-def send_sse_stream(
-    handler: BaseHTTPRequestHandler,
-    *,
-    future: Future,
-    events: queue.Queue[SseQueueItem],
-) -> None:
-    handler.send_response(HTTPStatus.OK)
-    handler.send_header("content-type", "text/event-stream; charset=utf-8")
-    handler.send_header("cache-control", "no-cache")
-    handler.send_header("connection", "close")
-    handler.end_headers()
-
+async def read_json_object(request: Request) -> dict[str, Any]:
+    raw = await request.body()
+    if not raw:
+        return {}
     try:
-        while True:
-            item = events.get()
-            if item is None:
-                break
-            handler.wfile.write(sse_chunk(str(item.get("event") or "message"), item.get("data")))
-            handler.wfile.flush()
-    except (BrokenPipeError, ConnectionResetError):
-        future.cancel()
-    finally:
-        if future.done() and not future.cancelled():
-            future.result()
-        handler.close_connection = True
+        data = await request.json()
+    except ValueError as exc:
+        raise AgentSmithHttpError(
+            HTTPStatus.BAD_REQUEST,
+            "Bad Request",
+            "Invalid JSON body",
+        ) from exc
+    if not isinstance(data, dict):
+        raise AgentSmithHttpError(
+            HTTPStatus.BAD_REQUEST,
+            "Bad Request",
+            "Invalid JSON body",
+        )
+    return data
 
 
-def require_admin_auth(handler: BaseHTTPRequestHandler, container: AppContainer) -> bool:
+def require_admin_token(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    container: AppContainer = Depends(get_container),
+) -> None:
     configured = (container.settings.admin_token or "").strip()
     if not configured:
-        send_error(
-            handler,
+        raise AgentSmithHttpError(
             HTTPStatus.INTERNAL_SERVER_ERROR,
+            "admin_auth_not_configured",
             "AGENT_SMITH_ADMIN_TOKEN is required for admin APIs.",
-            code="admin_auth_not_configured",
         )
-        return False
 
-    authorization = handler.headers.get("authorization") or ""
     prefix = "Bearer "
-    token = authorization[len(prefix) :].strip() if authorization.startswith(prefix) else ""
+    token = authorization[len(prefix) :].strip() if authorization and authorization.startswith(prefix) else ""
     if not token or not hmac.compare_digest(token, configured):
-        send_error(
-            handler,
+        raise AgentSmithHttpError(
             HTTPStatus.UNAUTHORIZED,
+            "admin_unauthorized",
             "Missing or invalid admin bearer token.",
-            code="admin_unauthorized",
         )
-        return False
-    return True
+
+
+def sse_response(runner: SseRunner) -> StreamingResponse:
+    return StreamingResponse(
+        _sse_iterator(runner),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+async def _sse_iterator(runner: SseRunner) -> AsyncIterator[bytes]:
+    events: asyncio.Queue[SseQueueItem] = asyncio.Queue()
+
+    async def emit(event: str, data: Any) -> None:
+        await events.put({"event": event, "data": data})
+
+    async def run() -> None:
+        try:
+            await runner(emit)
+        finally:
+            await events.put(None)
+
+    task = asyncio.create_task(run())
+    try:
+        while True:
+            item = await events.get()
+            if item is None:
+                break
+            yield sse_chunk(str(item.get("event") or "message"), item.get("data"))
+        await task
+    except asyncio.CancelledError:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+        raise
