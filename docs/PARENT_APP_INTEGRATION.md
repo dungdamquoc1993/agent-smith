@@ -4,10 +4,13 @@ Agent Smith V1 expects parent application backends to own user login and call
 Smith with a signed app assertion. Smith resolves an app-scoped principal and
 streams normalized run events back to the parent backend.
 
+Design background: [Identity And Trusted App Assertions](IDENTITY_TRUSTED_ASSERTIONS.md).
+
 ## Invoke Stream
 
 ```http
 POST /api/agent/invoke/stream
+X-Agent-Smith-Provider-Key: <provider-api-key>
 Authorization: Bearer <signed-app-assertion>
 Content-Type: application/json
 Accept: text/event-stream
@@ -54,8 +57,6 @@ V1 supports HS256 compact JWS. The assertion must include:
   "iat": 1783420000,
   "exp": 1783420300,
   "actor": {
-    "provider": "adw",
-    "subject": "adw-user-uuid",
     "displayName": "Nguyen Van A",
     "email": "a@company.vn",
     "roles": ["manager"],
@@ -69,7 +70,8 @@ V1 supports HS256 compact JWS. The assertion must include:
 }
 ```
 
-Smith creates/resolves `external_identity(provider="adw", subject="adw-user-uuid")`.
+Smith resolves the provider from `X-Agent-Smith-Provider-Key`, then creates or
+resolves `external_identity(identity_provider_id=<provider>, subject="adw-user-uuid")`.
 `upstreamAuth` is context/provenance only; it does not create an HRIS identity.
 
 ## Stream Events
@@ -106,6 +108,7 @@ app.post('/api/oneai/chat/stream', authenticate, async (req, res) => {
   const smith = await fetch(`${SMITH_URL}/api/agent/invoke/stream`, {
     method: 'POST',
     headers: {
+      'X-Agent-Smith-Provider-Key': process.env.SMITH_PROVIDER_API_KEY,
       Authorization: `Bearer ${assertion}`,
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',

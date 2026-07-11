@@ -31,8 +31,9 @@ class ContextResolver:
             {
                 "actor": {
                     "principalId": principal_id,
-                    "provider": actor.actor.provider,
-                    "subject": actor.actor.subject,
+                    "providerId": actor.provider_id,
+                    "providerSlug": actor.provider_slug,
+                    "subject": actor.subject,
                     "displayName": actor.actor.display_name,
                     "email": actor.actor.email,
                     "roles": actor.actor.roles,
@@ -67,8 +68,9 @@ class ContextResolver:
                 "source": "app_assertion",
                 "trigger": "user",
                 "issuer": actor.issuer,
-                "actorProvider": actor.actor.provider,
-                "actorSubject": actor.actor.subject,
+                "identityProviderId": actor.provider_id,
+                "identityProviderSlug": actor.provider_slug,
+                "actorSubject": actor.subject,
                 "externalSessionId": invocation.session.external_session_id,
                 "correlationId": invocation.correlation_id,
                 "traceId": invocation.trace_id,

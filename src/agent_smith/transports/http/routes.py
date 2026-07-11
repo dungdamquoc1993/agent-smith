@@ -186,6 +186,7 @@ def create_handler(
             try:
                 prepared = runtime.run(
                     container.agent_runs.prepare_invocation(
+                        provider_api_key=self.headers.get("x-agent-smith-provider-key"),
                         authorization=self.headers.get("authorization"),
                         body=body,
                     )

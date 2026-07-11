@@ -48,8 +48,6 @@ class AgentInvocation(BaseModel):
 
 
 class ActorProfile(BaseModel):
-    provider: str
-    subject: str
     display_name: str | None = Field(default=None, alias="displayName")
     email: str | None = None
     roles: list[str] = Field(default_factory=list)
@@ -70,6 +68,8 @@ class VerifiedActor(BaseModel):
     issuer: str
     subject: str
     jti: str
+    provider_id: str | None = Field(default=None, alias="providerId")
+    provider_slug: str | None = Field(default=None, alias="providerSlug")
     expires_at: int = Field(alias="expiresAt")
     actor: ActorProfile
     raw_claims: dict[str, Any] = Field(default_factory=dict, alias="rawClaims")

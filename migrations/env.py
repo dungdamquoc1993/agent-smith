@@ -17,6 +17,9 @@ from agent_smith.infra.db.base import Base
 # Import models so metadata is populated
 from agent_smith.infra.db.models import (  # noqa: F401
     ExternalIdentity,
+    IdentityProvider,
+    IdentityProviderApiKey,
+    IdentityProviderAssertionKey,
     McpCredentialRecord,
     Principal,
     Resource,

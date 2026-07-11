@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ValidationError
 
 from agent_smith.app.invocation import ActorProfile, VerifiedActor
 
@@ -27,7 +27,6 @@ class AppAssertionError(Exception):
 class TrustedAppConfig(BaseModel):
     alg: str = "HS256"
     keys: dict[str, str]
-    allowed_providers: list[str] = Field(default_factory=list, alias="allowedProviders")
 
     model_config = {"populate_by_name": True}
 
@@ -42,24 +41,29 @@ class AppAssertionVerifier:
     def __init__(self, trusted_apps: TrustedApps) -> None:
         self.trusted_apps = trusted_apps
 
-    def verify_authorization(self, authorization: str | None) -> VerifiedActor:
+    def verify_for_provider(
+        self,
+        authorization: str | None,
+        *,
+        provider_id: str,
+        provider_slug: str,
+        issuer: str,
+        keys: dict[str, str],
+        alg: str = "HS256",
+    ) -> VerifiedActor:
         token = _bearer_token(authorization)
         if not token:
             raise AppAssertionError("missing_assertion", "Missing bearer app assertion.")
-        return self.verify(token)
-
-    def verify(self, token: str) -> VerifiedActor:
         header, payload, signing_input, signature = _decode_jws(token)
-        issuer = _required_string(payload, "iss")
-        config = self.trusted_apps.apps.get(issuer)
-        if config is None:
-            raise AppAssertionError("unknown_issuer", f"Unknown assertion issuer: {issuer}")
+        token_issuer = _required_string(payload, "iss")
+        if token_issuer != issuer:
+            raise AppAssertionError("issuer_mismatch", "App assertion issuer does not match provider.")
 
-        alg = _required_string(header, "alg")
-        if alg != config.alg or alg != "HS256":
-            raise AppAssertionError("unsupported_alg", f"Unsupported assertion alg: {alg}")
+        header_alg = _required_string(header, "alg")
+        if header_alg != alg or header_alg != "HS256":
+            raise AppAssertionError("unsupported_alg", f"Unsupported assertion alg: {header_alg}")
         key_id = header.get("kid")
-        key = _resolve_key(config, key_id if isinstance(key_id, str) else None)
+        key = _resolve_keys(keys, key_id if isinstance(key_id, str) else None)
         expected = hmac.new(key.encode("utf-8"), signing_input, hashlib.sha256).digest()
         if not hmac.compare_digest(expected, signature):
             raise AppAssertionError("invalid_signature", "Invalid app assertion signature.")
@@ -71,35 +75,15 @@ class AppAssertionVerifier:
         ):
             raise AppAssertionError("invalid_audience", "Invalid app assertion audience.")
 
-        now = int(time.time())
-        expires_at = _required_int(payload, "exp")
-        issued_at = _required_int(payload, "iat")
-        if expires_at <= now:
-            raise AppAssertionError("expired_assertion", "App assertion has expired.")
-        if issued_at > now + 60:
-            raise AppAssertionError("invalid_iat", "App assertion issued_at is in the future.")
-        if expires_at - issued_at > MAX_ASSERTION_AGE_SECONDS:
-            raise AppAssertionError("assertion_too_long_lived", "App assertion TTL is too long.")
-
-        jti = _required_string(payload, "jti")
-        subject = _required_string(payload, "sub")
-        actor_payload = payload.get("actor")
-        if not isinstance(actor_payload, dict):
-            raise AppAssertionError("invalid_actor", "App assertion actor must be an object.")
-        try:
-            actor = ActorProfile.model_validate(actor_payload)
-        except ValidationError as exc:
-            raise AppAssertionError("invalid_actor", "App assertion actor is invalid.") from exc
-        allowed_providers = config.allowed_providers or [issuer]
-        if actor.provider not in allowed_providers:
-            raise AppAssertionError("actor_provider_not_allowed", "Actor provider is not allowed.")
-        if actor.subject != subject:
-            raise AppAssertionError("subject_mismatch", "Actor subject must match assertion sub.")
+        expires_at, _, jti, subject = _validate_registered_claims(payload)
+        actor = _actor_from_payload(payload)
 
         return VerifiedActor(
             issuer=issuer,
             subject=subject,
             jti=jti,
+            providerId=provider_id,
+            providerSlug=provider_slug,
             expiresAt=expires_at,
             actor=actor,
             rawClaims=payload,
@@ -153,15 +137,43 @@ def _b64url_decode(value: str) -> bytes:
     return base64.urlsafe_b64decode((value + padding).encode("ascii"))
 
 
-def _resolve_key(config: TrustedAppConfig, key_id: str | None) -> str:
+def _resolve_keys(keys: dict[str, str], key_id: str | None) -> str:
     if key_id is not None:
-        key = config.keys.get(key_id)
+        key = keys.get(key_id)
         if key is None:
             raise AppAssertionError("unknown_key", "Unknown app assertion key id.")
         return key
-    if len(config.keys) == 1:
-        return next(iter(config.keys.values()))
+    if len(keys) == 1:
+        return next(iter(keys.values()))
     raise AppAssertionError("missing_key_id", "App assertion kid is required for this issuer.")
+
+
+def _actor_from_payload(payload: dict[str, Any]) -> ActorProfile:
+    actor_payload = payload.get("actor")
+    if not isinstance(actor_payload, dict):
+        raise AppAssertionError("invalid_actor", "App assertion actor must be an object.")
+    if "provider" in actor_payload or "subject" in actor_payload:
+        raise AppAssertionError(
+            "invalid_actor_identity_fields",
+            "Actor payload must not include provider or subject.",
+        )
+    try:
+        return ActorProfile.model_validate(actor_payload)
+    except ValidationError as exc:
+        raise AppAssertionError("invalid_actor", "App assertion actor is invalid.") from exc
+
+
+def _validate_registered_claims(payload: dict[str, Any]) -> tuple[int, int, str, str]:
+    now = int(time.time())
+    expires_at = _required_int(payload, "exp")
+    issued_at = _required_int(payload, "iat")
+    if expires_at <= now:
+        raise AppAssertionError("expired_assertion", "App assertion has expired.")
+    if issued_at > now + 60:
+        raise AppAssertionError("invalid_iat", "App assertion issued_at is in the future.")
+    if expires_at - issued_at > MAX_ASSERTION_AGE_SECONDS:
+        raise AppAssertionError("assertion_too_long_lived", "App assertion TTL is too long.")
+    return expires_at, issued_at, _required_string(payload, "jti"), _required_string(payload, "sub")
 
 
 def _required_string(payload: dict[str, Any], key: str) -> str:

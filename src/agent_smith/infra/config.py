@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     openrouter_api_key: str | None = None
     mcp_credentials_key: str | None = None
+    identity_secrets_key: str | None = Field(
+        default=None,
+        validation_alias="AGENT_SMITH_IDENTITY_SECRETS_KEY",
+    )
     default_permission_mode: str = "default"
     assertion_audience: str = Field(
         default="agent-smith",

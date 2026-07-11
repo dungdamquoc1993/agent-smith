@@ -9,11 +9,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, TypeAlias
 
-from agent_smith.app.auth import AppAssertionError, AppAssertionVerifier
+from agent_smith.app.auth import AppAssertionError
 from agent_smith.app.context import ContextResolutionError, ContextResolver
 from agent_smith.app.invocation import AgentInvocation, VerifiedActor
 from agent_smith.app.services.agent_run_traces import create_agent_run_trace, install_trace_hooks
 from agent_smith.app.services.identity import PrincipalIdentityService
+from agent_smith.app.services.provider_auth import IdentityProviderAuthService
 from agent_smith.app.services.resources import ResourceService
 from agent_smith.app.services.sessions import SessionService
 from agent_smith.core.agent import AgentHarnessError
@@ -53,13 +54,13 @@ class AgentRunService:
         gemma_base_url: str,
         gemma_api_key: str,
         default_model_key: str,
-        assertion_verifier: AppAssertionVerifier | None = None,
+        provider_auth_service: IdentityProviderAuthService | None = None,
         identity_service: PrincipalIdentityService | None = None,
         context_resolver: ContextResolver | None = None,
     ) -> None:
         self._session_service = session_service
         self._resource_service = resource_service
-        self._assertion_verifier = assertion_verifier
+        self._provider_auth_service = provider_auth_service
         self._identity_service = identity_service
         self._context_resolver = context_resolver or ContextResolver()
         self.default_permission_mode = default_permission_mode
@@ -181,16 +182,20 @@ class AgentRunService:
     async def prepare_invocation(
         self,
         *,
+        provider_api_key: str | None = None,
         authorization: str | None,
         body: dict[str, Any],
     ) -> PreparedAgentInvocation:
-        if self._assertion_verifier is None or self._identity_service is None:
+        if self._provider_auth_service is None or self._identity_service is None:
             raise AppAssertionError(
                 "assertion_auth_not_configured",
                 "App assertion authentication is not configured.",
             )
         invocation = AgentInvocation.model_validate(body)
-        actor = self._assertion_verifier.verify_authorization(authorization)
+        actor = await self._provider_auth_service.verify_invocation(
+            provider_api_key=provider_api_key,
+            authorization=authorization,
+        )
         principal = await self._identity_service.resolve_principal(actor)
         principal_id = str(principal.id)
         stable_context, turn_context, provenance = self._context_resolver.resolve(
@@ -252,8 +257,9 @@ class AgentRunService:
                 {
                     "principalId": prepared.principal_id,
                     "issuer": prepared.actor.issuer,
-                    "actorProvider": prepared.actor.actor.provider,
-                    "actorSubject": prepared.actor.actor.subject,
+                    "identityProviderId": prepared.actor.provider_id,
+                    "identityProviderSlug": prepared.actor.provider_slug,
+                    "actorSubject": prepared.actor.subject,
                 },
             )
             await emit_smith(

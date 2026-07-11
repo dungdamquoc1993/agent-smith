@@ -45,8 +45,9 @@ class PrincipalIdentityService:
                 raise AppAssertionError("replayed_assertion", "App assertion jti has already been used.") from exc
 
     async def _find_or_create_principal(self, actor: VerifiedActor) -> Principal:
+        provider_id = self._provider_uuid(actor)
         async with self._session_factory() as db, db.begin():
-            existing = await self._get_identity(db, actor.actor.provider, actor.actor.subject)
+            existing = await self._get_identity(db, provider_id, actor.subject)
             if existing is not None:
                 principal = await db.get(Principal, existing.principal_id)
                 if principal is None:
@@ -56,7 +57,7 @@ class PrincipalIdentityService:
 
             principal = Principal(
                 id=uuid.uuid4(),
-                display_name=actor.actor.display_name or actor.actor.email or actor.actor.subject,
+                display_name=actor.actor.display_name or actor.actor.email or actor.subject,
             )
             db.add(principal)
             await db.flush()
@@ -64,11 +65,10 @@ class PrincipalIdentityService:
                 ExternalIdentity(
                     id=uuid.uuid4(),
                     principal_id=principal.id,
-                    provider=actor.actor.provider,
-                    subject=actor.actor.subject,
+                    identity_provider_id=provider_id,
+                    subject=actor.subject,
                     email=actor.actor.email,
                     display_name=actor.actor.display_name,
-                    source_issuer=actor.issuer,
                     identity_metadata=actor.actor.public_claims(),
                     last_seen_at=datetime.now(UTC),
                 )
@@ -78,13 +78,13 @@ class PrincipalIdentityService:
             return principal
 
     async def _touch_identity(self, actor: VerifiedActor, principal: Principal) -> None:
+        provider_id = self._provider_uuid(actor)
         async with self._session_factory() as db, db.begin():
-            identity = await self._get_identity(db, actor.actor.provider, actor.actor.subject)
+            identity = await self._get_identity(db, provider_id, actor.subject)
             if identity is None:
                 return
             identity.email = actor.actor.email
             identity.display_name = actor.actor.display_name
-            identity.source_issuer = actor.issuer
             identity.identity_metadata = actor.actor.public_claims()
             identity.last_seen_at = datetime.now(UTC)
             if actor.actor.display_name and principal.display_name != actor.actor.display_name:
@@ -95,14 +95,22 @@ class PrincipalIdentityService:
     async def _get_identity(
         self,
         db: AsyncSession,
-        provider: str,
+        identity_provider_id: uuid.UUID,
         subject: str,
     ) -> ExternalIdentity | None:
         return (
             await db.scalars(
                 select(ExternalIdentity).where(
-                    ExternalIdentity.provider == provider,
+                    ExternalIdentity.identity_provider_id == identity_provider_id,
                     ExternalIdentity.subject == subject,
                 )
             )
         ).one_or_none()
+
+    def _provider_uuid(self, actor: VerifiedActor) -> uuid.UUID:
+        if not actor.provider_id:
+            raise AppAssertionError(
+                "identity_provider_required",
+                "Verified actor is missing identity provider id.",
+            )
+        return uuid.UUID(actor.provider_id)

@@ -16,20 +16,42 @@ from agent_smith.app.auth import AppAssertionError, AppAssertionVerifier, parse_
 from agent_smith.app.context import ContextResolutionError, ContextResolver
 from agent_smith.app.invocation import AgentInvocation
 from agent_smith.app.services.identity import PrincipalIdentityService
+from agent_smith.app.services.provider_auth import (
+    IdentityProviderAuthService,
+    IdentityProviderSecretCodec,
+    hash_provider_api_key,
+    provider_api_key_prefix,
+)
 from agent_smith.app.services.sessions import SessionService
 from agent_smith.infra.db.base import Base
-from agent_smith.infra.db.models.principal import AppAssertionNonce, ExternalIdentity, Principal
+from agent_smith.infra.db.models.principal import (
+    AppAssertionNonce,
+    ExternalIdentity,
+    IdentityProvider,
+    IdentityProviderApiKey,
+    IdentityProviderAssertionKey,
+    Principal,
+)
+
+PROVIDER_ID = "00000000-0000-0000-0000-0000000000ad"
 
 
 def test_app_assertion_verifier_accepts_valid_hs256_jws() -> None:
     verifier = _verifier()
     token = _sign_assertion()
 
-    actor = verifier.verify_authorization(f"Bearer {token}")
+    actor = verifier.verify_for_provider(
+        f"Bearer {token}",
+        provider_id=PROVIDER_ID,
+        provider_slug="adw",
+        issuer="adw",
+        keys={"v1": "secret"},
+    )
 
     assert actor.issuer == "adw"
-    assert actor.actor.provider == "adw"
-    assert actor.actor.subject == "adw-user-1"
+    assert actor.provider_id == PROVIDER_ID
+    assert actor.provider_slug == "adw"
+    assert actor.subject == "adw-user-1"
     assert actor.actor.upstream_auth == {
         "provider": "hris",
         "subject": "vana",
@@ -42,7 +64,7 @@ def test_app_assertion_verifier_accepts_valid_hs256_jws() -> None:
     [
         ({"aud": "other"}, "invalid_audience"),
         ({"exp": int(time.time()) - 1}, "expired_assertion"),
-        ({"actor": {"provider": "hris", "subject": "adw-user-1"}}, "actor_provider_not_allowed"),
+        ({"actor": {"provider": "hris"}}, "invalid_actor_identity_fields"),
     ],
 )
 def test_app_assertion_verifier_rejects_invalid_claims(claim_patch: dict, code: str) -> None:
@@ -50,13 +72,19 @@ def test_app_assertion_verifier_rejects_invalid_claims(claim_patch: dict, code: 
     token = _sign_assertion(claim_patch=claim_patch)
 
     with pytest.raises(AppAssertionError) as exc:
-        verifier.verify_authorization(f"Bearer {token}")
+        verifier.verify_for_provider(
+            f"Bearer {token}",
+            provider_id=PROVIDER_ID,
+            provider_slug="adw",
+            issuer="adw",
+            keys={"v1": "secret"},
+        )
 
     assert exc.value.code == code
 
 
 def test_context_resolver_redacts_secret_metadata_and_limits_size() -> None:
-    actor = _verifier().verify_authorization(f"Bearer {_sign_assertion()}")
+    actor = _verified_actor()
     invocation = AgentInvocation.model_validate(
         {
             "payload": {"prompt": "hello"},
@@ -82,6 +110,8 @@ def test_context_resolver_redacts_secret_metadata_and_limits_size() -> None:
     )
 
     assert stable["actor"]["principalId"] == "principal-1"
+    assert stable["actor"]["providerSlug"] == "adw"
+    assert stable["actor"]["subject"] == "adw-user-1"
     assert stable["auth"]["upstreamAuth"] == {"provider": "hris", "assurance": "asserted_by_adw"}
     assert turn["metadata"]["app"]["authorization"] == "[REDACTED]"
     assert turn["metadata"]["app"]["nested"]["refreshToken"] == "[REDACTED]"
@@ -101,15 +131,27 @@ async def test_identity_resolution_creates_app_scoped_identity_only_when_databas
     engine = create_async_engine(database_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     subject = f"adw-user-{uuid.uuid4().hex}"
-    actor = _verifier().verify_authorization(f"Bearer {_sign_assertion(subject=subject)}")
+    provider_id = uuid.uuid4()
+    actor = _verified_actor(subject=subject, provider_id=str(provider_id))
     service = PrincipalIdentityService(factory)
     try:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
+        async with factory() as db, db.begin():
+            db.add(
+                IdentityProvider(
+                    id=provider_id,
+                    slug="adw",
+                    issuer="adw",
+                    display_name="ADW",
+                )
+            )
 
         first = await service.resolve_principal(actor)
-        second_actor = _verifier().verify_authorization(
-            f"Bearer {_sign_assertion(subject=subject, jti=str(uuid.uuid4()))}"
+        second_actor = _verified_actor(
+            subject=subject,
+            provider_id=str(provider_id),
+            jti=str(uuid.uuid4()),
         )
         second = await service.resolve_principal(second_actor)
 
@@ -118,8 +160,8 @@ async def test_identity_resolution_creates_app_scoped_identity_only_when_databas
             identities = (
                 await db.scalars(select(ExternalIdentity).where(ExternalIdentity.principal_id == first.id))
             ).all()
-            assert [(identity.provider, identity.subject) for identity in identities] == [
-                ("adw", subject)
+            assert [(identity.identity_provider_id, identity.subject) for identity in identities] == [
+                (provider_id, subject)
             ]
 
         with pytest.raises(AppAssertionError) as exc:
@@ -130,6 +172,81 @@ async def test_identity_resolution_creates_app_scoped_identity_only_when_databas
             await db.execute(delete(AppAssertionNonce).where(AppAssertionNonce.issuer == "adw"))
             await db.execute(delete(ExternalIdentity).where(ExternalIdentity.subject == subject))
             await db.execute(delete(Principal).where(Principal.display_name == "Nguyen Van A"))
+            await db.execute(delete(IdentityProvider).where(IdentityProvider.id == provider_id))
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_provider_auth_requires_api_key_and_prevents_provider_spoofing_when_database_is_configured() -> None:
+    database_url = getenv("AGENT_SMITH_TEST_DATABASE_URL")
+    if not database_url:
+        pytest.skip("AGENT_SMITH_TEST_DATABASE_URL is not configured")
+
+    engine = create_async_engine(database_url)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    provider_id = uuid.uuid4()
+    raw_api_key = f"ask_{uuid.uuid4().hex}"
+    codec = IdentityProviderSecretCodec(_fernet_key())
+    service = IdentityProviderAuthService(
+        factory,
+        assertion_verifier=_verifier(),
+        secret_codec=codec,
+    )
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        async with factory() as db, db.begin():
+            db.add(
+                IdentityProvider(
+                    id=provider_id,
+                    slug="adw",
+                    issuer="adw",
+                    display_name="ADW",
+                )
+            )
+            db.add(
+                IdentityProviderApiKey(
+                    id=uuid.uuid4(),
+                    provider_id=provider_id,
+                    name="test",
+                    key_hash=hash_provider_api_key(raw_api_key),
+                    key_prefix=provider_api_key_prefix(raw_api_key),
+                )
+            )
+            db.add(
+                IdentityProviderAssertionKey(
+                    id=uuid.uuid4(),
+                    provider_id=provider_id,
+                    kid="v1",
+                    encrypted_secret=codec.encrypt("secret"),
+                )
+            )
+
+        actor = await service.verify_invocation(
+            provider_api_key=raw_api_key,
+            authorization=f"Bearer {_sign_assertion()}",
+        )
+        assert actor.provider_id == str(provider_id)
+        assert actor.provider_slug == "adw"
+        assert actor.subject == "adw-user-1"
+
+        with pytest.raises(AppAssertionError) as exc:
+            await service.verify_invocation(
+                provider_api_key=raw_api_key,
+                authorization=f"Bearer {_sign_assertion(claim_patch={'actor': {'provider': 'evil'}})}",
+            )
+        assert exc.value.code == "invalid_actor_identity_fields"
+
+        with pytest.raises(AppAssertionError) as exc:
+            await service.verify_invocation(
+                provider_api_key="wrong",
+                authorization=f"Bearer {_sign_assertion()}",
+            )
+        assert exc.value.code == "invalid_provider_api_key"
+    finally:
+        async with factory() as db, db.begin():
+            await db.execute(delete(AppAssertionNonce).where(AppAssertionNonce.issuer == "adw"))
+            await db.execute(delete(IdentityProvider).where(IdentityProvider.id == provider_id))
         await engine.dispose()
 
 
@@ -182,11 +299,25 @@ def _verifier() -> AppAssertionVerifier:
                     "adw": {
                         "alg": "HS256",
                         "keys": {"v1": "secret"},
-                        "allowedProviders": ["adw"],
                     }
                 }
             ),
         )
+    )
+
+
+def _verified_actor(
+    *,
+    subject: str = "adw-user-1",
+    provider_id: str = PROVIDER_ID,
+    jti: str | None = None,
+):
+    return _verifier().verify_for_provider(
+        f"Bearer {_sign_assertion(subject=subject, jti=jti)}",
+        provider_id=provider_id,
+        provider_slug="adw",
+        issuer="adw",
+        keys={"v1": "secret"},
     )
 
 
@@ -205,8 +336,6 @@ def _sign_assertion(
         "iat": now,
         "exp": now + 300,
         "actor": {
-            "provider": "adw",
-            "subject": subject,
             "displayName": "Nguyen Van A",
             "email": "a@company.vn",
             "roles": ["manager"],
@@ -232,3 +361,7 @@ def _b64(value: dict) -> str:
 
 def _b64_bytes(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _fernet_key() -> str:
+    return "qRRHCAy57pLAsGwfGoWV4M0HXDpBwYJ1E4sAbT9plak="
