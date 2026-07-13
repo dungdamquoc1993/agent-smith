@@ -1,3 +1,3 @@
-"""Personal context search tool constants."""
+"""Personal context tool constants."""
 
-PERSONAL_CONTEXT_SEARCH_TOOL_NAME = "personal_context_search"
+PERSONAL_CONTEXT_TOOL_NAME = "personal_context"

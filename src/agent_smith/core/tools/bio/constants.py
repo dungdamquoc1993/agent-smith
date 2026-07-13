@@ -1,3 +1,3 @@
-"""Bio update tool constants."""
+"""Bio tool constants."""
 
-BIO_UPDATE_TOOL_NAME = "bio_update"
+BIO_TOOL_NAME = "bio"

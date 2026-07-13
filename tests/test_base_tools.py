@@ -27,21 +27,21 @@ from agent_smith.core.llm.types import (
     UserMessage,
 )
 from agent_smith.core.tools import (
-    BIO_UPDATE_TOOL_NAME,
+    BIO_TOOL_NAME,
     BraveSearchProvider,
     CRONJOB_TOOL_NAME,
     HEARTBEAT_TOOL_NAME,
-    PERSONAL_CONTEXT_SEARCH_TOOL_NAME,
+    PERSONAL_CONTEXT_TOOL_NAME,
     SearchProviderRegistry,
     SearchRequest,
     SearchResult,
     TavilySearchProvider,
     create_ask_user_question_tool,
     create_base_tool_registry,
-    create_bio_update_tool,
+    create_bio_tool,
     create_cronjob_tool,
     create_heartbeat_tool,
-    create_personal_context_search_tool,
+    create_personal_context_tool,
     create_sleep_tool,
     create_todo_write_tool,
     create_web_fetch_tool,
@@ -431,8 +431,8 @@ def test_base_tool_registry_contains_phase_1_tools() -> None:
         "ask_user_question",
         "web_fetch",
         "web_search",
-        "personal_context_search",
-        "bio_update",
+        "personal_context",
+        "bio",
         "heartbeat",
         "cronjob",
     ]
@@ -452,8 +452,8 @@ def test_base_tool_registry_optionally_includes_resource_tools() -> None:
         "ask_user_question",
         "web_fetch",
         "web_search",
-        "personal_context_search",
-        "bio_update",
+        "personal_context",
+        "bio",
         "heartbeat",
         "cronjob",
         "skill",
@@ -463,17 +463,19 @@ def test_base_tool_registry_optionally_includes_resource_tools() -> None:
 
 @pytest.mark.asyncio
 async def test_personal_context_and_bio_tool_interfaces_are_stubbed() -> None:
-    search = create_personal_context_search_tool()
-    bio = create_bio_update_tool()
+    personal_context = create_personal_context_tool()
+    bio = create_bio_tool()
 
-    assert search.name == PERSONAL_CONTEXT_SEARCH_TOOL_NAME
-    assert search.label == "personal_context.search"
-    assert search.permission.read_only is True
-    assert search.parameters["required"] == ["query"]
+    assert personal_context.name == PERSONAL_CONTEXT_TOOL_NAME
+    assert personal_context.label == "personal_context"
+    assert personal_context.permission.read_only is True
+    assert personal_context.parameters["required"] == ["action"]
+    assert personal_context.parameters["properties"]["action"]["enum"] == ["search", "get"]
 
-    search_result = await search.execute(
+    search_result = await personal_context.execute(
         "context-1",
         {
+            "action": "search",
             "query": "Find previous conversations about Agent Smith context framing.",
             "sources": ["conversations"],
             "limit": 5,
@@ -482,10 +484,26 @@ async def test_personal_context_and_bio_tool_interfaces_are_stubbed() -> None:
         None,
     )
     assert search_result.details["implemented"] is False
+    assert search_result.details["action"] == "search"
     assert "not implemented yet" in search_result.content[0].text
 
-    assert bio.name == BIO_UPDATE_TOOL_NAME
-    assert bio.label == "bio.update"
+    get_result = await personal_context.execute(
+        "context-2",
+        {
+            "action": "get",
+            "id": "ctx-123",
+            "sources": ["user_knowledge_memory"],
+        },
+        None,
+        None,
+    )
+    assert get_result.details["implemented"] is False
+    assert get_result.details["action"] == "get"
+    assert get_result.details["id"] == "ctx-123"
+    assert "not implemented yet" in get_result.content[0].text
+
+    assert bio.name == BIO_TOOL_NAME
+    assert bio.label == "bio"
     assert bio.permission.default == "ask"
     assert bio.permission.mutates_files is True
     assert bio.parameters["properties"]["action"]["enum"] == ["add", "update", "forget"]

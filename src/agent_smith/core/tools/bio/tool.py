@@ -8,14 +8,14 @@ from pydantic import BaseModel, Field
 
 from agent_smith.core.agent.types import AgentTool
 from agent_smith.core.permissions.tool_specs import MUTATING_ASK
-from agent_smith.core.tools.bio.constants import BIO_UPDATE_TOOL_NAME
+from agent_smith.core.tools.bio.constants import BIO_TOOL_NAME
 from agent_smith.core.tools.shared.common import text_result
 
-BioUpdateAction = Literal["add", "update", "forget"]
+BioAction = Literal["add", "update", "forget"]
 
 
-class BioUpdateInput(BaseModel):
-    action: BioUpdateAction
+class BioToolInput(BaseModel):
+    action: BioAction
     request: str = Field(
         min_length=8,
         description=(
@@ -28,12 +28,12 @@ class BioUpdateInput(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-def create_bio_update_tool() -> AgentTool:
+def create_bio_tool() -> AgentTool:
     async def execute(tool_call_id, args, signal=None, on_update=None):
         _ = tool_call_id, signal, on_update
-        payload = BioUpdateInput.model_validate(args)
+        payload = BioToolInput.model_validate(args)
         return text_result(
-            "bio.update is not implemented yet. "
+            "bio is not implemented yet. "
             "The request was validated but user knowledge memory was not changed.",
             details={
                 "implemented": False,
@@ -44,8 +44,8 @@ def create_bio_update_tool() -> AgentTool:
         )
 
     return AgentTool(
-        name=BIO_UPDATE_TOOL_NAME,
-        label="bio.update",
+        name=BIO_TOOL_NAME,
+        label="bio",
         description=(
             "Request an add, update, or forget operation for the user's long-term user "
             "knowledge memory. The request must be self-contained and written as a "
