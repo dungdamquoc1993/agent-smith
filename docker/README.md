@@ -11,15 +11,16 @@ packaging. Keep compose entrypoints, compose fragments, and Dockerfiles here.
 docker/
   compose.yml             # default local dependency entrypoint
   compose/
-    dependencies/       # Postgres, Redis, vector DBs, search, brokers
+    dependencies/       # external deps (Postgres today)
       compose.postgres.yml
   Dockerfile.server     # future HTTP/API server image
-  Dockerfile.worker     # future worker image
+  Dockerfile.worker     # future scale-out worker image (matches workers/ package)
 ```
 
 Dependency compose files are intentionally limited to external services such as
-Postgres, Redis, vector databases, search engines, and message brokers. They are
-not the Agent Smith application runtime itself.
+Postgres (and later caches/search if needed). They are not the Agent Smith
+application runtime itself. Runtime invoke today is HTTP/SSE in-process; there
+is no message-bus dependency wired.
 
 ## Default Local Stack
 
@@ -51,8 +52,6 @@ docker/compose/dependencies/
   compose.redis.yml
   compose.qdrant.yml
   compose.elasticsearch.yml
-  compose.rabbitmq.yml
-  compose.kafka.yml
 ```
 
 When a dependency is optional, put it in its own file and document:

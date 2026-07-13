@@ -17,7 +17,7 @@ def create_worker() -> AgentWorker:
 
 def main() -> None:
     create_worker()
-    print("Agent Smith worker initialized. Queue adapter is not configured in this skeleton.")
+    print("Agent Smith worker initialized. No queue adapter is wired yet.")
 
 
 if __name__ == "__main__":

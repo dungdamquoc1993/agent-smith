@@ -8,6 +8,13 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 
 ## [Unreleased]
 
+### Removed - Unused messaging / queue scaffolding
+
+- Xoa `app/envelope.py` (`CommandEnvelope`) va `app/events.py` (`AppEventEnvelope`) — khong con caller trong runtime HTTP.
+- Xoa `transports/messaging/` (Redis/RMQ/Kafka contract stubs chua wiring).
+- Giu `workers/` nhu scale-out boundary placeholder; HTTP invoke van chay agent in-process va stream SSE tren cung request.
+- Cap nhat README + docker docs cho khop: transports = HTTP/SSE; worker image van la future packaging, khong phai message-bus adapter.
+
 ### Changed - Catalog-driven model switcher
 
 - Bo nhom `AGENT_SMITH_TEST_MODEL` / `AGENT_SMITH_TEST_*_MODEL` khoi runtime config; model switcher gio doc model catalog va loc provider theo credential dang co.

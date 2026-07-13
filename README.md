@@ -44,7 +44,8 @@ core/resources/         ← skill, prompt_template, agent_definition, mcp_server
 | `agent_smith.core.runtime` | Assembly: blueprint → harness instance | `AgentFactory` |
 | `agent_smith.app` | Use-case services transport-neutral | session/resource/task/agent-run orchestration |
 | `agent_smith.infra` | Concrete adapters | Postgres, LiteLLM, MCP SDK, settings |
-| `agent_smith.transports` | API/message adapters | HTTP/SSE adapter now, message adapters later |
+| `agent_smith.transports` | HTTP adapters | FastAPI + SSE (`/api/agent/invoke/stream`, …) |
+| `agent_smith.workers` | Scale-out boundary | Placeholder; agent runs still execute in-process on the HTTP request today |
 
 **Khi nào dùng gì?**
 
@@ -52,7 +53,7 @@ core/resources/         ← skill, prompt_template, agent_definition, mcp_server
 - Embed loop tối thiểu, tự quản context → `agent_smith.core.agent.agent_loop`
 - Production multi-turn, persist session → `agent_smith.core.agent.harness`
 - Load skill/template/agent config từ catalog → `agent_smith.core.resources` → `agent_smith.core.runtime`
-- Expose HTTP/SSE hoặc queue consumer → `agent_smith.app` service trước, transport adapter sau
+- Expose runtime to callers → `agent_smith.app` service + `agent_smith.transports.http` (SSE on the same request)
 
 ## Prerequisites
 
@@ -93,8 +94,8 @@ src/agent_smith/
 ├── core/               # pure runtime contracts and orchestration
 ├── app/                # transport-neutral use-case services
 ├── infra/              # DB/provider/MCP concrete adapters
-├── transports/         # HTTP/SSE now, messaging contracts later
-└── workers/            # worker skeleton/entrypoints
+├── transports/         # HTTP/SSE
+└── workers/            # scale-out boundary (placeholder; HTTP runs in-process today)
 
 clients/web/            # future React/Vite test client
 tests/                  # unit tests
