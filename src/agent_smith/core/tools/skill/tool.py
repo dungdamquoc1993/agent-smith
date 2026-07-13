@@ -9,7 +9,7 @@ from agent_smith.core.agent.harness.resources import (
     parse_command_args,
     substitute_args,
 )
-from agent_smith.core.agent.harness.types import Skill
+from agent_smith.core.agent.harness.resources import Skill
 from agent_smith.core.agent.types import AgentTool
 from agent_smith.core.permissions.tool_specs import READ_ONLY_ALLOW
 from agent_smith.core.resources import ResourceNotFoundError, ResourceResolver, skill_from_record

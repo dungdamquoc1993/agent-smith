@@ -1,6 +1,5 @@
 """Resource catalog and resolution APIs."""
 
-from agent_smith.core.resources.memory import MemoryResourceStore
 from agent_smith.core.resources.resolver import (
     ResolvedResources,
     ResourceResolver,
@@ -44,7 +43,6 @@ __all__ = [
     "AgentDefinition",
     "AgentModelRef",
     "McpServerConfig",
-    "MemoryResourceStore",
     "PostgresResourceStore",
     "ResolvedResources",
     "ResourceConflictError",

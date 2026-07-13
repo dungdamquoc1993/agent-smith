@@ -2,65 +2,73 @@
 
 ← [Harness](../README.md) · [Agent (overview)](../../README.md)
 
-Module quản lý **session tree** của harness: lịch sử hội thoại dạng cây append-only, có thể fork/branch.
+Module quản lý **một session tree** của harness: lịch sử hội thoại dạng cây append-only,
+có thể di chuyển giữa các branch.
 
 ## Luồng tổng quan
 
 ```
-Caller / Harness
+Application            ← quản lý lifecycle: create / open / fork / list
+       │
+       │ inject một session đã resolve
+       ▼
+    Harness
        │
        ▼
-  SessionRepo          ← quản lý nhiều session (create / open / fork)
+    Session            ← append, đọc branch, build context
        │
        ▼
-    Session            ← đối tượng dùng hàng ngày (append, đọc branch, build context)
-       │
-       ▼
-  SessionStorage       ← persistence của **một** session
+  SessionStorage       ← persistence port của đúng một session
 ```
 
-## Ba lớp
+## Hai lớp
 
 | Lớp | Vai trò |
 |-----|---------|
-| **`SessionRepo`** | Factory cho nhiều session: `create`, `open`, `fork`. |
 | **`Session`** | Facade bọc một `SessionStorage`. Harness gọi lớp này để ghi/đọc. |
 | **`SessionStorage`** | Lưu trữ dữ liệu của **một** session (entries, leaf, metadata). |
 
-## Backend
+`AgentHarnessSession` là contract tối thiểu mà harness nhận. `Session` implement contract đó,
+nhưng caller cũng có thể cung cấp implementation khác.
 
-Hai cặp implementation cùng contract (`SessionRepo` + `SessionStorage`):
+## Persistence và lifecycle
 
-- **`MemorySessionRepo` / `MemorySessionStorage`** — in-memory, dùng test/dev.
-- **`PostgresSessionRepo` / `PostgresSessionStorage`** — persist Postgres.
+- Core chỉ định nghĩa behavior và persistence port của một session.
+- Concrete storage nằm ở infra, hiện tại là `PostgresSessionStorage`.
+- Application layer chọn cách create/open/fork/list session qua concrete persistence adapter.
+- In-memory implementation chỉ là test double dưới `tests/helpers`, không phải runtime backend.
 
-Cả hai đều trả về cùng kiểu `Session`; harness không cần biết backend.
+Harness không nhận repository và không quản lý tập hợp session.
 
 ## Dữ liệu bên trong một session
 
 - **Metadata** (`SessionMetadata`): `kind` (`chat` hoặc `agent_run`),
   `principal_id`, `parent_session_id`, `agent_name`, `origin_task_id`,
   `provenance`.
-- **Tree entries** (`SessionTreeEntry`): message, model change, compaction, label, … nối nhau qua `parent_id`.
+- **Tree entries** (`SessionTreeEntry`): message, model change, compaction, label, … nối nhau qua
+  `parent_id`.
 - **Leaf** (`current_leaf_id`): đỉnh nhánh hiện tại.
 - **`get_branch()`** — đi từ leaf lên root → nhánh đang active.
-- **`build_context()`** — project nhánh đó thành `SessionContext` (messages, model, thinking level, tools).
+- **`build_context()`** — project nhánh đó thành `SessionContext` (messages, model, thinking level,
+  tools).
 
 Ghi luôn append-only; đổi nhánh bằng `move_to(entry_id)` (chỉ đổi leaf, không xóa entry).
 
-## Ví dụ luồng
+## Ví dụ application wiring
 
 ```python
 repo = PostgresSessionRepo(session_factory)
 
-session = await repo.create(principal_id="user-1")   # Chat session mới
+session = await repo.create(principal_id="user-1")
+harness = AgentHarness(session=session, model=model)
+
 await session.append_message(user_msg)
 await session.append_message(assistant_msg)
 
-ctx = await session.build_context()                  # Đọc nhánh hiện tại
+ctx = await session.build_context()
 
-session2 = await repo.open({"id": session_id})       # Mở lại
-fork = await repo.fork(source={"id": session_id})    # Fork nhánh
+session2 = await repo.open({"id": session_id})
+fork = await repo.fork(source={"id": session_id})
 ```
 
 Agent-run session dùng cùng contract, chỉ khác metadata:
@@ -75,3 +83,9 @@ child = await repo.create(
     provenance={"trigger": "task_tool", "mode": "sync"},
 )
 ```
+
+## Context từ các session khác
+
+Recent conversations là context enrichment read-only, không phải session lifecycle. Application
+có thể inject một `RecentConversationProvider` vào harness. Provider query các session khác và chỉ
+trả về `RecentConversationSnapshot`; harness vẫn vận hành đúng một current session.

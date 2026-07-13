@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from agent_smith.core.agent import AgentTool, AgentToolResult, MemorySessionRepo
+from agent_smith.core.agent import AgentTool, AgentToolResult
 from agent_smith.core.agent.validation import validate_tool_arguments
 from agent_smith.core.llm.events import create_assistant_message_event_stream
 from agent_smith.core.llm.models import make_litellm_model
@@ -23,7 +23,7 @@ from agent_smith.core.llm.types import (
     TextContent,
     ToolCall,
 )
-from agent_smith.core.resources import MemoryResourceStore, ResourceResolver
+from agent_smith.core.resources import ResourceResolver
 from agent_smith.core.runtime import AgentFactory, ToolRegistry
 from agent_smith.core.tasks import (
     AgentChildSessionRequest,
@@ -41,6 +41,8 @@ from agent_smith.core.tools import (
     create_task_output_tool,
     create_task_stop_tool,
 )
+from helpers.resource_stores import MemoryResourceStore
+from helpers.sessions import MemorySessionRepo
 
 
 def _now() -> int:

@@ -12,7 +12,7 @@ from agent_smith.core.resources import (
     skill_from_record,
 )
 from agent_smith.core.resources.types import ResourceKind, ResourceRecord
-from agent_smith.core.agent.harness.types import PromptTemplate, Skill
+from agent_smith.core.agent.harness.resources import PromptTemplate, Skill
 
 
 def validate_content_for_kind(kind: ResourceKind, content: JsonObject, *, name: str) -> JsonObject:

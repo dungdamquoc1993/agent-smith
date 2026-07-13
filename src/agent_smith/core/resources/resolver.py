@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from agent_smith.core.agent.harness.types import (
+from agent_smith.core.agent.harness.resources import (
     AgentHarnessResources,
     PromptTemplate,
     Skill,

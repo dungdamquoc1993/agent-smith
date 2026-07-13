@@ -8,13 +8,16 @@ from typing import TypeAlias
 
 from agent_smith.core.agent.harness import AgentHarness, AgentHarnessOptions
 from agent_smith.core.agent.harness.compaction import CompactionSettings
-from agent_smith.core.agent.harness.types import (
+from agent_smith.core.agent.harness.resources import (
     AgentCatalogEntry,
     AgentHarnessResources,
+)
+from agent_smith.core.agent.harness.types import (
     AgentHarnessSession,
     AgentHarnessStreamOptions,
     GetAgentHarnessAuthFn,
 )
+from agent_smith.core.agent.harness.context_types import RecentConversationProvider
 from agent_smith.core.agent.types import AgentTool, StreamFn
 from agent_smith.core.llm.models import get_model
 from agent_smith.core.llm.types import JsonObject, MaybeAwaitable, Model
@@ -59,7 +62,7 @@ class AgentFactory:
         can_use_tool: CanUseTool | None = None,
         session_metadata_lookup: Callable[[str], Awaitable[SessionMetadata | None]] | None = None,
         context_metadata: JsonObject | None = None,
-        recent_conversation_provider: object | None = None,
+        recent_conversation_provider: RecentConversationProvider | None = None,
     ) -> None:
         self.resource_resolver = resource_resolver
         self.tool_registry = tool_registry
@@ -133,7 +136,7 @@ class AgentFactory:
         permission_resolver: PermissionResolver | None = None,
         permission_rule_store: InMemoryPermissionRuleStore | None = None,
         context_metadata: JsonObject | None = None,
-        recent_conversation_provider: object | None = None,
+        recent_conversation_provider: RecentConversationProvider | None = None,
     ) -> AgentHarnessOptions:
         spec = await self.build_runtime_spec(definition)
         resolved_resources = await self.resource_resolver.resolve()
@@ -221,7 +224,7 @@ class AgentFactory:
         permission_resolver: PermissionResolver | None = None,
         permission_rule_store: InMemoryPermissionRuleStore | None = None,
         context_metadata: JsonObject | None = None,
-        recent_conversation_provider: object | None = None,
+        recent_conversation_provider: RecentConversationProvider | None = None,
     ) -> AgentHarness:
         return AgentHarness(
             await self.create_options(

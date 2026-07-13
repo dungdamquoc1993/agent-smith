@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from agent_smith.core.agent import AgentTool, AgentToolResult, MemorySessionRepo
+from agent_smith.core.agent import AgentTool, AgentToolResult
 from agent_smith.infra.mcp import (
     FernetMcpCredentialCodec,
     LIST_MCP_RESOURCES_TOOL_NAME,
@@ -32,8 +32,10 @@ from agent_smith.core.llm.models import make_litellm_model
 from agent_smith.core.llm.types import ImageContent, TextContent
 from agent_smith.infra.db.base import Base
 from agent_smith.infra.db.models.mcp import McpCredentialRecord
-from agent_smith.core.resources import MemoryResourceStore, ResourceResolver
+from agent_smith.core.resources import ResourceResolver
 from agent_smith.core.runtime import AgentFactory, ToolRegistry
+from helpers.resource_stores import MemoryResourceStore
+from helpers.sessions import MemorySessionRepo
 
 
 class FakeMcpClient:

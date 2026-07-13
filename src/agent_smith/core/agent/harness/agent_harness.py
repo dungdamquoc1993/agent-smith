@@ -41,6 +41,8 @@ from agent_smith.core.agent.harness.context_frame import (
 )
 from agent_smith.core.agent.harness.context_types import RecentConversationSnapshot
 from agent_smith.core.agent.harness.resources import (
+    AgentHarnessResources,
+    UserMemorySnapshot,
     format_agent_catalog_delta,
     format_prompt_template_invocation,
     format_skill_invocation,
@@ -56,7 +58,6 @@ from agent_smith.core.agent.harness.types import (
     AgentHarnessEvent,
     AgentHarnessOptions,
     AgentHarnessPromptOptions,
-    AgentHarnessResources,
     AgentHarnessSession,
     AgentHarnessStreamOptions,
     AgentHarnessStreamOptionsPatch,
@@ -82,7 +83,6 @@ from agent_smith.core.agent.harness.types import (
     ToolResultPatch,
     ToolsUpdateEvent,
     TurnState,
-    UserMemorySnapshot,
 )
 from agent_smith.core.agent.types import (
     AbortSignal,
@@ -717,22 +717,11 @@ class AgentHarness:
         provider = self.recent_conversation_provider
         if provider is None or not principal_id:
             return []
-        if hasattr(provider, "get_recent_conversations"):
-            raw = await call(
-                provider.get_recent_conversations(
-                    principal_id=principal_id,
-                    current_session_id=current_session_id,
-                    limit=MAX_RECENT_CONVERSATIONS,
-                )
-            )
-        else:
-            raw = await call(
-                provider(
-                    principal_id=principal_id,
-                    current_session_id=current_session_id,
-                    limit=MAX_RECENT_CONVERSATIONS,
-                )
-            )
+        raw = await provider.get_recent_conversations(
+            principal_id=principal_id,
+            current_session_id=current_session_id,
+            limit=MAX_RECENT_CONVERSATIONS,
+        )
         return [RecentConversationSnapshot.model_validate(item) for item in raw or []]
 
     def _resolve_compaction_settings(

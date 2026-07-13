@@ -1,9 +1,10 @@
 # Resources
 
-Catalog/config layer for definitions from memory, plugins, or Postgres.
+Catalog/config layer for persisted or externally configured definitions.
 
-This package owns resource records, versions, store protocols, memory/Postgres stores,
-and resolving catalog records into runtime snapshots.
+This package owns resource records, versions, the store protocol, and resolution of catalog
+records into runtime snapshots. Concrete persistence belongs to `infra`; production does not ship
+an in-memory store implementation.
 
 ## Boundary
 
@@ -15,6 +16,10 @@ ResourceStore(s)
 
 `AgentHarness` receives only the resolved `AgentHarnessResources` snapshot. It does not know which
 store produced the resources.
+
+Harness-facing snapshot types and formatting live under `core.agent.harness.resources`. Catalog
+CRUD, versioning, and resolution stay here because they are application/runtime concerns rather
+than responsibilities of one harness.
 
 `PostgresResourceStore` is only a catalog adapter. Authorization, principal ownership, project
 membership, and ACL policy are intentionally outside v1; callers should choose the right store

@@ -21,7 +21,7 @@ from agent_smith.core.llm.types import (
     ToolResultMessage,
     UserMessage,
 )
-from agent_smith.core.agent import AgentHarness, MemorySessionRepo
+from agent_smith.core.agent import AgentHarness
 from agent_smith.core.agent.harness.compaction import (
     COMPACTION_SUMMARY_PREFIX,
     MICROCOMPACT_MARKER,
@@ -30,6 +30,7 @@ from agent_smith.core.agent.harness.compaction import (
     microcompact_messages,
     prepare_compaction,
 )
+from helpers.sessions import MemorySessionRepo
 
 
 def _now() -> int:

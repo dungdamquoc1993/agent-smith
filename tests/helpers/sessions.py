@@ -1,4 +1,4 @@
-"""In-memory harness session storage."""
+"""In-memory test doubles for harness sessions and conversation context."""
 
 from __future__ import annotations
 
@@ -6,13 +6,13 @@ import uuid
 from copy import deepcopy
 from typing import Any
 
+from agent_smith.core.agent.harness.context_types import RecentConversationSnapshot
 from agent_smith.core.agent.harness.session.session import Session
 from agent_smith.core.agent.harness.session.types import (
     SessionEntryType,
     SessionMetadata,
     SessionTreeEntry,
 )
-from agent_smith.core.agent.harness.context_types import RecentConversationSnapshot
 
 
 class MemorySessionStorage:
@@ -68,7 +68,11 @@ class MemorySessionStorage:
             raise ValueError(f"Entry {entry_id} not found")
         self._leaf_id = entry_id
 
-    def clone(self, metadata: SessionMetadata, leaf_id: str | None = None) -> "MemorySessionStorage":
+    def clone(
+        self,
+        metadata: SessionMetadata,
+        leaf_id: str | None = None,
+    ) -> "MemorySessionStorage":
         storage = MemorySessionStorage(metadata)
         storage._entries = deepcopy(self._entries)
         storage._order = list(self._order)
@@ -77,6 +81,8 @@ class MemorySessionStorage:
 
 
 class MemorySessionRepo:
+    """Test-only session lifecycle helper backed by process memory."""
+
     def __init__(self) -> None:
         self._storages: dict[str, MemorySessionStorage] = {}
 
@@ -98,7 +104,9 @@ class MemorySessionRepo:
 
     async def open(self, metadata: SessionMetadata | dict[str, Any]) -> Session:
         resolved = (
-            metadata if isinstance(metadata, SessionMetadata) else SessionMetadata.model_validate(metadata)
+            metadata
+            if isinstance(metadata, SessionMetadata)
+            else SessionMetadata.model_validate(metadata)
         )
         storage = self._storages.get(resolved.id)
         if storage is None:

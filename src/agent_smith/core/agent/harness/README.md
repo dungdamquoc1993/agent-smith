@@ -80,19 +80,23 @@ Sau full compact, `session.build_context()` project lại history qua `build_pro
 - **`skills`** — gọi qua `skill()` hoặc surface như user-message `<system-reminder>` khi active tool có `skills`
 - **`prompt_templates`** — gọi qua `prompt_from_template()`
 
-Helper format: `resources.py` (`format_skill_invocation`, `format_skills_for_system_reminder`, …).
+Types và formatting helpers nằm trong package `resources/`, đứng song song với `session/`.
+Package này chỉ mô tả snapshot đã resolve và cách đưa snapshot vào model context.
 
 `AgentHarnessResources` là **resolved snapshot** cho một run/turn, không phải source of truth.
 Harness không đọc filesystem, không query Postgres resource tables, và không tự quản lý vòng đời
 skill/template/agent config. Catalog/versioning/backend nằm ngoài harness, qua
-`agent_smith.resources`; việc compile agent definition thành `AgentHarnessOptions` nằm ở
-`agent_smith.runtime`.
+`agent_smith.core.resources`; việc compile agent definition thành `AgentHarnessOptions` nằm ở
+`agent_smith.core.runtime`.
 
 ## Session
 
-Harness nhận `AgentHarnessSession` (thường là `Session` từ repo memory/postgres). Mọi message assistant/tool ghi qua event handler; mutation model/tools trong lúc chạy queue vào `_pending_session_writes` rồi flush.
+Harness nhận đúng một `AgentHarnessSession` đã được application resolve. Mọi message
+assistant/tool ghi qua event handler; mutation model/tools trong lúc chạy queue vào
+`_pending_session_writes` rồi flush. Lifecycle nhiều session (`create`, `open`, `fork`, `list`)
+nằm ngoài harness.
 
-Chi tiết session tree, fork, backend: [session/README.md](session/README.md).
+Chi tiết session tree và persistence port: [session/README.md](session/README.md).
 
 ## Khi nào dùng harness vs agent_loop trực tiếp
 

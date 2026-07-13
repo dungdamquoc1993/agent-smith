@@ -58,10 +58,10 @@ tool_registry = create_base_tool_registry(
 Resource tools are added when a `ResourceStore` / `ResourceResolver` is provided:
 
 ```python
-from resources import MemoryResourceStore, ResourceResolver
+from agent_smith.core.resources import ResourceResolver
 from tools import create_base_tool_registry
 
-store = MemoryResourceStore()
+store = resource_service.store()
 tool_registry = create_base_tool_registry(
     resources_store=store,
     resources_resolver=ResourceResolver([store]),

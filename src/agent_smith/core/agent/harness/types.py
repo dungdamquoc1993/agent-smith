@@ -21,6 +21,14 @@ from agent_smith.core.llm.types import (
 )
 from agent_smith.core.agent.types import AgentEvent, AgentMessage, AgentTool, StreamFn
 from agent_smith.core.agent.harness.compaction import CompactionPreparation, CompactionSettings
+from agent_smith.core.agent.harness.context_types import (
+    RecentConversationProvider,
+    RecentConversationSnapshot,
+)
+from agent_smith.core.agent.harness.resources.types import (
+    AgentHarnessResources,
+    UserMemorySnapshot,
+)
 from agent_smith.core.agent.harness.session.types import SessionContext, SessionMetadata, SessionTreeEntry
 from agent_smith.core.permissions.types import PermissionModeInput
 
@@ -36,61 +44,6 @@ class AgentHarnessError(Exception):
         super().__init__(message)
         self.code = code
         self.cause = cause
-
-
-class Skill(BaseModel):
-    name: str
-    description: str
-    content: str
-    file_path: str = Field(alias="filePath")
-    disable_model_invocation: bool | None = Field(
-        default=None,
-        alias="disableModelInvocation",
-    )
-
-    model_config = {"populate_by_name": True}
-
-
-class PromptTemplate(BaseModel):
-    name: str
-    description: str | None = None
-    content: str
-
-
-class AgentCatalogEntry(BaseModel):
-    name: str
-    description: str
-    when_to_use: str | None = Field(default=None, alias="whenToUse")
-    tools_allow: list[str] | None = Field(default=None, alias="toolsAllow")
-    tools_deny: list[str] | None = Field(default=None, alias="toolsDeny")
-
-    model_config = {"populate_by_name": True}
-
-
-class UserMemorySnapshot(BaseModel):
-    content: str
-    source: str = "resource:user_memory/default"
-    resource_id: str | None = Field(default=None, alias="resourceId")
-    resource_version_id: str | None = Field(default=None, alias="resourceVersionId")
-    version: int | None = None
-    content_hash: str | None = Field(default=None, alias="contentHash")
-
-    model_config = {"populate_by_name": True}
-
-
-class AgentHarnessResources(BaseModel):
-    skills: list[Skill] | None = None
-    prompt_templates: list[PromptTemplate] | None = Field(
-        default=None,
-        alias="promptTemplates",
-    )
-    agent_catalog: list[AgentCatalogEntry] | None = Field(
-        default=None,
-        alias="agentCatalog",
-    )
-    user_memory: UserMemorySnapshot | None = Field(default=None, alias="userMemory")
-
-    model_config = {"populate_by_name": True}
 
 
 class AgentHarnessStreamOptions(BaseModel):
@@ -406,7 +359,7 @@ class TurnState(TypedDict):
     user_memory_snapshot: UserMemorySnapshot | None
     runtime_metadata_snapshot: JsonObject | None
     turn_context_metadata: JsonObject | None
-    recent_conversations: list[Any]
+    recent_conversations: list[RecentConversationSnapshot]
 
 
 class AgentHarnessOptions(BaseModel):
@@ -446,7 +399,7 @@ class AgentHarnessOptions(BaseModel):
         exclude=True,
     )
     context_metadata: JsonObject | None = Field(default=None, alias="contextMetadata")
-    recent_conversation_provider: Any | None = Field(
+    recent_conversation_provider: RecentConversationProvider | None = Field(
         default=None,
         alias="recentConversationProvider",
         exclude=True,

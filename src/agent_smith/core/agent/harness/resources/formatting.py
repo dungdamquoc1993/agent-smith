@@ -1,4 +1,4 @@
-"""Harness resource formatting helpers."""
+"""Format resolved harness resources for model context and invocation."""
 
 from __future__ import annotations
 
@@ -6,7 +6,12 @@ import re
 from html import escape
 from pathlib import PurePosixPath
 
-from agent_smith.core.agent.harness.types import AgentCatalogEntry, PromptTemplate, Skill, UserMemorySnapshot
+from agent_smith.core.agent.harness.resources.types import (
+    AgentCatalogEntry,
+    PromptTemplate,
+    Skill,
+    UserMemorySnapshot,
+)
 
 
 def format_skill_invocation(skill: Skill, additional_instructions: str | None = None) -> str:

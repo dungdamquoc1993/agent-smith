@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, Literal, NotRequired, Protocol, TypedDict
-from typing import TYPE_CHECKING
+from typing import Literal, NotRequired, Protocol, TypedDict
 
 from pydantic import BaseModel, Field
 
 from agent_smith.core.agent.types import AgentMessage
 from agent_smith.core.llm.types import HookPayload, JsonValue
-
-if TYPE_CHECKING:
-    from agent_smith.core.agent.harness.session.session import Session
 
 SessionEntryType = Literal[
     "message",
@@ -139,18 +135,6 @@ class SessionStorage(Protocol):
     async def get_leaf_id(self) -> str | None: ...
 
     async def set_leaf_id(self, entry_id: str | None) -> None: ...
-
-
-class SessionRepo(Protocol):
-    async def create(self, **options: Any) -> "Session": ...
-
-    async def open(self, metadata: SessionMetadata | dict[str, Any]) -> "Session": ...
-
-    async def fork(
-        self,
-        source: SessionMetadata | dict[str, Any],
-        **options: Any,
-    ) -> "Session": ...
 
 
 def build_session_context(path_entries: Sequence[SessionTreeEntry]) -> SessionContext:

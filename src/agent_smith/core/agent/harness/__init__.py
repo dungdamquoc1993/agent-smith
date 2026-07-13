@@ -23,8 +23,16 @@ from agent_smith.core.agent.harness.context_frame import (
     format_runtime_metadata_for_context,
     format_user_knowledge_memory_for_context,
 )
-from agent_smith.core.agent.harness.context_types import RecentConversationSnapshot
+from agent_smith.core.agent.harness.context_types import (
+    RecentConversationProvider,
+    RecentConversationSnapshot,
+)
 from agent_smith.core.agent.harness.resources import (
+    AgentCatalogEntry,
+    AgentHarnessResources,
+    PromptTemplate,
+    Skill,
+    UserMemorySnapshot,
     format_prompt_template_invocation,
     format_skill_invocation,
     format_skills_for_system_prompt,
@@ -34,9 +42,6 @@ from agent_smith.core.agent.harness.resources import (
     substitute_args,
 )
 from agent_smith.core.agent.harness.session import (
-    MemoryRecentConversationProvider,
-    MemorySessionRepo,
-    MemorySessionStorage,
     PendingSessionWrite,
     Session,
     SessionContext,
@@ -44,7 +49,6 @@ from agent_smith.core.agent.harness.session import (
     SessionKind,
     SessionMetadata,
     SessionModelRef,
-    SessionRepo,
     SessionStorage,
     SessionTreeEntry,
     build_session_context,
@@ -53,13 +57,11 @@ from agent_smith.core.agent.harness.types import (
     AbortEvent,
     AbortResult,
     AfterProviderResponseEvent,
-    AgentCatalogEntry,
     AgentHarnessAuth,
     AgentHarnessError,
     AgentHarnessEvent,
     AgentHarnessOptions,
     AgentHarnessPromptOptions,
-    AgentHarnessResources,
     AgentHarnessSession,
     AgentHarnessStreamOptions,
     AgentHarnessStreamOptionsPatch,
@@ -74,7 +76,6 @@ from agent_smith.core.agent.harness.types import (
     GetAgentHarnessAuthFn,
     HarnessHandler,
     ModelUpdateEvent,
-    PromptTemplate,
     QueueUpdateEvent,
     ResourcesUpdateEvent,
     SavePointEvent,
@@ -82,7 +83,6 @@ from agent_smith.core.agent.harness.types import (
     SessionBeforeCompactEvent,
     SessionBeforeCompactResult,
     SessionCompactEvent,
-    Skill,
     ThinkingLevelUpdateEvent,
     ToolCallEvent,
     ToolCallResult,
@@ -90,7 +90,6 @@ from agent_smith.core.agent.harness.types import (
     ToolResultPatch,
     ToolsUpdateEvent,
     TurnState,
-    UserMemorySnapshot,
 )
 
 __all__ = [
@@ -124,15 +123,13 @@ __all__ = [
     "GetAgentHarnessAuthFn",
     "HarnessHandler",
     "MICROCOMPACT_MARKER",
-    "MemorySessionRepo",
-    "MemorySessionStorage",
     "MicrocompactSettings",
     "ModelUpdateEvent",
-    "MemoryRecentConversationProvider",
     "PendingSessionWrite",
     "PromptTemplate",
     "QueueUpdateEvent",
     "ResourcesUpdateEvent",
+    "RecentConversationProvider",
     "RecentConversationSnapshot",
     "SavePointEvent",
     "Session",
@@ -144,7 +141,6 @@ __all__ = [
     "SessionKind",
     "SessionMetadata",
     "SessionModelRef",
-    "SessionRepo",
     "SessionStorage",
     "SessionTreeEntry",
     "SettledEvent",

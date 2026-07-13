@@ -15,8 +15,6 @@ from agent_smith.core.agent import (
     AgentHarnessResources,
     AgentTool,
     AgentToolResult,
-    MemoryRecentConversationProvider,
-    MemorySessionRepo,
     PromptTemplate,
     RecentConversationSnapshot,
     Skill,
@@ -50,6 +48,7 @@ from agent_smith.core.llm.types import (
     ToolCall,
     UserMessage,
 )
+from helpers.sessions import MemoryRecentConversationProvider, MemorySessionRepo
 
 
 def _now() -> int:

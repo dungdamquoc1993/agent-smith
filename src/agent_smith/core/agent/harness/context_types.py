@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Protocol, runtime_checkable
+
 from pydantic import BaseModel, Field
 
 from agent_smith.core.agent.types import AgentMessage
@@ -14,3 +16,16 @@ class RecentConversationSnapshot(BaseModel):
     messages: list[AgentMessage] = Field(default_factory=list)
 
     model_config = {"populate_by_name": True}
+
+
+@runtime_checkable
+class RecentConversationProvider(Protocol):
+    """Read-only source of conversation snapshots used to enrich harness context."""
+
+    async def get_recent_conversations(
+        self,
+        *,
+        principal_id: str,
+        current_session_id: str,
+        limit: int = 40,
+    ) -> list[RecentConversationSnapshot]: ...

@@ -47,7 +47,8 @@ from agent_smith.core.tools import (
     create_web_fetch_tool,
     create_web_search_tool,
 )
-from agent_smith.core.resources import MemoryResourceStore, ResourceResolver
+from agent_smith.core.resources import ResourceResolver
+from helpers.resource_stores import MemoryResourceStore
 
 
 def _now() -> int:

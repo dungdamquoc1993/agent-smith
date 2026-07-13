@@ -80,4 +80,4 @@ prompt(text)
 ## Liên quan package khác
 
 - [`ai/README.md`](../ai/README.md) — gọi LLM, catalog model
-- [`harness/session/README.md`](harness/session/README.md) — session tree, memory/postgres backend
+- [`harness/session/README.md`](harness/session/README.md) — single-session tree và persistence port

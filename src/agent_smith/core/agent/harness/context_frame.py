@@ -6,7 +6,7 @@ from html import escape
 
 from agent_smith.core.agent.harness.context_types import RecentConversationSnapshot
 from agent_smith.core.agent.harness.resources import wrap_in_system_reminder
-from agent_smith.core.agent.harness.types import UserMemorySnapshot
+from agent_smith.core.agent.harness.resources import UserMemorySnapshot
 from agent_smith.core.agent.types import AgentMessage
 from agent_smith.core.llm.types import AssistantMessage, JsonObject, TextContent, ToolCall, UserMessage
 

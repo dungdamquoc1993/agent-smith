@@ -6,13 +6,12 @@ from os import getenv
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from agent_smith.core.agent import AgentTool, AgentToolResult, MemorySessionRepo
+from agent_smith.core.agent import AgentTool, AgentToolResult
 from agent_smith.core.llm.models import make_litellm_model
 from agent_smith.core.llm.types import TextContent
 from agent_smith.infra.db.base import Base
 from agent_smith.core.resources import (
     AgentDefinition,
-    MemoryResourceStore,
     ResourceConflictError,
     ResourceCreate,
     ResourceNotFoundError,
@@ -20,6 +19,8 @@ from agent_smith.core.resources import (
 )
 from agent_smith.infra.persistence.postgres_resources import PostgresResourceStore
 from agent_smith.core.runtime import AgentFactory, AgentFactoryError, ToolRegistry
+from helpers.resource_stores import MemoryResourceStore
+from helpers.sessions import MemorySessionRepo
 
 
 def _skill_content(name: str, body: str) -> dict:

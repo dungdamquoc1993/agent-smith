@@ -6,12 +6,11 @@ from agent_smith.core.agent.validation import validate_tool_arguments
 from agent_smith.core.llm.types import ToolCall
 from agent_smith.core.resources import (
     AgentDefinition,
-    MemoryResourceStore,
     ResourceNotFoundError,
     ResourceReadOnlyError,
     ResourceResolver,
 )
-from helpers.resource_stores import ReadOnlyResourceStore
+from helpers.resource_stores import MemoryResourceStore, ReadOnlyResourceStore
 from agent_smith.core.tools import (
     MANAGE_RESOURCES_TOOL_NAME,
     create_base_tool_registry,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from agent_smith.core.agent import AgentContext, AgentLoopConfig, AgentTool, AgentToolResult, agent_loop
-from agent_smith.core.agent.harness import AgentHarness, MemorySessionRepo
+from agent_smith.core.agent.harness import AgentHarness
 from agent_smith.core.llm.events import create_assistant_message_event_stream
 from agent_smith.core.llm.models import make_litellm_model
 from agent_smith.core.llm.types import (
@@ -27,6 +27,7 @@ from agent_smith.core.permissions import (
 )
 from agent_smith.core.permissions.host import create_can_use_tool
 from agent_smith.core.permissions.tool_specs import MUTATING_ASK, READ_ONLY_ALLOW
+from helpers.sessions import MemorySessionRepo
 
 
 def _now() -> int:
