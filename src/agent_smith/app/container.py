@@ -24,14 +24,6 @@ from agent_smith.infra.db.base import get_engine, get_session_factory
 
 DEFAULT_PRINCIPAL_DISPLAY_NAME = "Test Principal"
 DEFAULT_AGENT_NAME = "test_assistant"
-DEFAULT_OPENAI_MODEL_ID = "gpt-4o-mini"
-DEFAULT_GEMMA_MODEL_ID = "gemma4-e2b"
-DEFAULT_GEMMA_UPSTREAM_MODEL = "gemma4:e2b"
-DEFAULT_GEMMA_BASE_URL = "http://localhost:11434/v1"
-DEFAULT_GEMMA_API_KEY = "local"
-DEFAULT_MODEL_KEY = "openai"
-
-
 class AppContainer:
     def __init__(self) -> None:
         settings = get_settings()
@@ -74,22 +66,13 @@ class AppContainer:
             session_service=self.sessions,
             resource_service=self.resources,
             default_permission_mode=settings.default_permission_mode,
-            openai_model_id=os.environ.get("AGENT_SMITH_TEST_OPENAI_MODEL", DEFAULT_OPENAI_MODEL_ID),
-            gemma_model_id=os.environ.get("AGENT_SMITH_TEST_GEMMA_MODEL_ID", DEFAULT_GEMMA_MODEL_ID),
-            gemma_upstream_model=os.environ.get(
-                "AGENT_SMITH_TEST_GEMMA_UPSTREAM_MODEL",
-                DEFAULT_GEMMA_UPSTREAM_MODEL,
-            ),
-            gemma_base_url=os.environ.get("AGENT_SMITH_TEST_GEMMA_BASE_URL", DEFAULT_GEMMA_BASE_URL),
-            gemma_api_key=os.environ.get("AGENT_SMITH_TEST_GEMMA_API_KEY", DEFAULT_GEMMA_API_KEY),
-            default_model_key=os.environ.get("AGENT_SMITH_TEST_MODEL", DEFAULT_MODEL_KEY),
+            default_model_key=settings.default_model,
             provider_auth_service=self.provider_auth,
             identity_service=self.identities,
         )
 
     def bootstrap_providers(self) -> None:
         bootstrap_providers()
-        self.agent_runs.register_local_models()
 
     async def bootstrap(self) -> dict[str, Any]:
         engine = get_engine()
@@ -97,10 +80,15 @@ class AppContainer:
             await connection.execute(text("select 1"))
         principal = await self.sessions.ensure_principal()
         return {
-            "database": {"ok": True, "url": self.settings.database_url},
+            "postgres": {"ok": True, "url": self.settings.postgres_url},
             "principal": principal_payload(principal),
             "sessions": await self.sessions.list_sessions(),
             "resources": (await self.resources.list_resources())["resources"],
+            **self.model_catalog(),
+        }
+
+    def model_catalog(self) -> dict[str, Any]:
+        return {
             "defaults": {
                 "agentName": self.resources.default_agent_name,
                 "modelKey": self.agent_runs.default_model_selection(),

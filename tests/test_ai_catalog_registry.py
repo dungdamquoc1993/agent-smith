@@ -14,6 +14,7 @@ from agent_smith.core.llm import (
     UserMessage,
     clear_models,
     get_model,
+    get_model_by_key,
     get_models,
     get_providers,
     load_models_from_file,
@@ -57,14 +58,18 @@ def _context() -> Context:
     )
 
 
-def test_builtin_catalog_preserves_existing_lookup() -> None:
-    openai_model = get_model("openai", "gpt-4o-mini")
-    google_model = get_model("google", "gemini-2.5-flash")
+def test_builtin_catalog_uses_public_keys_and_openrouter_routes() -> None:
+    gpt_model = get_model_by_key("gpt-5.5")
+    claude_model = get_model_by_key("claude-sonnet-5")
 
-    assert openai_model is not None
-    assert google_model is not None
-    assert openai_model.api == google_model.api == "litellm"
-    assert get_providers()[:3] == ["openai", "anthropic", "google"]
+    assert gpt_model is not None
+    assert claude_model is not None
+    assert gpt_model.api == claude_model.api == "litellm"
+    assert gpt_model.id == "openai/gpt-5.5"
+    assert claude_model.id == "anthropic/claude-sonnet-5"
+    assert gpt_model.resolve_litellm_model() == "openrouter/openai/gpt-5.5"
+    assert claude_model.resolve_litellm_model() == "openrouter/anthropic/claude-sonnet-5"
+    assert get_providers() == ["openrouter"]
 
 
 def test_register_model_and_load_models_from_file(tmp_path: Path, restore_models) -> None:
@@ -106,6 +111,13 @@ def test_load_models_from_file_rejects_invalid_shape(tmp_path: Path, restore_mod
 
     with pytest.raises(ValueError, match="Model catalog"):
         load_models_from_file(catalog_path)
+
+
+def test_registry_rejects_duplicate_public_model_keys(restore_models) -> None:
+    register_model(make_litellm_model(provider="one", model_id="a", key="public-key"))
+
+    with pytest.raises(ValueError, match="Duplicate public model key"):
+        register_model(make_litellm_model(provider="two", model_id="b", key="public-key"))
 
 
 class _FakeProvider:

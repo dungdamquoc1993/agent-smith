@@ -58,7 +58,7 @@ You can also exercise the relay with curl:
 ```bash
 curl -N \
   -H 'Content-Type: application/json' \
-  -d '{"prompt":"Reply with exactly: pong","modelKey":"openai","user":{"id":"hris-employee-001","employeeId":"E001","displayName":"Nguyen Van An","email":"an.nguyen@example.test","department":"Engineering","roles":["employee"]}}' \
+  -d '{"prompt":"Reply with exactly: pong","modelKey":"gpt-5.5","user":{"id":"hris-employee-001","employeeId":"E001","displayName":"Nguyen Van An","email":"an.nguyen@example.test","department":"Engineering","roles":["employee"]}}' \
   http://127.0.0.1:5173/api/oneai/chat/stream
 ```
 

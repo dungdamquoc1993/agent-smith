@@ -171,6 +171,7 @@ class ModelCost(BaseModel):
 
 
 class Model(BaseModel):
+    key: str | None = None
     id: str
     name: str
     api: Api
@@ -190,7 +191,7 @@ class Model(BaseModel):
     )
     litellm_model: str | None = Field(
         default=None,
-        description="LiteLLM model id override (e.g. openai/gpt-4o-mini)",
+        description="LiteLLM model id override (e.g. openrouter/openai/gpt-5.5)",
     )
 
     model_config = {"populate_by_name": True}

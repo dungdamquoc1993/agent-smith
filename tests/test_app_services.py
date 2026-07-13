@@ -20,11 +20,11 @@ from agent_smith.transports.http.sse import json_dumps
 
 @pytest.mark.asyncio
 async def test_session_service_seed_principal_idempotent_when_database_is_configured() -> None:
-    database_url = getenv("AGENT_SMITH_TEST_DATABASE_URL")
-    if not database_url:
-        pytest.skip("AGENT_SMITH_TEST_DATABASE_URL is not configured")
+    postgres_url = getenv("AGENT_SMITH_TEST_POSTGRES_URL")
+    if not postgres_url:
+        pytest.skip("AGENT_SMITH_TEST_POSTGRES_URL is not configured")
 
-    engine = create_async_engine(database_url)
+    engine = create_async_engine(postgres_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     display_name = f"Test Principal {uuid.uuid4().hex}"
     service = SessionService(factory, principal_display_name=display_name)
@@ -49,11 +49,11 @@ async def test_session_service_seed_principal_idempotent_when_database_is_config
 
 @pytest.mark.asyncio
 async def test_resource_service_seed_default_agent_idempotent_when_database_is_configured() -> None:
-    database_url = getenv("AGENT_SMITH_TEST_DATABASE_URL")
-    if not database_url:
-        pytest.skip("AGENT_SMITH_TEST_DATABASE_URL is not configured")
+    postgres_url = getenv("AGENT_SMITH_TEST_POSTGRES_URL")
+    if not postgres_url:
+        pytest.skip("AGENT_SMITH_TEST_POSTGRES_URL is not configured")
 
-    engine = create_async_engine(database_url)
+    engine = create_async_engine(postgres_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     agent_name = f"test_assistant_{uuid.uuid4().hex}"
     service = ResourceService(factory, default_agent_name=agent_name)

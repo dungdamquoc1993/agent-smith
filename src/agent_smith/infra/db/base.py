@@ -22,7 +22,7 @@ def get_engine():
     global _engine
     if _engine is None:
         settings = get_settings()
-        _engine = create_async_engine(settings.database_url, echo=False)
+        _engine = create_async_engine(settings.postgres_url, echo=False)
     return _engine
 
 

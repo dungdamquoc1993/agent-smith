@@ -96,7 +96,7 @@ Body:
   "payload": {
     "prompt": "Xin chào",
     "agentName": "workplace_assistant",
-    "modelKey": "openai"
+    "modelKey": "gpt-5.5"
   },
   "session": {
     "smithSessionId": null,

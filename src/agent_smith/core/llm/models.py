@@ -13,6 +13,7 @@ ModelInput = Literal["text", "image"]
 
 _CATALOG: list[Model] = []
 _BY_PROVIDER_ID: dict[tuple[Provider, str], Model] = {}
+_BY_KEY: dict[str, Model] = {}
 
 
 def _load_models_payload(payload: Any) -> list[Model]:
@@ -27,11 +28,21 @@ def register_model(model: Model) -> None:
         (idx for idx, current in enumerate(_CATALOG) if (current.provider, current.id) == (model.provider, model.id)),
         None,
     )
+    existing = _CATALOG[existing_index] if existing_index is not None else None
+    if model.key:
+        keyed_model = _BY_KEY.get(model.key)
+        if keyed_model and (keyed_model.provider, keyed_model.id) != (model.provider, model.id):
+            raise ValueError(f"Duplicate public model key: {model.key}")
+    if existing and existing.key and existing.key != model.key:
+        _BY_KEY.pop(existing.key, None)
+
     if existing_index is None:
         _CATALOG.append(model)
     else:
         _CATALOG[existing_index] = model
     _BY_PROVIDER_ID[(model.provider, model.id)] = model
+    if model.key:
+        _BY_KEY[model.key] = model
 
 
 def register_models(models: Iterable[Model]) -> None:
@@ -42,6 +53,7 @@ def register_models(models: Iterable[Model]) -> None:
 def clear_models() -> None:
     _CATALOG.clear()
     _BY_PROVIDER_ID.clear()
+    _BY_KEY.clear()
 
 
 def load_models_from_file(path: str | Path, *, replace: bool = False) -> list[Model]:
@@ -62,6 +74,7 @@ def make_litellm_model(
     *,
     provider: Provider,
     model_id: str,
+    key: str | None = None,
     name: str | None = None,
     litellm_model: str | None = None,
     api: Api = "litellm",
@@ -77,6 +90,7 @@ def make_litellm_model(
     thinking_level_map: dict[str, str | None] | None = None,
 ) -> Model:
     return Model(
+        key=key,
         id=model_id,
         name=name or model_id,
         api=api,
@@ -109,4 +123,8 @@ def get_models(provider: Provider) -> list[Model]:
 
 def get_model(provider: Provider, model_id: str) -> Model | None:
     return _BY_PROVIDER_ID.get((provider, model_id))
+
+
+def get_model_by_key(key: str) -> Model | None:
+    return _BY_KEY.get(key)
 _load_builtin_models()

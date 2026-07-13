@@ -62,7 +62,7 @@ DefaultImpl.version_table_impl = _wide_version_table_impl
 
 
 def get_url() -> str:
-    return get_settings().database_url
+    return get_settings().postgres_url
 
 
 def run_migrations_offline() -> None:

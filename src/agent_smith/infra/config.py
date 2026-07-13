@@ -11,10 +11,14 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    database_url: str = "postgresql+asyncpg://smith:smith@localhost:5432/agent_smith"
-    openai_api_key: str | None = None
-    anthropic_api_key: str | None = None
-    gemini_api_key: str | None = None
+    postgres_url: str = Field(
+        default="postgresql+asyncpg://smith:smith@localhost:5432/agent_smith",
+        validation_alias="AGENT_SMITH_POSTGRES_URL",
+    )
+    default_model: str = Field(
+        default="gpt-5.5",
+        validation_alias="AGENT_SMITH_DEFAULT_MODEL",
+    )
     openrouter_api_key: str | None = None
     mcp_credentials_key: str | None = None
     admin_token: str | None = Field(

@@ -21,6 +21,7 @@ from agent_smith.transports.http.common import (
 
 RUNTIME_ROUTES = [
     "/api/bootstrap",
+    "/api/models",
     "/api/sessions",
     "/api/resources",
     "/api/resources/seed",
@@ -34,6 +35,11 @@ router = APIRouter()
 @router.get("/api/bootstrap")
 async def bootstrap(container: AppContainer = Depends(get_container)):
     return json_response(await container.bootstrap())
+
+
+@router.get("/api/models")
+async def models(container: AppContainer = Depends(get_container)):
+    return json_response(container.model_catalog())
 
 
 @router.get("/api/sessions")

@@ -31,11 +31,11 @@ from agent_smith.transports.http.main import create_app
 
 @pytest.mark.asyncio
 async def test_identity_provider_management_lifecycle_when_database_is_configured() -> None:
-    database_url = getenv("AGENT_SMITH_TEST_DATABASE_URL")
-    if not database_url:
-        pytest.skip("AGENT_SMITH_TEST_DATABASE_URL is not configured")
+    postgres_url = getenv("AGENT_SMITH_TEST_POSTGRES_URL")
+    if not postgres_url:
+        pytest.skip("AGENT_SMITH_TEST_POSTGRES_URL is not configured")
 
-    engine = create_async_engine(database_url)
+    engine = create_async_engine(postgres_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     codec = IdentityProviderSecretCodec(_fernet_key())
     management = IdentityProviderManagementService(factory, secret_codec=codec)

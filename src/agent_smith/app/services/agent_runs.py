@@ -19,8 +19,9 @@ from agent_smith.app.services.resources import ResourceService
 from agent_smith.app.services.sessions import SessionService
 from agent_smith.core.agent import AgentHarnessError
 from agent_smith.core.agent.harness.session.session import Session
-from agent_smith.core.llm import get_model, make_litellm_model, register_model
-from agent_smith.core.llm.types import AssistantMessage, JsonObject, TextContent
+from agent_smith.core.llm import get_models, get_providers
+from agent_smith.core.llm.env_keys import is_provider_configured
+from agent_smith.core.llm.types import AssistantMessage, JsonObject, Model, TextContent
 from agent_smith.core.resources import ResourceResolver
 from agent_smith.core.runtime import AgentFactory
 from agent_smith.core.tools.registry import create_base_tool_registry
@@ -48,11 +49,6 @@ class AgentRunService:
         session_service: SessionService,
         resource_service: ResourceService,
         default_permission_mode: str,
-        openai_model_id: str,
-        gemma_model_id: str,
-        gemma_upstream_model: str,
-        gemma_base_url: str,
-        gemma_api_key: str,
         default_model_key: str,
         provider_auth_service: IdentityProviderAuthService | None = None,
         identity_service: PrincipalIdentityService | None = None,
@@ -64,36 +60,43 @@ class AgentRunService:
         self._identity_service = identity_service
         self._context_resolver = context_resolver or ContextResolver()
         self.default_permission_mode = default_permission_mode
-        self.openai_model_id = openai_model_id
-        self.gemma_model_id = gemma_model_id
-        self.gemma_upstream_model = gemma_upstream_model
-        self.gemma_base_url = gemma_base_url
-        self.gemma_api_key = gemma_api_key
         self.default_model_key = default_model_key
 
-    def register_local_models(self) -> None:
-        register_model(self._gemma_model())
-
-    def model_choices(self) -> list[dict[str, str]]:
-        return [
-            {
-                "key": "openai",
-                "label": f"OpenAI · {self.openai_model_id}",
-                "provider": "openai",
-                "modelId": self.openai_model_id,
-            },
-            {
-                "key": "gemma",
-                "label": f"Gemma local · {self.gemma_upstream_model}",
-                "provider": "local",
-                "modelId": self.gemma_model_id,
-                "baseUrl": self.gemma_base_url,
-            },
-        ]
+    def model_choices(self) -> list[dict[str, Any]]:
+        choices: list[dict[str, Any]] = []
+        for model in self._available_models():
+            choices.append(
+                {
+                    "key": self._model_key(model),
+                    "label": model.name,
+                    "reasoning": model.reasoning,
+                    "input": model.input,
+                    "contextWindow": model.context_window,
+                    "maxTokens": model.max_tokens,
+                }
+            )
+        return choices
 
     def default_model_selection(self) -> str:
-        keys = {choice["key"] for choice in self.model_choices()}
-        return self.default_model_key if self.default_model_key in keys else "openai"
+        choices = self.model_choices()
+        if any(choice["key"] == self.default_model_key for choice in choices):
+            return self.default_model_key
+        return choices[0]["key"] if choices else ""
+
+    def _available_models(self) -> list[Model]:
+        return [
+            model
+            for provider in get_providers()
+            if is_provider_configured(provider)
+            for model in get_models(provider)
+            if model.key
+        ]
+
+    @staticmethod
+    def _model_key(model: Model) -> str:
+        if not model.key:
+            raise ValueError(f"Model {model.provider}/{model.id} has no public key")
+        return model.key
 
     async def run_prompt_stream(self, payload: dict[str, Any], emit: AgentRunEventSink) -> None:
         try:
@@ -340,37 +343,13 @@ class AgentRunService:
                 },
             )
 
-    def _openai_model(self):
-        return get_model("openai", self.openai_model_id) or make_litellm_model(
-            provider="openai",
-            model_id=self.openai_model_id,
-        )
-
-    def _gemma_model(self):
-        return get_model("local", self.gemma_model_id) or make_litellm_model(
-            provider="local",
-            model_id=self.gemma_model_id,
-            name="Gemma 4 E2B local",
-            litellm_model=f"openai/{self.gemma_upstream_model}",
-            base_url=self.gemma_base_url,
-            reasoning=True,
-            input=["text", "image"],
-            context_window=128_000,
-            max_tokens=4096,
-            provider_options={
-                "api_key": self.gemma_api_key,
-                "ollama_native": True,
-                "ollama_think": True,
-            },
-        )
-
     def _selected_model(self, model_key: str | None):
         key = (model_key or self.default_model_selection()).strip()
-        if key == "openai":
-            return self._openai_model()
-        if key == "gemma":
-            return self._gemma_model()
-        raise ValueError(f"Unknown model selection: {key}")
+        available = {self._model_key(model): model for model in self._available_models()}
+        model = available.get(key)
+        if model is None:
+            raise ValueError(f"Unknown or unavailable model selection: {key}")
+        return model
 
 
 def assistant_text(message: AssistantMessage) -> str:

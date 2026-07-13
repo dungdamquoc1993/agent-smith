@@ -268,11 +268,11 @@ async def test_agent_factory_validates_missing_tool_and_skill() -> None:
 
 @pytest.mark.asyncio
 async def test_postgres_resource_store_roundtrip_when_database_is_configured() -> None:
-    database_url = getenv("AGENT_SMITH_TEST_DATABASE_URL")
-    if not database_url:
-        pytest.skip("AGENT_SMITH_TEST_DATABASE_URL is not configured")
+    postgres_url = getenv("AGENT_SMITH_TEST_POSTGRES_URL")
+    if not postgres_url:
+        pytest.skip("AGENT_SMITH_TEST_POSTGRES_URL is not configured")
 
-    engine = create_async_engine(database_url)
+    engine = create_async_engine(postgres_url)
     try:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)

@@ -65,7 +65,7 @@ core/resources/         ← skill, prompt_template, agent_definition, mcp_server
 ```bash
 poetry install
 cp .env.example .env
-# Chỉnh .env: OPENAI_API_KEY, DATABASE_URL, ...
+# Chỉnh .env: OPENROUTER_API_KEY, AGENT_SMITH_POSTGRES_URL, ...
 
 docker compose -f docker/compose.yml up -d
 poetry run alembic upgrade head
@@ -74,20 +74,10 @@ poetry run alembic upgrade head
 Docker and local dependency files live in
 [`docker`](docker/README.md).
 
-## Demo unified AI layer
-
-```bash
-# OpenAI (cần OPENAI_API_KEY trong .env)
-poetry run python examples/demo_ai.py --provider openai
-
-# Google Gemini qua Vertex (service account trong .gcp/ hoặc GEMINI_API_KEY)
-poetry run python examples/demo_ai.py --provider google
-
-# Cả hai
-poetry run python examples/demo_ai.py --provider all
-```
-
-Google hỗ trợ hai mode auth: `GEMINI_API_KEY` hoặc `GOOGLE_APPLICATION_CREDENTIALS` + project/location — xem `.env.example`.
+Model switcher được tạo từ `src/agent_smith/core/llm/models.catalog.json` và chỉ hiện
+model khi `OPENROUTER_API_KEY` đã được cấu hình. Public `modelKey` độc lập với provider;
+catalog giữ OpenRouter route nội bộ và API chỉ trả các key user thực sự gọi được.
+Model mặc định được cấu hình riêng bằng `AGENT_SMITH_DEFAULT_MODEL`.
 
 ## Tests
 

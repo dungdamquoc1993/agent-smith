@@ -1,4 +1,4 @@
-"""Integration tests for multi-provider AI layer (OpenAI + Google via LiteLLM)."""
+"""Live integration tests for the OpenRouter-backed model catalog."""
 
 from __future__ import annotations
 
@@ -41,28 +41,23 @@ async def _assert_text_completion(provider: Provider, model_id: str, prompt: str
 
 
 @pytest.mark.asyncio
-async def test_openai_stream_and_complete():
-    if not is_provider_configured("openai"):
-        pytest.skip("OPENAI_API_KEY not configured")
+async def test_openrouter_stream_and_complete():
+    if not is_provider_configured("openrouter"):
+        pytest.skip("OPENROUTER_API_KEY not configured")
 
-    await _assert_text_completion("openai", "gpt-4o-mini", "Say hello in three words.")
-
-
-@pytest.mark.asyncio
-async def test_google_stream_and_complete():
-    if not is_provider_configured("google"):
-        pytest.skip("Google credentials not configured (GEMINI_API_KEY or GOOGLE_APPLICATION_CREDENTIALS)")
-
-    await _assert_text_completion("google", "gemini-2.5-flash", "Say hello in three words.")
+    await _assert_text_completion(
+        "openrouter",
+        "openai/gpt-5.4-nano",
+        "Say hello in three words.",
+    )
 
 
-@pytest.mark.asyncio
-async def test_multi_provider_catalog():
-    """Both providers share the same litellm API transport (pi-style multi-provider)."""
-    openai_model = get_model("openai", "gpt-4o-mini")
-    google_model = get_model("google", "gemini-2.5-flash")
+def test_multiple_model_families_route_through_openrouter() -> None:
+    gpt_model = get_model("openrouter", "openai/gpt-5.5")
+    claude_model = get_model("openrouter", "anthropic/claude-sonnet-5")
+    gemini_model = get_model("openrouter", "google/gemini-3.5-flash")
 
-    assert openai_model is not None
-    assert google_model is not None
-    assert openai_model.api == google_model.api == "litellm"
-    assert openai_model.provider != google_model.provider
+    assert gpt_model is not None
+    assert claude_model is not None
+    assert gemini_model is not None
+    assert {gpt_model.provider, claude_model.provider, gemini_model.provider} == {"openrouter"}

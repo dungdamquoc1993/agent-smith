@@ -179,11 +179,11 @@ async def test_memory_session_metadata_tracks_provenance_and_fork_overrides() ->
 
 @pytest.mark.asyncio
 async def test_postgres_session_repo_roundtrip_when_database_is_configured() -> None:
-    database_url = getenv("AGENT_SMITH_TEST_DATABASE_URL")
-    if not database_url:
-        pytest.skip("AGENT_SMITH_TEST_DATABASE_URL is not configured")
+    postgres_url = getenv("AGENT_SMITH_TEST_POSTGRES_URL")
+    if not postgres_url:
+        pytest.skip("AGENT_SMITH_TEST_POSTGRES_URL is not configured")
 
-    engine = create_async_engine(database_url)
+    engine = create_async_engine(postgres_url)
     try:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)

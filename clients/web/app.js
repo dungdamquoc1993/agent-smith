@@ -40,6 +40,7 @@ const state = {
   user: null,
   smithSessionId: null,
   externalSessionId: crypto.randomUUID(),
+  modelKey: null,
   busy: false,
 };
 
@@ -58,6 +59,12 @@ const clearEventsButton = document.querySelector("#clearEventsButton");
 
 loadState();
 render();
+loadModels();
+
+modelSelect.addEventListener("change", () => {
+  state.modelKey = modelSelect.value || null;
+  saveState();
+});
 
 promptForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -107,7 +114,7 @@ async function sendPrompt(prompt) {
         prompt,
         smithSessionId: state.smithSessionId,
         externalSessionId: state.externalSessionId,
-        modelKey: modelSelect.value,
+        modelKey: state.modelKey || modelSelect.value,
         user: state.user,
         userAgent: navigator.userAgent,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -150,6 +157,39 @@ async function sendPrompt(prompt) {
     addEvent("client.error", { message: error.message || String(error) });
   } finally {
     setBusy(false);
+  }
+}
+
+async function loadModels() {
+  try {
+    const response = await fetch("/api/oneai/models");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    const models = Array.isArray(payload.models) ? payload.models : [];
+    modelSelect.replaceChildren(
+      ...models.map((model) => {
+        const option = document.createElement("option");
+        option.value = model.key;
+        option.textContent = model.label;
+        return option;
+      })
+    );
+    const defaultKey = payload.defaults?.modelKey || models[0]?.key || null;
+    const selectedKey = models.some((model) => model.key === state.modelKey)
+      ? state.modelKey
+      : defaultKey;
+    state.modelKey = selectedKey;
+    modelSelect.value = selectedKey || "";
+    modelSelect.disabled = models.length === 0;
+    saveState();
+    render();
+  } catch (error) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Models unavailable";
+    modelSelect.replaceChildren(option);
+    modelSelect.disabled = true;
+    addEvent("client.models_unavailable", { message: error.message || String(error) });
   }
 }
 
@@ -274,6 +314,7 @@ function loadState() {
     if (savedUser) state.user = savedUser;
     if (typeof saved.smithSessionId === "string") state.smithSessionId = saved.smithSessionId;
     if (typeof saved.externalSessionId === "string") state.externalSessionId = saved.externalSessionId;
+    if (typeof saved.modelKey === "string") state.modelKey = saved.modelKey;
   } catch {
     localStorage.removeItem(STORAGE_KEY);
   }
@@ -283,9 +324,10 @@ function saveState() {
   localStorage.setItem(
     STORAGE_KEY,
     JSON.stringify({
-      userId: state.user.id,
+      userId: state.user?.id || null,
       smithSessionId: state.smithSessionId,
       externalSessionId: state.externalSessionId,
+      modelKey: state.modelKey,
     })
   );
 }

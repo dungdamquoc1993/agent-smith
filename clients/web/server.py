@@ -46,6 +46,8 @@ class HrisSandboxHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
+        if path == "/api/oneai/models":
+            return self._relay_smith_models()
         if path in {"/", "/index.html"}:
             return self._serve_file(STATIC_DIR / "index.html")
         if path in {"/app.js", "/styles.css"}:
@@ -100,6 +102,23 @@ class HrisSandboxHandler(BaseHTTPRequestHandler):
         self.send_header("content-length", str(len(content)))
         self.end_headers()
         self.wfile.write(content)
+
+    def _relay_smith_models(self) -> None:
+        try:
+            with request.urlopen(f"{SMITH_URL}/api/models", timeout=10) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            self._send_json(payload)
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            self._send_json(
+                {"error": {"code": "smith_http_error", "message": detail}},
+                status=HTTPStatus.BAD_GATEWAY,
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            self._send_json(
+                {"error": {"code": "smith_unreachable", "message": str(exc)}},
+                status=HTTPStatus.BAD_GATEWAY,
+            )
 
     def _send_json(self, data: Any, *, status: HTTPStatus = HTTPStatus.OK) -> None:
         content = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -178,7 +197,7 @@ def build_smith_request(payload: dict[str, Any]) -> request.Request:
         "payload": {
             "prompt": prompt,
             "agentName": str(payload.get("agentName") or DEFAULT_AGENT_NAME),
-            "modelKey": str(payload.get("modelKey") or "openai"),
+            "modelKey": str(payload.get("modelKey") or "") or None,
         },
         "session": {
             "smithSessionId": payload.get("smithSessionId") or None,

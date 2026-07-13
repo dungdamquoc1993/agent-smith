@@ -124,11 +124,11 @@ def test_context_resolver_redacts_secret_metadata_and_limits_size() -> None:
 
 @pytest.mark.asyncio
 async def test_identity_resolution_creates_app_scoped_identity_only_when_database_is_configured() -> None:
-    database_url = getenv("AGENT_SMITH_TEST_DATABASE_URL")
-    if not database_url:
-        pytest.skip("AGENT_SMITH_TEST_DATABASE_URL is not configured")
+    postgres_url = getenv("AGENT_SMITH_TEST_POSTGRES_URL")
+    if not postgres_url:
+        pytest.skip("AGENT_SMITH_TEST_POSTGRES_URL is not configured")
 
-    engine = create_async_engine(database_url)
+    engine = create_async_engine(postgres_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     subject = f"adw-user-{uuid.uuid4().hex}"
     provider_id = uuid.uuid4()
@@ -178,11 +178,11 @@ async def test_identity_resolution_creates_app_scoped_identity_only_when_databas
 
 @pytest.mark.asyncio
 async def test_provider_auth_requires_api_key_and_prevents_provider_spoofing_when_database_is_configured() -> None:
-    database_url = getenv("AGENT_SMITH_TEST_DATABASE_URL")
-    if not database_url:
-        pytest.skip("AGENT_SMITH_TEST_DATABASE_URL is not configured")
+    postgres_url = getenv("AGENT_SMITH_TEST_POSTGRES_URL")
+    if not postgres_url:
+        pytest.skip("AGENT_SMITH_TEST_POSTGRES_URL is not configured")
 
-    engine = create_async_engine(database_url)
+    engine = create_async_engine(postgres_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     provider_id = uuid.uuid4()
     raw_api_key = f"ask_{uuid.uuid4().hex}"
@@ -252,11 +252,11 @@ async def test_provider_auth_requires_api_key_and_prevents_provider_spoofing_whe
 
 @pytest.mark.asyncio
 async def test_session_service_rejects_cross_principal_session_when_database_is_configured() -> None:
-    database_url = getenv("AGENT_SMITH_TEST_DATABASE_URL")
-    if not database_url:
-        pytest.skip("AGENT_SMITH_TEST_DATABASE_URL is not configured")
+    postgres_url = getenv("AGENT_SMITH_TEST_POSTGRES_URL")
+    if not postgres_url:
+        pytest.skip("AGENT_SMITH_TEST_POSTGRES_URL is not configured")
 
-    engine = create_async_engine(database_url)
+    engine = create_async_engine(postgres_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     service = SessionService(factory, principal_display_name="unused")
     principal_a = uuid.uuid4()

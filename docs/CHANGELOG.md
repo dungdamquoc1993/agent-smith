@@ -8,6 +8,15 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 
 ## [Unreleased]
 
+### Changed - Catalog-driven model switcher
+
+- Bo nhom `AGENT_SMITH_TEST_MODEL` / `AGENT_SMITH_TEST_*_MODEL` khoi runtime config; model switcher gio doc model catalog va loc provider theo credential dang co.
+- Them endpoint `GET /api/models` va cho fake HRIS client nap model dong thay vi hardcode option.
+- Them `OPENROUTER_API_KEY` vao env mau; OpenRouter catalog entries tu dong xuat hien khi key duoc cau hinh.
+- Cau hinh model mac dinh qua `AGENT_SMITH_DEFAULT_MODEL` (`gpt-5.5`) va bo legacy model aliases.
+- Chuyen public model key thanh provider-agnostic, route toan bo catalog model moi qua OpenRouter, va khong expose provider/model ID noi bo qua API switcher.
+- Doi app DSN tu `DATABASE_URL` sang `AGENT_SMITH_POSTGRES_URL` de phan biet ro datastore khi bo sung database khac.
+
 ### Added - Context frame v1
 
 - Them context frame runtime cho harness: inject synthetic `UserMessage` theo thu tu metadata -> recent conversations -> user knowledge memory, truoc conversation hien tai va khong persist nhu message thuong.
@@ -125,7 +134,7 @@ Milestone dau tien: Python project base, unified AI layer, va core Postgres tabl
 - [`pyproject.toml`](../pyproject.toml) — Poetry project, Python `^3.11`, package `agent-smith` tu `src/`.
 - [`poetry.lock`](../poetry.lock) — lock dependencies.
 - [`.venv/`](../.venv) — virtualenv trong project (`poetry config virtualenvs.in-project true`).
-- [`.env.example`](../.env.example) — mau bien moi truong (`OPENAI_API_KEY`, `DATABASE_URL`, ...).
+- [`.env.example`](../.env.example) — mau bien moi truong (`OPENAI_API_KEY`, `AGENT_SMITH_POSTGRES_URL`, ...).
 - [`README.md`](../README.md) — huong dan setup, demo, test.
 - [`.gitignore`](../.gitignore) — bo qua `.venv`, `.env`, cache, ...
 

@@ -68,7 +68,7 @@ class ResourceService:
                     "Keep answers concise and use the user's preferred language."
                 ),
                 "thinkingLevel": "high",
-                "model": "gpt-4o-mini",
+                "model": "gpt-5.5",
                 "toolsAllow": [],
             },
         }

@@ -5,6 +5,7 @@ from agent_smith.core.llm.events import AssistantMessageEventStream, create_assi
 from agent_smith.core.llm.models import (
     clear_models,
     get_model,
+    get_model_by_key,
     get_models,
     get_providers,
     load_models_from_file,
@@ -68,6 +69,7 @@ __all__ = [
     "create_assistant_message_event_stream",
     "clear_models",
     "get_model",
+    "get_model_by_key",
     "get_models",
     "get_providers",
     "load_models_from_file",
