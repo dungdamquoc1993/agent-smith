@@ -1,5 +1,16 @@
 """Capability ports consumed by application use cases."""
 
+from agent_smith.app.ports.files import (
+    BlobObjectStat,
+    BlobStorageError,
+    BlobStore,
+    FileCatalog,
+    FileCursor,
+    FileRecord,
+    FileStatus,
+    PendingFileRecord,
+    PresignedRequest,
+)
 from agent_smith.app.ports.identity import (
     IdentityKeyStatus,
     IdentityPrincipal,
@@ -20,6 +31,13 @@ from agent_smith.app.ports.sessions import (
 )
 
 __all__ = [
+    "BlobObjectStat",
+    "BlobStorageError",
+    "BlobStore",
+    "FileCatalog",
+    "FileCursor",
+    "FileRecord",
+    "FileStatus",
     "IdentityKeyStatus",
     "IdentityPrincipal",
     "IdentityProviderAdminStore",
@@ -30,6 +48,8 @@ __all__ = [
     "PrincipalRecord",
     "PrincipalIdentityStore",
     "PrincipalSessionDirectory",
+    "PendingFileRecord",
+    "PresignedRequest",
     "SessionCatalog",
     "SessionRecord",
     "ProviderApiKeyRecord",

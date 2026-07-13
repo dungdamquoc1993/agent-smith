@@ -8,9 +8,14 @@ from typing import Any
 
 from agent_smith.app.auth import AppAssertionVerifier, parse_trusted_apps
 from agent_smith.app.services.agent_runs import AgentRunService
+from agent_smith.app.services.authentication import PrincipalAuthenticationService
+from agent_smith.app.services.files import FileService
 from agent_smith.app.services.identity import PrincipalIdentityService
 from agent_smith.app.services.identity_providers import IdentityProviderManagementService
-from agent_smith.app.services.provider_auth import IdentityProviderAuthService, IdentityProviderSecretCodec
+from agent_smith.app.services.provider_auth import (
+    IdentityProviderAuthService,
+    IdentityProviderSecretCodec,
+)
 from agent_smith.app.services.resources import ResourceService
 from agent_smith.app.services.sessions import SessionService, principal_payload
 from agent_smith.app.services.tasks import TaskService
@@ -22,13 +27,17 @@ from agent_smith.infra.storage.postgres.adapters import (
     PostgresRecentConversationProvider,
     PostgresResourceStore,
     PostgresIdentityStore,
+    PostgresFileCatalog,
     PostgresSessionCatalog,
 )
 from agent_smith.infra.storage.postgres.database import get_engine, get_session_factory
+from agent_smith.infra.storage.s3 import S3BlobStore, create_s3_client
 
 
 DEFAULT_PRINCIPAL_DISPLAY_NAME = "Test Principal"
 DEFAULT_AGENT_NAME = "test_assistant"
+
+
 class AppContainer:
     def __init__(self) -> None:
         settings = get_settings()
@@ -63,6 +72,10 @@ class AppContainer:
             assertion_verifier=assertion_verifier,
             secret_codec=identity_secret_codec,
         )
+        self.authentication = PrincipalAuthenticationService(
+            self.provider_auth,
+            self.identities,
+        )
         self.identity_providers = IdentityProviderManagementService(
             identity_store,
             secret_codec=identity_secret_codec,
@@ -72,13 +85,29 @@ class AppContainer:
             default_agent_name=os.environ.get("AGENT_SMITH_TEST_AGENT_NAME", DEFAULT_AGENT_NAME),
         )
         self.tasks = TaskService(MemoryTaskRuntime())
+        self.files = FileService(
+            PostgresFileCatalog(session_factory),
+            S3BlobStore(
+                create_s3_client(
+                    endpoint_url=settings.s3_endpoint_url,
+                    region=settings.s3_region,
+                    access_key_id=settings.s3_access_key_id,
+                    secret_access_key=settings.s3_secret_access_key,
+                    path_style=settings.s3_path_style,
+                ),
+                bucket=settings.s3_bucket,
+            ),
+            max_bytes=settings.file_max_bytes,
+            presign_ttl_seconds=settings.s3_presign_ttl_seconds,
+            pending_ttl_seconds=settings.file_pending_ttl_seconds,
+            deleted_retention_seconds=settings.file_deleted_retention_seconds,
+        )
         self.agent_runs = AgentRunService(
             session_service=self.sessions,
             resource_service=self.resources,
             default_permission_mode=settings.default_permission_mode,
             default_model_key=settings.default_model,
-            provider_auth_service=self.provider_auth,
-            identity_service=self.identities,
+            authentication_service=self.authentication,
             recent_conversation_provider=PostgresRecentConversationProvider(session_factory),
         )
 

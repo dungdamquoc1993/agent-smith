@@ -55,7 +55,7 @@ class IdentityProviderAuthService:
         self._assertion_verifier = assertion_verifier
         self._secret_codec = secret_codec
 
-    async def verify_invocation(
+    async def verify_actor(
         self,
         *,
         provider_api_key: str | None,
@@ -72,6 +72,18 @@ class IdentityProviderAuthService:
         )
         await self._store.mark_api_key_used(api_key.id, datetime.now(UTC))
         return actor
+
+    async def verify_invocation(
+        self,
+        *,
+        provider_api_key: str | None,
+        authorization: str | None,
+    ) -> VerifiedActor:
+        """Backward-compatible alias for callers predating shared API authentication."""
+        return await self.verify_actor(
+            provider_api_key=provider_api_key,
+            authorization=authorization,
+        )
 
     async def _resolve_provider_api_key(
         self,

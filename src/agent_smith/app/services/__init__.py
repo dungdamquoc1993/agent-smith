@@ -1,6 +1,8 @@
 """Application use-case services."""
 
 from agent_smith.app.services.agent_runs import AgentRunService
+from agent_smith.app.services.authentication import PrincipalAuthenticationService
+from agent_smith.app.services.files import FileService
 from agent_smith.app.services.identity import PrincipalIdentityService
 from agent_smith.app.services.identity_providers import IdentityProviderManagementService
 from agent_smith.app.services.provider_auth import IdentityProviderAuthService
@@ -10,7 +12,9 @@ from agent_smith.app.services.tasks import TaskService
 
 __all__ = [
     "AgentRunService",
+    "FileService",
     "PrincipalIdentityService",
+    "PrincipalAuthenticationService",
     "IdentityProviderManagementService",
     "IdentityProviderAuthService",
     "ResourceService",

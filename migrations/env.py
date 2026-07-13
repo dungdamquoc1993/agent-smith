@@ -17,6 +17,7 @@ from agent_smith.infra.storage.postgres.database import Base
 # Import models so metadata is populated
 from agent_smith.infra.storage.postgres.models import (  # noqa: F401
     ExternalIdentity,
+    File,
     IdentityProvider,
     IdentityProviderApiKey,
     IdentityProviderAssertionKey,

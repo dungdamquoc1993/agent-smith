@@ -22,8 +22,7 @@ def test_core_does_not_depend_on_concrete_storage() -> None:
         str(path.relative_to(SRC)): module
         for path in (SRC / "core").rglob("*.py")
         for module in _imported_modules(path)
-        if module == "agent_smith.infra.storage"
-        or module.startswith("agent_smith.infra.storage.")
+        if module == "agent_smith.infra.storage" or module.startswith("agent_smith.infra.storage.")
     }
     assert violations == {}
 
@@ -49,5 +48,20 @@ def test_sqlalchemy_is_confined_to_postgres_storage_backend() -> None:
         if not path.is_relative_to(allowed_root)
         for module in _imported_modules(path)
         if module == "sqlalchemy" or module.startswith("sqlalchemy.")
+    }
+    assert violations == {}
+
+
+def test_s3_sdk_is_confined_to_s3_storage_backend() -> None:
+    allowed_root = SRC / "infra" / "storage" / "s3"
+    violations = {
+        str(path.relative_to(SRC)): module
+        for path in SRC.rglob("*.py")
+        if not path.is_relative_to(allowed_root)
+        for module in _imported_modules(path)
+        if module == "boto3"
+        or module.startswith("boto3.")
+        or module == "botocore"
+        or module.startswith("botocore.")
     }
     assert violations == {}

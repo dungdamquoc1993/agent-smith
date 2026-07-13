@@ -22,6 +22,7 @@ from agent_smith.transports.http.admin_identity_provider_routes import (
     router as admin_identity_provider_router,
 )
 from agent_smith.transports.http.common import AgentSmithHttpError, error_response, json_response
+from agent_smith.transports.http.file_routes import FILE_ROUTES, router as file_router
 from agent_smith.transports.http.runtime_routes import RUNTIME_ROUTES, router as runtime_router
 
 warnings.filterwarnings(
@@ -65,6 +66,7 @@ def create_app(
     )
     app.include_router(runtime_router)
     app.include_router(admin_identity_provider_router)
+    app.include_router(file_router)
 
     @app.exception_handler(AgentSmithHttpError)
     async def handle_http_error(_request: Any, exc: AgentSmithHttpError):
@@ -88,6 +90,7 @@ def create_app(
                 "routes": [
                     *RUNTIME_ROUTES,
                     *ADMIN_IDENTITY_PROVIDER_ROUTES,
+                    *FILE_ROUTES,
                 ],
             }
         )

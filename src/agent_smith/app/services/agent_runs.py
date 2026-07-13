@@ -13,8 +13,7 @@ from agent_smith.app.auth import AppAssertionError
 from agent_smith.app.context import ContextResolutionError, ContextResolver
 from agent_smith.app.invocation import AgentInvocation, VerifiedActor
 from agent_smith.app.services.agent_run_traces import create_agent_run_trace, install_trace_hooks
-from agent_smith.app.services.identity import PrincipalIdentityService
-from agent_smith.app.services.provider_auth import IdentityProviderAuthService
+from agent_smith.app.services.authentication import PrincipalAuthenticationService
 from agent_smith.app.services.resources import ResourceService
 from agent_smith.app.services.sessions import SessionService
 from agent_smith.core.agent import AgentHarnessError
@@ -50,15 +49,13 @@ class AgentRunService:
         resource_service: ResourceService,
         default_permission_mode: str,
         default_model_key: str,
-        provider_auth_service: IdentityProviderAuthService | None = None,
-        identity_service: PrincipalIdentityService | None = None,
+        authentication_service: PrincipalAuthenticationService | None = None,
         context_resolver: ContextResolver | None = None,
         recent_conversation_provider: RecentConversationProvider | None = None,
     ) -> None:
         self._session_service = session_service
         self._resource_service = resource_service
-        self._provider_auth_service = provider_auth_service
-        self._identity_service = identity_service
+        self._authentication_service = authentication_service
         self._context_resolver = context_resolver or ContextResolver()
         self._recent_conversation_provider = recent_conversation_provider
         self.default_permission_mode = default_permission_mode
@@ -105,12 +102,16 @@ class AgentRunService:
             prompt = str(payload.get("prompt") or "").strip()
             if not prompt:
                 raise ValueError("prompt is required")
-            agent_name = str(payload.get("agentName") or self._resource_service.default_agent_name).strip()
+            agent_name = str(
+                payload.get("agentName") or self._resource_service.default_agent_name
+            ).strip()
             session_id = payload.get("sessionId")
             if session_id is not None:
                 session_id = str(session_id)
             raw_context_metadata = payload.get("contextMetadata")
-            context_metadata = raw_context_metadata if isinstance(raw_context_metadata, dict) else None
+            context_metadata = (
+                raw_context_metadata if isinstance(raw_context_metadata, dict) else None
+            )
             selected_model = self._selected_model(
                 str(payload.get("modelKey")) if payload.get("modelKey") is not None else None
             )
@@ -189,18 +190,18 @@ class AgentRunService:
         authorization: str | None,
         body: dict[str, Any],
     ) -> PreparedAgentInvocation:
-        if self._provider_auth_service is None or self._identity_service is None:
+        if self._authentication_service is None:
             raise AppAssertionError(
                 "assertion_auth_not_configured",
                 "App assertion authentication is not configured.",
             )
         invocation = AgentInvocation.model_validate(body)
-        actor = await self._provider_auth_service.verify_invocation(
+        authenticated = await self._authentication_service.authenticate(
             provider_api_key=provider_api_key,
             authorization=authorization,
         )
-        principal = await self._identity_service.resolve_principal(actor)
-        principal_id = str(principal.id)
+        actor = authenticated.actor
+        principal_id = authenticated.principal_id
         stable_context, turn_context, provenance = self._context_resolver.resolve(
             invocation=invocation,
             actor=actor,
@@ -351,7 +352,9 @@ class AgentRunService:
 
 
 def assistant_text(message: AssistantMessage) -> str:
-    return "\n".join(block.text for block in message.content if isinstance(block, TextContent)).strip()
+    return "\n".join(
+        block.text for block in message.content if isinstance(block, TextContent)
+    ).strip()
 
 
 async def _emit(emit: AgentRunEventSink, event: str, data: Any) -> None:

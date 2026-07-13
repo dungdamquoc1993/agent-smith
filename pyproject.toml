@@ -24,6 +24,7 @@ jsonschema = "^4.26.0"
 cryptography = "<49"  # 49+ drops macOS x86_64 wheels; Intel Macs would need a Rust build
 fastapi = "^0.139.0"
 uvicorn = "^0.51.0"
+boto3 = "^1.43.46"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"

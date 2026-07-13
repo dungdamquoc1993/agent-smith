@@ -42,6 +42,55 @@ class Settings(BaseSettings):
         default="{}",
         validation_alias="AGENT_SMITH_TRUSTED_APPS_JSON",
     )
+    s3_endpoint_url: str | None = Field(
+        default="http://localhost:9000",
+        validation_alias="AGENT_SMITH_S3_ENDPOINT_URL",
+    )
+    s3_region: str = Field(
+        default="us-east-1",
+        min_length=1,
+        validation_alias="AGENT_SMITH_S3_REGION",
+    )
+    s3_bucket: str = Field(
+        default="agent-smith",
+        min_length=1,
+        validation_alias="AGENT_SMITH_S3_BUCKET",
+    )
+    s3_access_key_id: str = Field(
+        default="smith",
+        min_length=1,
+        validation_alias="AGENT_SMITH_S3_ACCESS_KEY_ID",
+    )
+    s3_secret_access_key: str = Field(
+        default="smithsmith",
+        min_length=1,
+        validation_alias="AGENT_SMITH_S3_SECRET_ACCESS_KEY",
+    )
+    s3_path_style: bool = Field(
+        default=True,
+        validation_alias="AGENT_SMITH_S3_PATH_STYLE",
+    )
+    s3_presign_ttl_seconds: int = Field(
+        default=900,
+        ge=60,
+        le=3600,
+        validation_alias="AGENT_SMITH_S3_PRESIGN_TTL_SECONDS",
+    )
+    file_max_bytes: int = Field(
+        default=50 * 1024 * 1024,
+        gt=0,
+        validation_alias="AGENT_SMITH_FILE_MAX_BYTES",
+    )
+    file_pending_ttl_seconds: int = Field(
+        default=3600,
+        ge=60,
+        validation_alias="AGENT_SMITH_FILE_PENDING_TTL_SECONDS",
+    )
+    file_deleted_retention_seconds: int = Field(
+        default=7 * 24 * 3600,
+        ge=0,
+        validation_alias="AGENT_SMITH_FILE_DELETED_RETENTION_SECONDS",
+    )
 
 
 @lru_cache

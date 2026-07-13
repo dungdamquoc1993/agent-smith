@@ -2,3 +2,4 @@ name: agent-smith
 
 include:
   - compose/dependencies/compose.postgres.yml
+  - compose/dependencies/compose.minio.yml
