@@ -297,6 +297,52 @@ Quy tắc:
 
 ## Milestone 3 — Session attachments và image input
 
+### Quyết định kiến trúc đã chốt
+
+- [x] Persisted session content dùng generic `FileReferenceContent` gồm
+  `fileId`, `mimeType` và `displayName`; không persist binary/base64 mới.
+- [x] `FileReferenceContent` thuộc session contract trong Core nhưng chỉ là một
+  immutable reference. Core/Harness không import hoặc gọi `FileService`,
+  `BlobStore`, S3 hay R2.
+- [x] Persisted message và provider-ready message là hai representation riêng.
+  App inject async resolver/`convert_to_llm` để materialize reference thành
+  `ImageContent` ngay trước provider request.
+- [x] Public invocation contract dùng `payload.attachments`, không dùng mảng
+  `fileIds` thuần:
+
+  ```json
+  {
+    "payload": {
+      "prompt": "Phân tích ảnh này",
+      "attachments": [
+        {"fileId": "..."}
+      ]
+    }
+  }
+  ```
+
+- [x] `purpose` của binding do server quản lý; M3 dùng giá trị `input`.
+- [x] `session_entry_files.session_entry_id` dùng `ON DELETE CASCADE`;
+  `file_id` dùng `ON DELETE RESTRICT`.
+- [x] Xóa file đã attach sẽ ẩn file khỏi library, cấm download/reuse và xóa
+  object sau retention. Session giữ tombstone/reference để bảo toàn lịch sử và
+  audit; metadata chưa được hard-delete khi còn session reference.
+- [x] Fork session clone attachment bindings sang entry mới nhưng dùng lại cùng
+  `file_id`; không copy object hoặc binary.
+- [x] Image hợp lệ đi thẳng từ `uploaded` sang `ready`; document tiếp tục ở
+  `uploaded` cho đến Milestone 4.
+- [x] M3 chỉ materialize PNG, JPEG, GIF và WebP; model phải khai báo hỗ trợ
+  `image`.
+- [x] Inline base64 cũ được đọc để backward compatibility nhưng mọi write mới
+  đều dùng file reference; không chạy migration đổi dữ liệu cũ.
+- [x] Active session branch materialize các image references còn trong context
+  để hỗ trợ hỏi tiếp về ảnh cũ. Recent conversations từ session khác không tự
+  động materialize attachment.
+- [x] Giới hạn mặc định là 8 attachments mỗi invocation và tổng 20 MiB image
+  bytes được materialize; cả hai đều configurable.
+- [x] M3 chưa triển khai provider file-upload/cache API; đây là optimization về
+  sau, không thay đổi persisted contract.
+
 ### Database
 
 - [ ] Tạo migration `011_session_entry_files.py`.
@@ -305,9 +351,10 @@ Quy tắc:
   - [ ] `file_id UUID REFERENCES files(id)`
   - [ ] `position INTEGER NOT NULL`
   - [ ] `purpose VARCHAR(64) NOT NULL`
-- [ ] Chọn composite primary key/unique constraints phù hợp.
+- [ ] Dùng primary key `(session_entry_id, position)` và unique constraint
+  `(session_entry_id, file_id, purpose)` để giữ thứ tự và chặn duplicate binding.
 - [ ] Thêm index theo `session_entry_id` và `file_id`.
-- [ ] Chốt delete behavior để session history không mất audit reference.
+- [x] Chốt delete behavior để session history không mất audit reference.
 
 ### Persisted message contract
 
@@ -319,7 +366,7 @@ Quy tắc:
 
 ### Invocation và App resolution
 
-- [ ] Bổ sung `fileIds`/attachments vào `AgentInvocationPayload`.
+- [ ] Bổ sung `attachments: [{fileId}]` vào `AgentInvocationPayload`.
 - [ ] Validate mọi file thuộc cùng `principal_id` với invocation.
 - [ ] Reject file chưa `ready`.
 - [ ] Reject MIME/model input không được hỗ trợ.
@@ -328,13 +375,15 @@ Quy tắc:
 - [ ] Không giữ S3 connection hoặc bytes lâu hơn một provider turn.
 - [ ] Cân nhắc provider upload API/cache nếu base64 per request quá tốn kém.
 
-### Harness/provider boundary
+### Session/Harness/provider boundary
 
-- [ ] Harness chỉ nhận resolved text/image content.
+- [ ] Session contract có thể giữ generic file reference; provider request chỉ
+  nhận resolved text/image content.
 - [ ] S3/file services không được import vào Core/Harness.
 - [ ] Dùng async `convert_to_llm`/context transformation để resolve references.
 - [ ] Compaction/session replay giữ file reference, không duplicate binary.
-- [ ] Recent conversation context không tự động load mọi attachment nếu không cần.
+- [ ] Active branch materialize reference còn trong context; recent conversation
+  context không tự động load attachment từ session khác.
 
 ### Tests
 
