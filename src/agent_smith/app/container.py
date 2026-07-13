@@ -6,8 +6,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import text
-
 from agent_smith.app.auth import AppAssertionVerifier, parse_trusted_apps
 from agent_smith.app.services.agent_runs import AgentRunService
 from agent_smith.app.services.identity import PrincipalIdentityService
@@ -19,7 +17,14 @@ from agent_smith.app.services.tasks import TaskService
 from agent_smith.core.llm import bootstrap_providers
 from agent_smith.core.tasks import MemoryTaskRuntime
 from agent_smith.infra.config import get_settings
-from agent_smith.infra.db.base import get_engine, get_session_factory
+from agent_smith.infra.storage.postgres.adapters import (
+    PostgresPrincipalSessionDirectory,
+    PostgresRecentConversationProvider,
+    PostgresResourceStore,
+    PostgresIdentityStore,
+    PostgresSessionCatalog,
+)
+from agent_smith.infra.storage.postgres.database import get_engine, get_session_factory
 
 
 DEFAULT_PRINCIPAL_DISPLAY_NAME = "Test Principal"
@@ -28,15 +33,20 @@ class AppContainer:
     def __init__(self) -> None:
         settings = get_settings()
         session_factory = get_session_factory()
+        session_catalog = PostgresSessionCatalog(session_factory)
+        session_directory = PostgresPrincipalSessionDirectory(session_factory)
+        resource_store = PostgresResourceStore(session_factory)
+        identity_store = PostgresIdentityStore(session_factory)
         self.settings = settings
         self.sessions = SessionService(
-            session_factory,
+            session_directory,
+            session_catalog,
             principal_display_name=os.environ.get(
                 "AGENT_SMITH_TEST_PRINCIPAL_NAME",
                 DEFAULT_PRINCIPAL_DISPLAY_NAME,
             ),
         )
-        self.identities = PrincipalIdentityService(session_factory)
+        self.identities = PrincipalIdentityService(identity_store)
         assertion_verifier = AppAssertionVerifier(
             parse_trusted_apps(
                 audience=settings.assertion_audience,
@@ -49,16 +59,16 @@ class AppContainer:
             else None
         )
         self.provider_auth = IdentityProviderAuthService(
-            session_factory,
+            identity_store,
             assertion_verifier=assertion_verifier,
             secret_codec=identity_secret_codec,
         )
         self.identity_providers = IdentityProviderManagementService(
-            session_factory,
+            identity_store,
             secret_codec=identity_secret_codec,
         )
         self.resources = ResourceService(
-            session_factory,
+            resource_store,
             default_agent_name=os.environ.get("AGENT_SMITH_TEST_AGENT_NAME", DEFAULT_AGENT_NAME),
         )
         self.tasks = TaskService(MemoryTaskRuntime())
@@ -69,6 +79,7 @@ class AppContainer:
             default_model_key=settings.default_model,
             provider_auth_service=self.provider_auth,
             identity_service=self.identities,
+            recent_conversation_provider=PostgresRecentConversationProvider(session_factory),
         )
 
     def bootstrap_providers(self) -> None:
@@ -77,7 +88,7 @@ class AppContainer:
     async def bootstrap(self) -> dict[str, Any]:
         engine = get_engine()
         async with engine.connect() as connection:
-            await connection.execute(text("select 1"))
+            await connection.exec_driver_sql("select 1")
         principal = await self.sessions.ensure_principal()
         return {
             "postgres": {"ok": True, "url": self.settings.postgres_url},

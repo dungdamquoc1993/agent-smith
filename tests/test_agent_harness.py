@@ -26,9 +26,9 @@ from agent_smith.core.agent import (
     format_skills_for_system_reminder,
     format_user_memory_for_system_reminder,
 )
-from agent_smith.infra.db.base import Base
-from agent_smith.infra.db.models.principal import Principal
-from agent_smith.infra.persistence.postgres_sessions import PostgresSessionRepo
+from agent_smith.infra.storage.postgres.adapters.sessions import PostgresSessionCatalog
+from agent_smith.infra.storage.postgres.database import Base
+from agent_smith.infra.storage.postgres.models.principal import Principal
 from agent_smith.core.llm.events import create_assistant_message_event_stream
 from agent_smith.core.llm.models import make_litellm_model
 from agent_smith.core.llm.types import (
@@ -197,7 +197,7 @@ async def test_postgres_session_repo_roundtrip_when_database_is_configured() -> 
                 )
             )
 
-        repo = PostgresSessionRepo(factory)
+        repo = PostgresSessionCatalog(factory)
         session = await repo.create(principal_id=str(principal_id), title="harness")
         await session.append_message(_user("hi"))
 

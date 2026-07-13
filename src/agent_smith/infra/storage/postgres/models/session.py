@@ -11,7 +11,7 @@ from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from agent_smith.infra.db.base import Base
+from agent_smith.infra.storage.postgres.database import Base
 
 
 class SessionKind(str, enum.Enum):
@@ -84,7 +84,9 @@ class SessionEntry(Base):
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("session_entries.id", ondelete="SET NULL"), nullable=True
     )
-    type: Mapped[SessionEntryType] = mapped_column(Enum(SessionEntryType, name="session_entry_type"), nullable=False)
+    type: Mapped[SessionEntryType] = mapped_column(
+        Enum(SessionEntryType, name="session_entry_type"), nullable=False
+    )
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     principal_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("principals.id", ondelete="SET NULL"), nullable=True

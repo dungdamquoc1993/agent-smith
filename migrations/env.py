@@ -12,10 +12,10 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from agent_smith.infra.config import get_settings
-from agent_smith.infra.db.base import Base
+from agent_smith.infra.storage.postgres.database import Base
 
 # Import models so metadata is populated
-from agent_smith.infra.db.models import (  # noqa: F401
+from agent_smith.infra.storage.postgres.models import (  # noqa: F401
     ExternalIdentity,
     IdentityProvider,
     IdentityProviderApiKey,

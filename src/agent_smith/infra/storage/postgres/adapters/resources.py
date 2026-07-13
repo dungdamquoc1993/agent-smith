@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
-from agent_smith.infra.db.models.resource import (
+from agent_smith.infra.storage.postgres.models.resource import (
     Resource as DbResource,
     ResourceKindEnum,
     ResourceScopeEnum,
@@ -126,9 +126,7 @@ class PostgresResourceStore(ResourceStore):
         update: ResourceUpdate | dict[str, Any],
     ) -> ResourceRecord:
         resolved = (
-            update
-            if isinstance(update, ResourceUpdate)
-            else ResourceUpdate.model_validate(update)
+            update if isinstance(update, ResourceUpdate) else ResourceUpdate.model_validate(update)
         )
         async with self._session_factory() as db, db.begin():
             row = await self._get_row_for_update(db, kind, name)
@@ -183,8 +181,7 @@ class PostgresResourceStore(ResourceStore):
             data["scope"] = self.default_scope
         if data.get("scope", self.default_scope) != self.default_scope:
             raise ResourceStoreError(
-                "PostgresResourceStore only manages one scope per instance: "
-                f"{self.default_scope}"
+                f"PostgresResourceStore only manages one scope per instance: {self.default_scope}"
             )
         if not explicit_source_type:
             data["sourceType"] = "postgres"

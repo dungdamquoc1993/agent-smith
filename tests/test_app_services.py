@@ -12,9 +12,13 @@ from agent_smith.app.services.sessions import SessionService
 from agent_smith.app.services.tasks import TaskService
 from agent_smith.core.llm.types import AssistantMessage, TextContent
 from agent_smith.core.tasks import MemoryTaskRuntime, TaskContext
-from agent_smith.infra.db.base import Base
-from agent_smith.infra.db.models.principal import Principal
-from agent_smith.infra.persistence.postgres_resources import PostgresResourceStore
+from agent_smith.infra.storage.postgres.adapters import (
+    PostgresPrincipalSessionDirectory,
+    PostgresResourceStore,
+    PostgresSessionCatalog,
+)
+from agent_smith.infra.storage.postgres.database import Base
+from agent_smith.infra.storage.postgres.models.principal import Principal
 from agent_smith.transports.http.sse import json_dumps
 
 
@@ -27,7 +31,11 @@ async def test_session_service_seed_principal_idempotent_when_database_is_config
     engine = create_async_engine(postgres_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     display_name = f"Test Principal {uuid.uuid4().hex}"
-    service = SessionService(factory, principal_display_name=display_name)
+    service = SessionService(
+        PostgresPrincipalSessionDirectory(factory),
+        PostgresSessionCatalog(factory),
+        principal_display_name=display_name,
+    )
     try:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
@@ -56,7 +64,8 @@ async def test_resource_service_seed_default_agent_idempotent_when_database_is_c
     engine = create_async_engine(postgres_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     agent_name = f"test_assistant_{uuid.uuid4().hex}"
-    service = ResourceService(factory, default_agent_name=agent_name)
+    store = PostgresResourceStore(factory)
+    service = ResourceService(store, default_agent_name=agent_name)
     try:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
@@ -71,10 +80,10 @@ async def test_resource_service_seed_default_agent_idempotent_when_database_is_c
         assert record.content["systemPrompt"]
         assert record.content["toolsAllow"] == []
     finally:
-        store = PostgresResourceStore(factory)
-        existing = await store.get_resource("agent_definition", agent_name)
+        cleanup_store = PostgresResourceStore(factory)
+        existing = await cleanup_store.get_resource("agent_definition", agent_name)
         if existing is not None:
-            await store.delete_resource("agent_definition", agent_name)
+            await cleanup_store.delete_resource("agent_definition", agent_name)
         await engine.dispose()
 
 

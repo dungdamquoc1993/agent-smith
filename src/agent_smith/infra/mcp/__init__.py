@@ -5,7 +5,6 @@ from agent_smith.infra.mcp.credentials import (
     McpCredentialCodec,
     McpCredentialStore,
     MemoryMcpCredentialStore,
-    PostgresMcpCredentialStore,
     generate_mcp_credentials_key,
 )
 from agent_smith.infra.mcp.errors import McpAuthRequiredError, McpCredentialError, McpRuntimeError
@@ -56,7 +55,6 @@ __all__ = [
     "McpToolIdentity",
     "McpTransportFactory",
     "MemoryMcpCredentialStore",
-    "PostgresMcpCredentialStore",
     "READ_MCP_RESOURCE_TOOL_NAME",
     "SdkMcpTransportFactory",
     "coerce_server_config",

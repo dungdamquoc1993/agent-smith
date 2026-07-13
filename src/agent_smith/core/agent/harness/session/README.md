@@ -35,7 +35,8 @@ nhưng caller cũng có thể cung cấp implementation khác.
 
 - Core chỉ định nghĩa behavior và persistence port của một session.
 - Concrete storage nằm ở infra, hiện tại là `PostgresSessionStorage`.
-- Application layer chọn cách create/open/fork/list session qua concrete persistence adapter.
+- Application layer chọn cách create/open/fork/list session qua `SessionCatalog` port.
+- `PostgresSessionCatalog` thực hiện lifecycle; riêng `fork` là một transaction atomic.
 - In-memory implementation chỉ là test double dưới `tests/helpers`, không phải runtime backend.
 
 Harness không nhận repository và không quản lý tập hợp session.
@@ -57,9 +58,9 @@ Ghi luôn append-only; đổi nhánh bằng `move_to(entry_id)` (chỉ đổi le
 ## Ví dụ application wiring
 
 ```python
-repo = PostgresSessionRepo(session_factory)
+catalog = PostgresSessionCatalog(session_factory)
 
-session = await repo.create(principal_id="user-1")
+session = await catalog.create(principal_id="user-1")
 harness = AgentHarness(session=session, model=model)
 
 await session.append_message(user_msg)
@@ -67,14 +68,14 @@ await session.append_message(assistant_msg)
 
 ctx = await session.build_context()
 
-session2 = await repo.open({"id": session_id})
-fork = await repo.fork(source={"id": session_id})
+session2 = await catalog.open({"id": session_id})
+fork = await catalog.fork(source={"id": session_id})
 ```
 
 Agent-run session dùng cùng contract, chỉ khác metadata:
 
 ```python
-child = await repo.create(
+child = await catalog.create(
     principal_id="user-1",
     kind="agent_run",
     parent_session_id=session_id,

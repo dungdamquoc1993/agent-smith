@@ -9,7 +9,7 @@ from sqlalchemy import DateTime, Index, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from agent_smith.infra.db.base import Base
+from agent_smith.infra.storage.postgres.database import Base
 
 
 class McpCredentialRecord(Base):

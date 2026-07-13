@@ -25,13 +25,13 @@ from agent_smith.infra.mcp import (
     McpToolCallResult,
     McpToolDefinition,
     MemoryMcpCredentialStore,
-    PostgresMcpCredentialStore,
     generate_mcp_credentials_key,
 )
 from agent_smith.core.llm.models import make_litellm_model
 from agent_smith.core.llm.types import ImageContent, TextContent
-from agent_smith.infra.db.base import Base
-from agent_smith.infra.db.models.mcp import McpCredentialRecord
+from agent_smith.infra.storage.postgres.database import Base
+from agent_smith.infra.storage.postgres.adapters import PostgresMcpCredentialStore
+from agent_smith.infra.storage.postgres.models.mcp import McpCredentialRecord
 from agent_smith.core.resources import ResourceResolver
 from agent_smith.core.runtime import AgentFactory, ToolRegistry
 from helpers.resource_stores import MemoryResourceStore
@@ -474,7 +474,9 @@ async def test_dynamic_mcp_tool_raises_on_mcp_error_and_transport_failure() -> N
     failed = McpConnectionManager(
         transport_factory=FakeTransportFactory(error=RuntimeError("Unauthorized 401"))
     )
-    failed_materialized = await failed.materialize_tools({"remote": {"type": "http", "url": "https://mcp"}})
+    failed_materialized = await failed.materialize_tools(
+        {"remote": {"type": "http", "url": "https://mcp"}}
+    )
 
     assert failed_materialized.tools == []
     assert failed_materialized.states[0].status == "needs_auth"
@@ -543,7 +545,9 @@ async def test_resource_wrapper_tools_list_and_read_resource_content() -> None:
             "file://one": [
                 McpResourceContent(uri="file://one", mimeType="text/plain", text="hello"),
                 McpResourceContent(uri="file://img", mimeType="image/png", blob="aW1n"),
-                McpResourceContent(uri="file://bin", mimeType="application/octet-stream", blob=binary_blob),
+                McpResourceContent(
+                    uri="file://bin", mimeType="application/octet-stream", blob=binary_blob
+                ),
             ]
         },
     )
@@ -572,4 +576,6 @@ async def test_resource_wrapper_tools_list_and_read_resource_content() -> None:
     assert read.details["contents"][2]["blobSize"] == 6
 
     with pytest.raises(Exception, match="Unknown MCP server"):
-        await tools[LIST_MCP_RESOURCES_TOOL_NAME].execute("list-2", {"server": "missing"}, None, None)
+        await tools[LIST_MCP_RESOURCES_TOOL_NAME].execute(
+            "list-2", {"server": "missing"}, None, None
+        )

@@ -18,6 +18,7 @@ from agent_smith.app.services.provider_auth import IdentityProviderAuthService
 from agent_smith.app.services.resources import ResourceService
 from agent_smith.app.services.sessions import SessionService
 from agent_smith.core.agent import AgentHarnessError
+from agent_smith.core.agent.harness.context_types import RecentConversationProvider
 from agent_smith.core.agent.harness.session.session import Session
 from agent_smith.core.llm import get_models, get_providers
 from agent_smith.core.llm.env_keys import is_provider_configured
@@ -25,7 +26,6 @@ from agent_smith.core.llm.types import AssistantMessage, JsonObject, Model, Text
 from agent_smith.core.resources import ResourceResolver
 from agent_smith.core.runtime import AgentFactory
 from agent_smith.core.tools.registry import create_base_tool_registry
-from agent_smith.infra.persistence import PostgresRecentConversationProvider
 
 AgentRunEventSink: TypeAlias = Callable[[str, Any], Awaitable[None] | None]
 SMITH_STREAM_VERSION = "2026-07-07"
@@ -53,12 +53,14 @@ class AgentRunService:
         provider_auth_service: IdentityProviderAuthService | None = None,
         identity_service: PrincipalIdentityService | None = None,
         context_resolver: ContextResolver | None = None,
+        recent_conversation_provider: RecentConversationProvider | None = None,
     ) -> None:
         self._session_service = session_service
         self._resource_service = resource_service
         self._provider_auth_service = provider_auth_service
         self._identity_service = identity_service
         self._context_resolver = context_resolver or ContextResolver()
+        self._recent_conversation_provider = recent_conversation_provider
         self.default_permission_mode = default_permission_mode
         self.default_model_key = default_model_key
 
@@ -127,9 +129,7 @@ class AgentRunService:
                 model_resolver=lambda _definition: selected_model,
                 default_permission_mode=self.default_permission_mode,
                 context_metadata=context_metadata,
-                recent_conversation_provider=PostgresRecentConversationProvider(
-                    self._session_service.session_factory
-                ),
+                recent_conversation_provider=self._recent_conversation_provider,
             )
             session = await self._session_service.open_or_create_session(session_id)
             metadata = await session.get_metadata()
@@ -286,9 +286,7 @@ class AgentRunService:
                 model_resolver=lambda _definition: selected_model,
                 default_permission_mode=self.default_permission_mode,
                 context_metadata=prepared.stable_context,
-                recent_conversation_provider=PostgresRecentConversationProvider(
-                    self._session_service.session_factory
-                ),
+                recent_conversation_provider=self._recent_conversation_provider,
             )
             harness = await factory.create_harness(agent_name, session=prepared.session)
             trace = create_agent_run_trace(

@@ -4,20 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-from agent_smith.core.resources import ResourceConflictError
-from agent_smith.infra.persistence.postgres_resources import PostgresResourceStore
+from agent_smith.core.resources import ResourceConflictError, ResourceStore
 
 
 class ResourceService:
     def __init__(
         self,
-        session_factory: async_sessionmaker[AsyncSession],
+        store: ResourceStore,
         *,
         default_agent_name: str,
     ) -> None:
-        self._session_factory = session_factory
+        self._store = store
         self.default_agent_name = default_agent_name
 
     async def list_resources(self) -> dict[str, Any]:
@@ -52,8 +49,8 @@ class ResourceService:
             "resource": created.model_dump(mode="json", by_alias=True, exclude_none=True),
         }
 
-    def store(self) -> PostgresResourceStore:
-        return PostgresResourceStore(self._session_factory)
+    def store(self) -> ResourceStore:
+        return self._store
 
     def default_agent_resource(self) -> dict[str, Any]:
         return {

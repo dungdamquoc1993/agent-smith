@@ -32,8 +32,8 @@ Caller (app / service)
 core/resources/         ← skill, prompt_template, agent_definition, mcp_server_config
        │
        ▼
-  core/agent/harness/session/ + infra/persistence/
-                         ← session tree (memory hoặc Postgres)
+  core/agent/harness/session/ + infra/storage/postgres/
+                         ← session port + Postgres adapter
 ```
 
 | Package | Vai trò | Chi tiết |
@@ -93,7 +93,7 @@ poetry run ruff check src tests
 src/agent_smith/
 ├── core/               # pure runtime contracts and orchestration
 ├── app/                # transport-neutral use-case services
-├── infra/              # DB/provider/MCP concrete adapters
+├── infra/              # concrete adapters; storage split by backend
 ├── transports/         # HTTP/SSE
 └── workers/            # scale-out boundary (placeholder; HTTP runs in-process today)
 

@@ -23,8 +23,13 @@ from agent_smith.app.services.provider_auth import (
     provider_api_key_prefix,
 )
 from agent_smith.app.services.sessions import SessionService
-from agent_smith.infra.db.base import Base
-from agent_smith.infra.db.models.principal import (
+from agent_smith.infra.storage.postgres.database import Base
+from agent_smith.infra.storage.postgres.adapters import (
+    PostgresIdentityStore,
+    PostgresPrincipalSessionDirectory,
+    PostgresSessionCatalog,
+)
+from agent_smith.infra.storage.postgres.models.principal import (
     AppAssertionNonce,
     ExternalIdentity,
     IdentityProvider,
@@ -133,7 +138,7 @@ async def test_identity_resolution_creates_app_scoped_identity_only_when_databas
     subject = f"adw-user-{uuid.uuid4().hex}"
     provider_id = uuid.uuid4()
     actor = _verified_actor(subject=subject, provider_id=str(provider_id))
-    service = PrincipalIdentityService(factory)
+    service = PrincipalIdentityService(PostgresIdentityStore(factory))
     try:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
@@ -188,7 +193,7 @@ async def test_provider_auth_requires_api_key_and_prevents_provider_spoofing_whe
     raw_api_key = f"ask_{uuid.uuid4().hex}"
     codec = IdentityProviderSecretCodec(_fernet_key())
     service = IdentityProviderAuthService(
-        factory,
+        PostgresIdentityStore(factory),
         assertion_verifier=_verifier(),
         secret_codec=codec,
     )
@@ -258,7 +263,11 @@ async def test_session_service_rejects_cross_principal_session_when_database_is_
 
     engine = create_async_engine(postgres_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    service = SessionService(factory, principal_display_name="unused")
+    service = SessionService(
+        PostgresPrincipalSessionDirectory(factory),
+        PostgresSessionCatalog(factory),
+        principal_display_name="unused",
+    )
     principal_a = uuid.uuid4()
     principal_b = uuid.uuid4()
     try:

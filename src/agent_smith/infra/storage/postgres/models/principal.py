@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from agent_smith.infra.db.base import Base
+from agent_smith.infra.storage.postgres.database import Base
 
 
 class PrincipalStatus(str, enum.Enum):
@@ -88,7 +88,9 @@ class IdentityProvider(Base):
         back_populates="provider",
         cascade="all, delete-orphan",
     )
-    external_identities: Mapped[list["ExternalIdentity"]] = relationship(back_populates="identity_provider")
+    external_identities: Mapped[list["ExternalIdentity"]] = relationship(
+        back_populates="identity_provider"
+    )
 
 
 class IdentityProviderApiKey(Base):
@@ -126,7 +128,9 @@ class IdentityProviderApiKey(Base):
 class IdentityProviderAssertionKey(Base):
     __tablename__ = "identity_provider_assertion_keys"
     __table_args__ = (
-        UniqueConstraint("provider_id", "kid", name="uq_identity_provider_assertion_keys_provider_kid"),
+        UniqueConstraint(
+            "provider_id", "kid", name="uq_identity_provider_assertion_keys_provider_kid"
+        ),
         Index("ix_identity_provider_assertion_keys_provider", "provider_id"),
     )
 
@@ -135,7 +139,9 @@ class IdentityProviderAssertionKey(Base):
         UUID(as_uuid=True), ForeignKey("identity_providers.id", ondelete="CASCADE"), nullable=False
     )
     kid: Mapped[str] = mapped_column(String(128), nullable=False)
-    alg: Mapped[str] = mapped_column(String(32), nullable=False, default="HS256", server_default="HS256")
+    alg: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="HS256", server_default="HS256"
+    )
     encrypted_secret: Mapped[str] = mapped_column(Text, nullable=False)
     encryption_scheme: Mapped[str] = mapped_column(
         String(64),

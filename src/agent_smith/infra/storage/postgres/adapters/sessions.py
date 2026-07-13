@@ -9,8 +9,10 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from agent_smith.app.ports.sessions import PrincipalRecord, SessionRecord
 from agent_smith.core.agent.harness.context_types import RecentConversationSnapshot
-from agent_smith.infra.db.models.session import (
+from agent_smith.infra.storage.postgres.models.principal import Principal
+from agent_smith.infra.storage.postgres.models.session import (
     Session as DbSession,
     SessionEntry as DbSessionEntry,
     SessionEntryType as DbSessionEntryType,
@@ -165,14 +167,66 @@ class PostgresSessionStorage:
             session_row.current_leaf_id = _uuid(entry_id)
 
 
-class PostgresSessionRepo:
+class PostgresPrincipalSessionDirectory:
+    """App-facing principal and session discovery queries."""
+
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._session_factory = session_factory
+
+    async def ensure_principal(self, display_name: str) -> PrincipalRecord:
+        async with self._session_factory() as db, db.begin():
+            principal = (
+                await db.scalars(
+                    select(Principal)
+                    .where(Principal.display_name == display_name)
+                    .order_by(Principal.created_at, Principal.id)
+                )
+            ).first()
+            if principal is None:
+                principal = Principal(id=uuid.uuid4(), display_name=display_name)
+                db.add(principal)
+                await db.flush()
+            await db.refresh(principal)
+            return _principal_record(principal)
+
+    async def list_sessions(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 25,
+    ) -> list[SessionRecord]:
+        async with self._session_factory() as db:
+            rows = (
+                await db.scalars(
+                    select(DbSession)
+                    .where(DbSession.principal_id == _uuid(principal_id))
+                    .order_by(DbSession.updated_at.desc(), DbSession.created_at.desc())
+                    .limit(limit)
+                )
+            ).all()
+            return [_session_record(row) for row in rows]
+
+    async def session_belongs_to(self, *, session_id: str, principal_id: str) -> bool:
+        async with self._session_factory() as db:
+            row = await db.get(DbSession, _uuid(session_id))
+            return row is not None and row.principal_id == _uuid(principal_id)
+
+
+class PostgresSessionCatalog:
+    """App-facing session lifecycle adapter backed by Postgres.
+
+    Harness storage operations remain short-lived and independently atomic.
+    Lifecycle operations that require a wider boundary, such as ``fork``, are
+    completed here in one database transaction.
+    """
+
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
     async def create(self, **options: Any) -> Session:
         principal_id = options.get("principal_id")
         if principal_id is None:
-            raise ValueError("PostgresSessionRepo.create() requires principal_id")
+            raise ValueError("PostgresSessionCatalog.create() requires principal_id")
         session_id = _uuid(options.get("id")) or uuid.uuid4()
         async with self._session_factory() as db, db.begin():
             row = DbSession(
@@ -200,7 +254,9 @@ class PostgresSessionRepo:
 
     async def open(self, metadata: SessionMetadata | dict[str, Any]) -> Session:
         resolved = (
-            metadata if isinstance(metadata, SessionMetadata) else SessionMetadata.model_validate(metadata)
+            metadata
+            if isinstance(metadata, SessionMetadata)
+            else SessionMetadata.model_validate(metadata)
         )
         async with self._session_factory() as db:
             row = await db.get(DbSession, _uuid(resolved.id))
@@ -213,36 +269,64 @@ class PostgresSessionRepo:
         source: SessionMetadata | dict[str, Any],
         **options: Any,
     ) -> Session:
-        source_session = await self.open(source)
-        source_metadata = await source_session.get_metadata()
-        principal_id = options.get("principal_id") or source_metadata.principal_id
-        target_session = await self.create(
-            principal_id=principal_id,
-            title=options.get("title"),
-            id=options.get("id"),
-            kind=options.get("kind", source_metadata.kind),
-            parent_session_id=options.get(
-                "parent_session_id",
-                source_metadata.parent_session_id,
-            ),
-            agent_name=options.get("agent_name", source_metadata.agent_name),
-            origin_task_id=options.get("origin_task_id", source_metadata.origin_task_id),
-            provenance=dict(options.get("provenance", source_metadata.provenance) or {}),
+        resolved = (
+            source
+            if isinstance(source, SessionMetadata)
+            else SessionMetadata.model_validate(source)
         )
-        target_storage = target_session.get_storage()
-        source_leaf_id = options.get("entry_id") or await source_session.get_leaf_id()
-        id_map: dict[str, str] = {}
-        for entry in await source_session.get_branch(source_leaf_id):
-            new_id = await target_storage.create_entry_id()
-            id_map[entry.id] = new_id
-            cloned = entry.model_copy(
-                update={
-                    "id": new_id,
-                    "parent_id": id_map.get(entry.parent_id) if entry.parent_id else None,
-                }
+        source_id = _uuid(resolved.id)
+        target_id = _uuid(options.get("id")) or uuid.uuid4()
+
+        async with self._session_factory() as db, db.begin():
+            source_row = await db.get(DbSession, source_id)
+            if source_row is None:
+                raise ValueError(f"Session {resolved.id} not found")
+
+            target_row = DbSession(
+                id=target_id,
+                principal_id=_uuid(options.get("principal_id")) or source_row.principal_id,
+                title=options.get("title"),
+                kind=DbSessionKind(options.get("kind", _enum_value(source_row.kind))),
+                parent_session_id=(
+                    _uuid(options["parent_session_id"])
+                    if "parent_session_id" in options
+                    else source_row.parent_session_id
+                ),
+                agent_name=options.get("agent_name", source_row.agent_name),
+                origin_task_id=options.get("origin_task_id", source_row.origin_task_id),
+                provenance=dict(options.get("provenance", source_row.provenance) or {}),
             )
-            await target_storage.append_entry(cloned)
-        return target_session
+            db.add(target_row)
+            await db.flush()
+
+            source_entries = list(
+                await db.scalars(
+                    select(DbSessionEntry)
+                    .where(DbSessionEntry.session_id == source_row.id)
+                    .order_by(DbSessionEntry.created_at, DbSessionEntry.id)
+                )
+            )
+            source_leaf_id = _uuid(options.get("entry_id")) or source_row.current_leaf_id
+            branch = _rows_to_branch(source_entries, source_leaf_id)
+            id_map: dict[uuid.UUID, uuid.UUID] = {}
+            for entry in branch:
+                new_id = uuid.uuid4()
+                id_map[entry.id] = new_id
+                db.add(
+                    DbSessionEntry(
+                        id=new_id,
+                        session_id=target_row.id,
+                        parent_id=id_map.get(entry.parent_id),
+                        type=entry.type,
+                        payload=dict(entry.payload or {}),
+                        principal_id=target_row.principal_id,
+                    )
+                )
+                target_row.current_leaf_id = new_id
+
+            metadata = _metadata_from_row(target_row)
+
+        return Session(PostgresSessionStorage(self._session_factory, metadata))
 
 
 class PostgresRecentConversationProvider:
@@ -270,11 +354,11 @@ class PostgresRecentConversationProvider:
                 )
             ).all()
 
-        repo = PostgresSessionRepo(self._session_factory)
+        catalog = PostgresSessionCatalog(self._session_factory)
         snapshots: list[RecentConversationSnapshot] = []
         for row in rows:
             metadata = _metadata_from_row(row)
-            session = await repo.open(metadata)
+            session = await catalog.open(metadata)
             context = await session.build_context()
             snapshots.append(
                 RecentConversationSnapshot(
@@ -285,3 +369,51 @@ class PostgresRecentConversationProvider:
                 )
             )
         return snapshots
+
+
+def _enum_value(value: Any) -> str:
+    return value.value if hasattr(value, "value") else str(value)
+
+
+def _principal_record(row: Principal) -> PrincipalRecord:
+    return PrincipalRecord(
+        id=str(row.id),
+        display_name=row.display_name,
+        status=_enum_value(row.status),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _session_record(row: DbSession) -> SessionRecord:
+    return SessionRecord(
+        id=str(row.id),
+        principal_id=str(row.principal_id),
+        title=row.title,
+        kind=_enum_value(row.kind),
+        parent_session_id=str(row.parent_session_id) if row.parent_session_id else None,
+        agent_name=row.agent_name,
+        origin_task_id=row.origin_task_id,
+        current_leaf_id=str(row.current_leaf_id) if row.current_leaf_id else None,
+        provenance=dict(row.provenance or {}),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _rows_to_branch(
+    entries: list[DbSessionEntry],
+    leaf_id: uuid.UUID | None,
+) -> list[DbSessionEntry]:
+    if leaf_id is None:
+        return []
+    by_id = {entry.id: entry for entry in entries}
+    path: list[DbSessionEntry] = []
+    current_id: uuid.UUID | None = leaf_id
+    while current_id is not None:
+        entry = by_id.get(current_id)
+        if entry is None:
+            raise ValueError(f"Entry {current_id} not found in source session")
+        path.append(entry)
+        current_id = entry.parent_id
+    return list(reversed(path))

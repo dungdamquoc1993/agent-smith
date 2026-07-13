@@ -5,21 +5,15 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
-import uuid
 from datetime import UTC, datetime
 
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
 from agent_smith.app.auth import AppAssertionError, AppAssertionVerifier
 from agent_smith.app.invocation import VerifiedActor
-from agent_smith.infra.db.models.principal import (
-    IdentityProvider,
-    IdentityProviderApiKey,
-    IdentityProviderAssertionKey,
-    IdentityProviderKeyStatus,
-    IdentityProviderStatus,
+from agent_smith.app.ports.identity import (
+    IdentityProviderAuthStore,
+    IdentityProviderRecord,
+    ProviderApiKeyRecord,
 )
 
 IDENTITY_SECRET_ENCRYPTION_SCHEME = "fernet:v1"
@@ -52,12 +46,12 @@ class IdentityProviderSecretCodec:
 class IdentityProviderAuthService:
     def __init__(
         self,
-        session_factory: async_sessionmaker[AsyncSession],
+        store: IdentityProviderAuthStore,
         *,
         assertion_verifier: AppAssertionVerifier,
         secret_codec: IdentityProviderSecretCodec | None = None,
     ) -> None:
-        self._session_factory = session_factory
+        self._store = store
         self._assertion_verifier = assertion_verifier
         self._secret_codec = secret_codec
 
@@ -71,62 +65,43 @@ class IdentityProviderAuthService:
         assertion_keys = await self._active_assertion_keys(provider.id)
         actor = self._assertion_verifier.verify_for_provider(
             authorization,
-            provider_id=str(provider.id),
+            provider_id=provider.id,
             provider_slug=provider.slug,
             issuer=provider.issuer,
             keys=assertion_keys,
         )
-        await self._mark_api_key_used(api_key.id)
+        await self._store.mark_api_key_used(api_key.id, datetime.now(UTC))
         return actor
 
     async def _resolve_provider_api_key(
         self,
         provider_api_key: str | None,
-    ) -> tuple[IdentityProvider, IdentityProviderApiKey]:
+    ) -> tuple[IdentityProviderRecord, ProviderApiKeyRecord]:
         provider_api_key = provider_api_key.strip() if provider_api_key else None
         if not provider_api_key:
             raise AppAssertionError("missing_provider_api_key", "Missing provider API key.")
         key_hash = hash_provider_api_key(provider_api_key)
         now = datetime.now(UTC)
-        async with self._session_factory() as db:
-            row = (
-                await db.execute(
-                    select(IdentityProvider, IdentityProviderApiKey)
-                    .join(
-                        IdentityProviderApiKey,
-                        IdentityProviderApiKey.provider_id == IdentityProvider.id,
-                    )
-                    .where(IdentityProviderApiKey.key_hash == key_hash)
-                )
-            ).one_or_none()
-            if row is None:
-                raise AppAssertionError("invalid_provider_api_key", "Invalid provider API key.")
-            provider, api_key = row
-            if provider.status != IdentityProviderStatus.active:
-                raise AppAssertionError("provider_inactive", "Identity provider is not active.")
-            if api_key.status != IdentityProviderKeyStatus.active or api_key.revoked_at is not None:
-                raise AppAssertionError("provider_api_key_revoked", "Provider API key is not active.")
-            if api_key.expires_at is not None and api_key.expires_at <= now:
-                raise AppAssertionError("provider_api_key_expired", "Provider API key has expired.")
-            return provider, api_key
+        row = await self._store.find_provider_api_key(key_hash)
+        if row is None:
+            raise AppAssertionError("invalid_provider_api_key", "Invalid provider API key.")
+        provider, api_key = row
+        if provider.status != "active":
+            raise AppAssertionError("provider_inactive", "Identity provider is not active.")
+        if api_key.status != "active" or api_key.revoked_at is not None:
+            raise AppAssertionError("provider_api_key_revoked", "Provider API key is not active.")
+        if api_key.expires_at is not None and api_key.expires_at <= now:
+            raise AppAssertionError("provider_api_key_expired", "Provider API key has expired.")
+        return provider, api_key
 
-    async def _active_assertion_keys(self, provider_id: uuid.UUID) -> dict[str, str]:
+    async def _active_assertion_keys(self, provider_id: str) -> dict[str, str]:
         if self._secret_codec is None:
             raise AppAssertionError(
                 "identity_secrets_key_required",
                 "identity_secrets_key is required for DB-backed identity provider assertions.",
             )
         now = datetime.now(UTC)
-        async with self._session_factory() as db:
-            rows = (
-                await db.scalars(
-                    select(IdentityProviderAssertionKey).where(
-                        IdentityProviderAssertionKey.provider_id == provider_id,
-                        IdentityProviderAssertionKey.status == IdentityProviderKeyStatus.active,
-                        IdentityProviderAssertionKey.revoked_at.is_(None),
-                    )
-                )
-            ).all()
+        rows = await self._store.list_assertion_keys(provider_id)
         keys: dict[str, str] = {}
         for row in rows:
             if row.expires_at is not None and row.expires_at <= now:
@@ -140,14 +115,10 @@ class IdentityProviderAuthService:
                 )
             keys[row.kid] = self._secret_codec.decrypt(row.encrypted_secret)
         if not keys:
-            raise AppAssertionError("missing_assertion_key", "No active assertion key for provider.")
+            raise AppAssertionError(
+                "missing_assertion_key", "No active assertion key for provider."
+            )
         return keys
-
-    async def _mark_api_key_used(self, api_key_id: uuid.UUID) -> None:
-        async with self._session_factory() as db, db.begin():
-            row = await db.get(IdentityProviderApiKey, api_key_id)
-            if row is not None:
-                row.last_used_at = datetime.now(UTC)
 
 
 def generate_provider_api_key() -> str:

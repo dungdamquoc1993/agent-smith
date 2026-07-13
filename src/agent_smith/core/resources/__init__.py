@@ -30,20 +30,10 @@ from agent_smith.core.resources.types import (
     resource_content_hash,
 )
 
-
-def __getattr__(name: str):
-    if name == "PostgresResourceStore":
-        from agent_smith.infra.persistence.postgres_resources import PostgresResourceStore
-
-        return PostgresResourceStore
-    raise AttributeError(name)
-
-
 __all__ = [
     "AgentDefinition",
     "AgentModelRef",
     "McpServerConfig",
-    "PostgresResourceStore",
     "ResolvedResources",
     "ResourceConflictError",
     "ResourceCreate",

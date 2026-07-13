@@ -11,7 +11,7 @@ from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, UniqueConstrai
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from agent_smith.infra.db.base import Base
+from agent_smith.infra.storage.postgres.database import Base
 
 
 class ResourceKindEnum(str, enum.Enum):

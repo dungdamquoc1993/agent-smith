@@ -9,23 +9,20 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
+from agent_smith.app.ports.identity import (
+    IdentityProviderAdminStore,
+    IdentityProviderRecord,
+    IdentityProviderStatus,
+    IdentityStoreConflictError,
+    ProviderApiKeyRecord,
+    ProviderAssertionKeyRecord,
+)
 from agent_smith.app.services.provider_auth import (
     IDENTITY_SECRET_ENCRYPTION_SCHEME,
     IdentityProviderSecretCodec,
     generate_provider_api_key,
     hash_provider_api_key,
     provider_api_key_prefix,
-)
-from agent_smith.infra.db.models.principal import (
-    IdentityProvider,
-    IdentityProviderApiKey,
-    IdentityProviderAssertionKey,
-    IdentityProviderKeyStatus,
-    IdentityProviderStatus,
 )
 
 SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,126}[a-z0-9]$")
@@ -43,7 +40,7 @@ class CreateIdentityProviderRequest(BaseModel):
     slug: str = Field(min_length=2, max_length=128)
     issuer: str = Field(min_length=2, max_length=128)
     display_name: str = Field(alias="displayName", min_length=1, max_length=255)
-    status: IdentityProviderStatus = IdentityProviderStatus.active
+    status: IdentityProviderStatus = "active"
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"populate_by_name": True}
@@ -68,7 +65,9 @@ class CreateIdentityProviderRequest(BaseModel):
 class UpdateIdentityProviderRequest(BaseModel):
     slug: str | None = Field(default=None, min_length=2, max_length=128)
     issuer: str | None = Field(default=None, min_length=2, max_length=128)
-    display_name: str | None = Field(default=None, alias="displayName", min_length=1, max_length=255)
+    display_name: str | None = Field(
+        default=None, alias="displayName", min_length=1, max_length=255
+    )
     status: IdentityProviderStatus | None = None
     metadata: dict[str, Any] | None = None
 
@@ -128,42 +127,32 @@ class CreateAssertionKeyRequest(BaseModel):
 class IdentityProviderManagementService:
     def __init__(
         self,
-        session_factory: async_sessionmaker[AsyncSession],
+        store: IdentityProviderAdminStore,
         *,
         secret_codec: IdentityProviderSecretCodec | None = None,
     ) -> None:
-        self._session_factory = session_factory
+        self._store = store
         self._secret_codec = secret_codec
 
     async def create_provider(self, payload: dict[str, Any]) -> dict[str, Any]:
         request = _validate(CreateIdentityProviderRequest, payload)
-        provider = IdentityProvider(
-            id=uuid.uuid4(),
-            slug=request.slug,
-            issuer=request.issuer,
-            display_name=request.display_name,
-            status=request.status,
-            provider_metadata=request.metadata,
-        )
-        async with self._session_factory() as db, db.begin():
-            db.add(provider)
-            try:
-                await db.flush()
-            except IntegrityError as exc:
-                raise _conflict("identity_provider_conflict", "Provider slug or issuer already exists.") from exc
-            await db.refresh(provider)
+        try:
+            provider = await self._store.create_provider(
+                slug=request.slug,
+                issuer=request.issuer,
+                display_name=request.display_name,
+                status=request.status,
+                metadata=request.metadata,
+            )
+        except IdentityStoreConflictError as exc:
+            raise _conflict(
+                "identity_provider_conflict",
+                "Provider slug or issuer already exists.",
+            ) from exc
         return {"identityProvider": identity_provider_payload(provider)}
 
     async def list_providers(self) -> dict[str, Any]:
-        async with self._session_factory() as db:
-            rows = (
-                await db.scalars(
-                    select(IdentityProvider).order_by(
-                        IdentityProvider.created_at.desc(),
-                        IdentityProvider.id,
-                    )
-                )
-            ).all()
+        rows = await self._store.list_providers()
         return {"identityProviders": [identity_provider_payload(row) for row in rows]}
 
     async def get_provider(self, provider_id: str) -> dict[str, Any]:
@@ -172,77 +161,57 @@ class IdentityProviderManagementService:
 
     async def update_provider(self, provider_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         request = _validate(UpdateIdentityProviderRequest, payload)
-        provider_uuid = _uuid(provider_id, "invalid_provider_id", "Invalid provider id.")
-        async with self._session_factory() as db, db.begin():
-            provider = await db.get(IdentityProvider, provider_uuid)
-            if provider is None:
-                raise _not_found("provider_not_found", "Identity provider was not found.")
-            if request.slug is not None:
-                provider.slug = request.slug
-            if request.issuer is not None:
-                provider.issuer = request.issuer
-            if request.display_name is not None:
-                provider.display_name = request.display_name
-            if request.status is not None:
-                provider.status = request.status
-            if request.metadata is not None:
-                provider.provider_metadata = request.metadata
-            try:
-                await db.flush()
-            except IntegrityError as exc:
-                raise _conflict("identity_provider_conflict", "Provider slug or issuer already exists.") from exc
-            await db.refresh(provider)
+        resolved_id = _validated_id(provider_id, "invalid_provider_id", "Invalid provider id.")
+        changes = {
+            field: getattr(request, field)
+            for field in ("slug", "issuer", "display_name", "status", "metadata")
+            if getattr(request, field) is not None
+        }
+        try:
+            provider = await self._store.update_provider(resolved_id, changes)
+        except IdentityStoreConflictError as exc:
+            raise _conflict(
+                "identity_provider_conflict",
+                "Provider slug or issuer already exists.",
+            ) from exc
+        if provider is None:
+            raise _not_found("provider_not_found", "Identity provider was not found.")
         return {"identityProvider": identity_provider_payload(provider)}
 
     async def create_api_key(self, provider_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         request = _validate(CreateProviderApiKeyRequest, payload)
-        provider_uuid = _uuid(provider_id, "invalid_provider_id", "Invalid provider id.")
+        resolved_id = _validated_id(provider_id, "invalid_provider_id", "Invalid provider id.")
         raw_key = generate_provider_api_key()
-        api_key = IdentityProviderApiKey(
-            id=uuid.uuid4(),
-            provider_id=provider_uuid,
+        api_key = await self._store.create_api_key(
+            provider_id=resolved_id,
             name=request.name,
             key_hash=hash_provider_api_key(raw_key),
             key_prefix=provider_api_key_prefix(raw_key),
             expires_at=request.expires_at,
         )
-        async with self._session_factory() as db, db.begin():
-            if await db.get(IdentityProvider, provider_uuid) is None:
-                raise _not_found("provider_not_found", "Identity provider was not found.")
-            db.add(api_key)
-            await db.flush()
-            await db.refresh(api_key)
+        if api_key is None:
+            raise _not_found("provider_not_found", "Identity provider was not found.")
         data = api_key_payload(api_key)
         data["rawKey"] = raw_key
         return {"apiKey": data}
 
     async def list_api_keys(self, provider_id: str) -> dict[str, Any]:
-        provider_uuid = _uuid(provider_id, "invalid_provider_id", "Invalid provider id.")
-        async with self._session_factory() as db:
-            if await db.get(IdentityProvider, provider_uuid) is None:
-                raise _not_found("provider_not_found", "Identity provider was not found.")
-            rows = (
-                await db.scalars(
-                    select(IdentityProviderApiKey)
-                    .where(IdentityProviderApiKey.provider_id == provider_uuid)
-                    .order_by(IdentityProviderApiKey.created_at.desc(), IdentityProviderApiKey.id)
-                )
-            ).all()
+        resolved_id = _validated_id(provider_id, "invalid_provider_id", "Invalid provider id.")
+        rows = await self._store.list_api_keys(resolved_id)
+        if rows is None:
+            raise _not_found("provider_not_found", "Identity provider was not found.")
         return {"apiKeys": [api_key_payload(row) for row in rows]}
 
     async def revoke_api_key(self, key_id: str) -> dict[str, Any]:
-        key_uuid = _uuid(key_id, "invalid_api_key_id", "Invalid API key id.")
-        async with self._session_factory() as db, db.begin():
-            api_key = await db.get(IdentityProviderApiKey, key_uuid)
-            if api_key is None:
-                raise _not_found("api_key_not_found", "Provider API key was not found.")
-            api_key.status = IdentityProviderKeyStatus.revoked
-            api_key.revoked_at = datetime.now(UTC)
-            await db.flush()
-            await db.refresh(api_key)
+        resolved_id = _validated_id(key_id, "invalid_api_key_id", "Invalid API key id.")
+        api_key = await self._store.revoke_api_key(resolved_id, datetime.now(UTC))
+        if api_key is None:
+            raise _not_found("api_key_not_found", "Provider API key was not found.")
         return {"apiKey": api_key_payload(api_key)}
 
-    async def create_assertion_key(self, provider_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def create_assertion_key(
+        self, provider_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
         if self._secret_codec is None:
             raise IdentityProviderManagementError(
                 "identity_secrets_key_required",
@@ -250,88 +219,70 @@ class IdentityProviderManagementService:
                 status=500,
             )
         request = _validate(CreateAssertionKeyRequest, payload)
-        provider_uuid = _uuid(provider_id, "invalid_provider_id", "Invalid provider id.")
+        resolved_id = _validated_id(provider_id, "invalid_provider_id", "Invalid provider id.")
         raw_secret = secrets.token_urlsafe(48)
-        assertion_key = IdentityProviderAssertionKey(
-            id=uuid.uuid4(),
-            provider_id=provider_uuid,
-            kid=request.kid,
-            alg="HS256",
-            encrypted_secret=self._secret_codec.encrypt(raw_secret),
-            encryption_scheme=IDENTITY_SECRET_ENCRYPTION_SCHEME,
-            expires_at=request.expires_at,
-        )
-        async with self._session_factory() as db, db.begin():
-            if await db.get(IdentityProvider, provider_uuid) is None:
-                raise _not_found("provider_not_found", "Identity provider was not found.")
-            db.add(assertion_key)
-            try:
-                await db.flush()
-            except IntegrityError as exc:
-                raise _conflict("assertion_key_conflict", "Assertion key kid already exists for provider.") from exc
-            await db.refresh(assertion_key)
+        try:
+            assertion_key = await self._store.create_assertion_key(
+                provider_id=resolved_id,
+                kid=request.kid,
+                alg="HS256",
+                encrypted_secret=self._secret_codec.encrypt(raw_secret),
+                encryption_scheme=IDENTITY_SECRET_ENCRYPTION_SCHEME,
+                expires_at=request.expires_at,
+            )
+        except IdentityStoreConflictError as exc:
+            raise _conflict(
+                "assertion_key_conflict",
+                "Assertion key kid already exists for provider.",
+            ) from exc
+        if assertion_key is None:
+            raise _not_found("provider_not_found", "Identity provider was not found.")
         data = assertion_key_payload(assertion_key)
         data["rawSecret"] = raw_secret
         return {"assertionKey": data}
 
     async def list_assertion_keys(self, provider_id: str) -> dict[str, Any]:
-        provider_uuid = _uuid(provider_id, "invalid_provider_id", "Invalid provider id.")
-        async with self._session_factory() as db:
-            if await db.get(IdentityProvider, provider_uuid) is None:
-                raise _not_found("provider_not_found", "Identity provider was not found.")
-            rows = (
-                await db.scalars(
-                    select(IdentityProviderAssertionKey)
-                    .where(IdentityProviderAssertionKey.provider_id == provider_uuid)
-                    .order_by(
-                        IdentityProviderAssertionKey.created_at.desc(),
-                        IdentityProviderAssertionKey.id,
-                    )
-                )
-            ).all()
+        resolved_id = _validated_id(provider_id, "invalid_provider_id", "Invalid provider id.")
+        rows = await self._store.list_provider_assertion_keys(resolved_id)
+        if rows is None:
+            raise _not_found("provider_not_found", "Identity provider was not found.")
         return {"assertionKeys": [assertion_key_payload(row) for row in rows]}
 
     async def revoke_assertion_key(self, key_id: str) -> dict[str, Any]:
-        key_uuid = _uuid(key_id, "invalid_assertion_key_id", "Invalid assertion key id.")
-        async with self._session_factory() as db, db.begin():
-            assertion_key = await db.get(IdentityProviderAssertionKey, key_uuid)
-            if assertion_key is None:
-                raise _not_found("assertion_key_not_found", "Assertion key was not found.")
-            assertion_key.status = IdentityProviderKeyStatus.revoked
-            assertion_key.revoked_at = datetime.now(UTC)
-            await db.flush()
-            await db.refresh(assertion_key)
+        resolved_id = _validated_id(key_id, "invalid_assertion_key_id", "Invalid assertion key id.")
+        assertion_key = await self._store.revoke_assertion_key(resolved_id, datetime.now(UTC))
+        if assertion_key is None:
+            raise _not_found("assertion_key_not_found", "Assertion key was not found.")
         return {"assertionKey": assertion_key_payload(assertion_key)}
 
-    async def _require_provider(self, provider_id: str) -> IdentityProvider:
-        provider_uuid = _uuid(provider_id, "invalid_provider_id", "Invalid provider id.")
-        async with self._session_factory() as db:
-            provider = await db.get(IdentityProvider, provider_uuid)
-            if provider is None:
-                raise _not_found("provider_not_found", "Identity provider was not found.")
-            return provider
+    async def _require_provider(self, provider_id: str) -> IdentityProviderRecord:
+        resolved_id = _validated_id(provider_id, "invalid_provider_id", "Invalid provider id.")
+        provider = await self._store.get_provider(resolved_id)
+        if provider is None:
+            raise _not_found("provider_not_found", "Identity provider was not found.")
+        return provider
 
 
-def identity_provider_payload(provider: IdentityProvider) -> dict[str, Any]:
+def identity_provider_payload(provider: IdentityProviderRecord) -> dict[str, Any]:
     return {
-        "id": str(provider.id),
+        "id": provider.id,
         "slug": provider.slug,
         "issuer": provider.issuer,
         "displayName": provider.display_name,
-        "status": _enum_value(provider.status),
-        "metadata": provider.provider_metadata or {},
+        "status": provider.status,
+        "metadata": provider.metadata,
         "createdAt": _iso(provider.created_at),
         "updatedAt": _iso(provider.updated_at),
     }
 
 
-def api_key_payload(api_key: IdentityProviderApiKey) -> dict[str, Any]:
+def api_key_payload(api_key: ProviderApiKeyRecord) -> dict[str, Any]:
     return {
-        "id": str(api_key.id),
-        "providerId": str(api_key.provider_id),
+        "id": api_key.id,
+        "providerId": api_key.provider_id,
         "name": api_key.name,
         "keyPrefix": api_key.key_prefix,
-        "status": _enum_value(api_key.status),
+        "status": api_key.status,
         "expiresAt": _iso(api_key.expires_at),
         "revokedAt": _iso(api_key.revoked_at),
         "lastUsedAt": _iso(api_key.last_used_at),
@@ -340,13 +291,13 @@ def api_key_payload(api_key: IdentityProviderApiKey) -> dict[str, Any]:
     }
 
 
-def assertion_key_payload(assertion_key: IdentityProviderAssertionKey) -> dict[str, Any]:
+def assertion_key_payload(assertion_key: ProviderAssertionKeyRecord) -> dict[str, Any]:
     return {
-        "id": str(assertion_key.id),
-        "providerId": str(assertion_key.provider_id),
+        "id": assertion_key.id,
+        "providerId": assertion_key.provider_id,
         "kid": assertion_key.kid,
         "alg": assertion_key.alg,
-        "status": _enum_value(assertion_key.status),
+        "status": assertion_key.status,
         "expiresAt": _iso(assertion_key.expires_at),
         "revokedAt": _iso(assertion_key.revoked_at),
         "createdAt": _iso(assertion_key.created_at),
@@ -361,11 +312,12 @@ def _validate(model: type[BaseModel], payload: dict[str, Any]) -> Any:
         raise IdentityProviderManagementError("invalid_request", str(exc), status=400) from exc
 
 
-def _uuid(value: str, code: str, message: str) -> uuid.UUID:
+def _validated_id(value: str, code: str, message: str) -> str:
     try:
-        return uuid.UUID(value)
+        uuid.UUID(value)
     except (TypeError, ValueError) as exc:
         raise IdentityProviderManagementError(code, message, status=400) from exc
+    return value
 
 
 def _conflict(code: str, message: str) -> IdentityProviderManagementError:
@@ -378,7 +330,3 @@ def _not_found(code: str, message: str) -> IdentityProviderManagementError:
 
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
-
-
-def _enum_value(value: Any) -> str:
-    return value.value if hasattr(value, "value") else str(value)
