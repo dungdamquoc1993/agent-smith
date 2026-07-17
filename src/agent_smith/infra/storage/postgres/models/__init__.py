@@ -1,6 +1,6 @@
 """SQLAlchemy models owned by the Postgres backend."""
 
-from agent_smith.infra.storage.postgres.models.file import File
+from agent_smith.infra.storage.postgres.models.file import File, FileDerivative, FileProcessingJob
 from agent_smith.infra.storage.postgres.models.mcp import McpCredentialRecord
 from agent_smith.infra.storage.postgres.models.principal import (
     AppAssertionNonce,
@@ -15,6 +15,8 @@ from agent_smith.infra.storage.postgres.models.session import Session, SessionEn
 
 __all__ = [
     "File",
+    "FileDerivative",
+    "FileProcessingJob",
     "McpCredentialRecord",
     "Principal",
     "IdentityProvider",

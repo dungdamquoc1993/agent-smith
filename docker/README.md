@@ -13,14 +13,14 @@ docker/
   compose/
     dependencies/       # external deps (Postgres and MinIO today)
       compose.postgres.yml
-  Dockerfile.server     # future HTTP/API server image
-  Dockerfile.worker     # future scale-out worker image (matches workers/ package)
+  Dockerfile.server     # reserved HTTP/API server image location
+  Dockerfile.worker     # reserved document-worker image location
 ```
 
 Dependency compose files are intentionally limited to external services such as
 Postgres (and later caches/search if needed). They are not the Agent Smith
-application runtime itself. Runtime invoke today is HTTP/SSE in-process; there
-is no message-bus dependency wired.
+application runtime itself. Agent invocation remains HTTP/SSE in-process. The
+document worker uses Postgres as its durable queue, so no message bus is wired.
 
 ## Default Local Stack
 
@@ -50,6 +50,14 @@ browser direct uploads in other environments, configure bucket CORS for the
 exact web origins used by your deployment and allow `PUT`, `GET`, `HEAD` plus the
 `Content-Type`/`x-amz-checksum-sha256` request headers. Do not use `*` origins in
 production and never make the bucket public.
+
+After starting dependencies and applying migrations, run the HTTP service and
+document worker as separate processes:
+
+```bash
+poetry run python -m agent_smith.transports.http.main
+poetry run python -m agent_smith.workers.main
+```
 
 ## Adding More Dependencies
 

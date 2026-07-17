@@ -12,6 +12,10 @@ from agent_smith.app.ports.files import (
     PendingFileRecord,
     PresignedRequest,
 )
+from agent_smith.app.ports.document_processing import (
+    DerivativeRecord,
+    ProcessingJobRecord,
+)
 
 
 class FakeFileCatalog:
@@ -153,7 +157,15 @@ class FakeFileCatalog:
         ):
             return None
         changes = {"status": status, "updated_at": datetime.now(UTC)}
-        for key in ("mime_type", "etag", "sha256", "reason", "deleted_at"):
+        for key in (
+            "mime_type",
+            "etag",
+            "sha256",
+            "reason",
+            "deleted_at",
+            "detected_mime_type",
+            "processing_metadata",
+        ):
             if key in values:
                 changes["failure_reason" if key == "reason" else key] = values[key]
         updated = replace(record, **changes)
@@ -213,9 +225,209 @@ class FakeBlobStore:
         self.deleted.append(object_key)
         self.objects.pop(object_key, None)
 
+    async def write_object(
+        self, *, object_key: str, data: bytes, mime_type: str
+    ) -> BlobObjectStat:
+        self._check()
+        self.objects[object_key] = (data, mime_type, None)
+        return BlobObjectStat(size_bytes=len(data), content_type=mime_type)
+
+    async def delete_prefix(self, *, prefix: str) -> None:
+        self._check()
+        for key in [key for key in self.objects if key.startswith(prefix)]:
+            self.deleted.append(key)
+            del self.objects[key]
+
     def upload(self, record: FileRecord, data: bytes, *, sha256: str | None = None) -> None:
         self.objects[record.object_key] = (data, record.mime_type, sha256)
 
     def _check(self) -> None:
         if self.fail:
             raise BlobStorageError("fake storage failure")
+
+
+class FakeFileProcessingStore:
+    def __init__(self, catalog: FakeFileCatalog) -> None:
+        self.catalog = catalog
+        self.jobs: dict[str, ProcessingJobRecord] = {}
+        self.derivatives: dict[str, list[DerivativeRecord]] = {}
+
+    async def mark_uploaded_and_enqueue(self, **values: object):
+        record = self.catalog._transition(values, {"pending_upload"}, "uploaded")
+        if record is None:
+            return None
+        now = datetime.now(UTC)
+        job = ProcessingJobRecord(
+            id=f"job-{record.id}",
+            file_id=record.id,
+            pipeline_version=str(values["pipeline_version"]),
+            status="queued",
+            attempts=0,
+            max_attempts=int(values["max_attempts"]),
+            created_at=now,
+            updated_at=now,
+        )
+        self.jobs[record.id] = job
+        return record, job
+
+    async def get_latest_jobs(self, *, file_ids: list[str]):
+        return {file_id: self.jobs[file_id] for file_id in file_ids if file_id in self.jobs}
+
+    async def list_derivatives(self, *, file_id: str, kinds=None):
+        rows = self.derivatives.get(file_id, [])
+        return [row for row in rows if not kinds or row.kind in kinds]
+
+    async def claim_next(self, *, worker_id: str, lease_seconds: int):
+        del lease_seconds
+        for file_id, job in list(self.jobs.items()):
+            if job.status not in {"queued", "retry_wait"}:
+                continue
+            now = datetime.now(UTC)
+            if job.available_at is not None and job.available_at > now:
+                continue
+            running = ProcessingJobRecord(
+                **{
+                    **job.__dict__,
+                    "status": "running",
+                    "attempts": job.attempts + 1,
+                    "phase": "downloading",
+                    "progress_percent": 5,
+                    "lease_owner": worker_id,
+                    "updated_at": now,
+                }
+            )
+            self.jobs[file_id] = running
+            record = self.catalog.records[file_id]
+            record = replace(record, status="processing", updated_at=now)
+            self.catalog.records[file_id] = record
+            return running, record
+        return None
+
+    async def heartbeat(self, **values: object) -> bool:
+        return any(job.id == values["job_id"] for job in self.jobs.values())
+
+    async def set_detected_type(self, **values: object) -> bool:
+        for file_id, job in self.jobs.items():
+            if job.id == values["job_id"] and job.lease_owner == values["worker_id"]:
+                self.jobs[file_id] = ProcessingJobRecord(
+                    **{**job.__dict__, "processor": values["processor"]}
+                )
+                record = self.catalog.records[file_id]
+                self.catalog.records[file_id] = replace(
+                    record, detected_mime_type=str(values["detected_mime_type"])
+                )
+                return True
+        return False
+
+    async def update_progress(self, **values: object) -> bool:
+        for file_id, job in self.jobs.items():
+            if job.id == values["job_id"] and job.lease_owner == values["worker_id"]:
+                self.jobs[file_id] = ProcessingJobRecord(
+                    **{
+                        **job.__dict__,
+                        "phase": values["phase"],
+                        "progress_percent": int(values["progress_percent"]),
+                    }
+                )
+                return True
+        return False
+
+    async def complete_job(self, **values: object) -> bool:
+        for file_id, job in self.jobs.items():
+            if job.id != values["job_id"] or job.lease_owner != values["worker_id"]:
+                continue
+            now = datetime.now(UTC)
+            self.jobs[file_id] = ProcessingJobRecord(
+                **{
+                    **job.__dict__,
+                    "status": "succeeded",
+                    "phase": "completed",
+                    "progress_percent": 100,
+                    "lease_owner": None,
+                    "completed_at": now,
+                    "updated_at": now,
+                }
+            )
+            self.catalog.records[file_id] = replace(
+                self.catalog.records[file_id],
+                status="ready",
+                processing_metadata=dict(values["processing_metadata"]),
+                updated_at=now,
+            )
+            self.derivatives[file_id] = [
+                DerivativeRecord(
+                    id=row.id,
+                    file_id=file_id,
+                    processing_job_id=job.id,
+                    kind=row.kind,
+                    object_key=row.object_key,
+                    mime_type=row.mime_type,
+                    size_bytes=row.size_bytes,
+                    metadata=row.metadata,
+                )
+                for row in values["derivatives"]
+            ]
+            return True
+        return False
+
+    async def fail_job(self, **values: object) -> bool:
+        return self._finish_error(values, retry=False)
+
+    async def schedule_retry(self, **values: object) -> bool:
+        return self._finish_error(values, retry=True)
+
+    async def cancel_jobs(self, *, file_id: str) -> None:
+        job = self.jobs.get(file_id)
+        if job:
+            self.jobs[file_id] = ProcessingJobRecord(
+                **{**job.__dict__, "status": "cancelled", "phase": "cancelled"}
+            )
+
+    async def reconcile_uploaded(self, **_values: object) -> int:
+        return 0
+
+    def add_derivative(
+        self,
+        blobs: FakeBlobStore,
+        record: FileRecord,
+        *,
+        kind: str,
+        data: bytes,
+        mime_type: str,
+    ) -> None:
+        object_key = f"{record.object_key}/derivatives/{kind}"
+        blobs.objects[object_key] = (data, mime_type, None)
+        row = DerivativeRecord(
+            id=f"{record.id}-{kind}",
+            file_id=record.id,
+            processing_job_id=f"job-{record.id}",
+            kind=kind,
+            object_key=object_key,
+            mime_type=mime_type,
+            size_bytes=len(data),
+        )
+        self.derivatives.setdefault(record.id, []).append(row)
+
+    def _finish_error(self, values: dict[str, object], *, retry: bool) -> bool:
+        for file_id, job in self.jobs.items():
+            if job.id != values["job_id"]:
+                continue
+            status = "retry_wait" if retry and job.attempts < job.max_attempts else "failed"
+            self.jobs[file_id] = ProcessingJobRecord(
+                **{
+                    **job.__dict__,
+                    "status": status,
+                    "phase": status,
+                    "error": dict(values["error"]),
+                    "available_at": values.get("available_at", job.available_at),
+                    "lease_owner": None,
+                }
+            )
+            if status == "failed":
+                self.catalog.records[file_id] = replace(
+                    self.catalog.records[file_id],
+                    status="failed",
+                    failure_reason=str(values["error"].get("code")),
+                )
+            return True
+        return False

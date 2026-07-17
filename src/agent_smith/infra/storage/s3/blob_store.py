@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
@@ -166,6 +167,45 @@ class S3BlobStore:
             if body is not None and callable(getattr(body, "close", None)):
                 await asyncio.to_thread(body.close)
 
+    async def write_object(
+        self, *, object_key: str, data: bytes, mime_type: str
+    ) -> BlobObjectStat:
+        checksum = hashlib.sha256(data).digest()
+        try:
+            try:
+                response = await asyncio.to_thread(
+                    self._client.put_object,
+                    Bucket=self._bucket,
+                    Key=object_key,
+                    Body=data,
+                    ContentType=mime_type,
+                    ChecksumSHA256=base64.b64encode(checksum).decode("ascii"),
+                )
+            except ClientError as exc:
+                code = exc.response.get("Error", {}).get("Code")
+                if code not in {
+                    "InvalidArgument",
+                    "InvalidRequest",
+                    "NotImplemented",
+                    "XNotImplemented",
+                }:
+                    raise
+                response = await asyncio.to_thread(
+                    self._client.put_object,
+                    Bucket=self._bucket,
+                    Key=object_key,
+                    Body=data,
+                    ContentType=mime_type,
+                )
+        except (BotoCoreError, ClientError) as exc:
+            raise BlobStorageError("Unable to write stored object") from exc
+        return BlobObjectStat(
+            size_bytes=len(data),
+            etag=str(response.get("ETag") or "").strip('"') or None,
+            content_type=mime_type,
+            checksum_sha256=checksum.hex(),
+        )
+
     async def delete(self, *, object_key: str) -> None:
         try:
             await asyncio.to_thread(
@@ -175,3 +215,28 @@ class S3BlobStore:
             )
         except (BotoCoreError, ClientError) as exc:
             raise BlobStorageError("Unable to delete stored object") from exc
+
+    async def delete_prefix(self, *, prefix: str) -> None:
+        continuation: str | None = None
+        try:
+            while True:
+                params: dict[str, Any] = {
+                    "Bucket": self._bucket,
+                    "Prefix": prefix,
+                    "MaxKeys": 1000,
+                }
+                if continuation:
+                    params["ContinuationToken"] = continuation
+                response = await asyncio.to_thread(self._client.list_objects_v2, **params)
+                objects = [{"Key": item["Key"]} for item in response.get("Contents", [])]
+                if objects:
+                    await asyncio.to_thread(
+                        self._client.delete_objects,
+                        Bucket=self._bucket,
+                        Delete={"Objects": objects, "Quiet": True},
+                    )
+                if not response.get("IsTruncated"):
+                    return
+                continuation = response.get("NextContinuationToken")
+        except (BotoCoreError, ClientError, KeyError) as exc:
+            raise BlobStorageError("Unable to delete stored object prefix") from exc

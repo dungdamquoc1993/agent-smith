@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from agent_smith.app.services.files import FileService, FileServiceError
-from helpers.files import FakeBlobStore, FakeFileCatalog
+from helpers.files import FakeBlobStore, FakeFileCatalog, FakeFileProcessingStore
 
 
 def _service() -> tuple[FileService, FakeFileCatalog, FakeBlobStore]:
@@ -57,6 +57,53 @@ async def test_complete_image_moves_directly_to_ready() -> None:
     )
 
     assert completed.status == "ready"
+
+
+@pytest.mark.asyncio
+async def test_complete_document_atomically_enqueues_when_processing_store_is_configured() -> None:
+    catalog, blobs = FakeFileCatalog(), FakeBlobStore()
+    processing = FakeFileProcessingStore(catalog)
+    service = FileService(
+        catalog,
+        blobs,
+        max_bytes=1024,
+        presign_ttl_seconds=900,
+        processing_store=processing,
+    )
+    initiated = await service.initiate_upload(
+        principal_id="principal-a",
+        original_name="notes.txt",
+        mime_type="text/plain",
+        size_bytes=5,
+    )
+    blobs.upload(initiated.file, b"hello")
+
+    completed = await service.complete_upload(
+        principal_id="principal-a", file_id=initiated.file.id
+    )
+
+    assert completed.status == "uploaded"
+    assert processing.jobs[completed.id].status == "queued"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mime_type",
+    ["application/msword", "application/vnd.ms-excel", "application/octet-stream"],
+)
+async def test_initiate_rejects_unsupported_and_legacy_types_with_415(mime_type: str) -> None:
+    service, _, _ = _service()
+
+    with pytest.raises(FileServiceError) as exc:
+        await service.initiate_upload(
+            principal_id="principal-a",
+            original_name="legacy.bin",
+            mime_type=mime_type,
+            size_bytes=10,
+        )
+
+    assert exc.value.status == 415
+    assert exc.value.code == "unsupported_file_type"
 
 
 @pytest.mark.asyncio
@@ -142,6 +189,30 @@ async def test_deleted_file_cannot_create_download_url() -> None:
     with pytest.raises(FileServiceError) as exc:
         await service.create_download_url(principal_id="principal-a", file_id=initiated.file.id)
     assert exc.value.code == "file_not_found"
+
+
+@pytest.mark.asyncio
+async def test_failed_processing_keeps_original_downloadable() -> None:
+    service, catalog, blobs = _service()
+    initiated = await service.initiate_upload(
+        principal_id="principal-a",
+        original_name="broken.pdf",
+        mime_type="application/pdf",
+        size_bytes=5,
+    )
+    blobs.upload(initiated.file, b"%PDF")
+    failed = await catalog.mark_failed(
+        file_id=initiated.file.id,
+        principal_id="principal-a",
+        reason="corrupt_document",
+    )
+    assert failed is not None
+
+    download = await service.create_download_url(
+        principal_id="principal-a", file_id=initiated.file.id
+    )
+
+    assert download.method == "GET"
 
 
 @pytest.mark.asyncio

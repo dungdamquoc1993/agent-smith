@@ -33,6 +33,8 @@ class FileRecord:
     etag: str | None = None
     failure_reason: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    detected_mime_type: str | None = None
+    processing_metadata: dict[str, Any] = field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
     deleted_at: datetime | None = None
@@ -102,6 +104,8 @@ class FileCatalog(Protocol):
         mime_type: str,
         etag: str | None,
         sha256: str | None,
+        detected_mime_type: str | None = None,
+        processing_metadata: dict[str, Any] | None = None,
     ) -> FileRecord | None: ...
 
     async def mark_processing(
@@ -181,4 +185,10 @@ class BlobStore(Protocol):
 
     async def read_object(self, *, object_key: str, max_bytes: int) -> bytes: ...
 
+    async def write_object(
+        self, *, object_key: str, data: bytes, mime_type: str
+    ) -> BlobObjectStat: ...
+
     async def delete(self, *, object_key: str) -> None: ...
+
+    async def delete_prefix(self, *, prefix: str) -> None: ...

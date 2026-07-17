@@ -16,7 +16,7 @@ from agent_smith.core.agent.persistence import (
     project_message_for_persistence,
 )
 from agent_smith.core.llm.types import ImageContent, Model, TextContent, UserMessage
-from helpers.files import FakeBlobStore, FakeFileCatalog
+from helpers.files import FakeBlobStore, FakeFileCatalog, FakeFileProcessingStore
 
 
 def _model(*, images: bool = True) -> Model:
@@ -160,13 +160,157 @@ async def test_attachment_validation_maps_duplicate_state_type_owner_model_and_b
     document = _ready(
         catalog, blobs, principal_id=principal_id, mime_type="application/pdf", data=b"1"
     )
-    with pytest.raises(AttachmentError) as exc:
-        await AttachmentService(catalog, blobs).resolve_current(
-            principal_id=principal_id,
-            raw_attachments=[{"fileId": document.id}],
-            model=_model(),
-        )
-    assert exc.value.status == 415
+    resolved = await AttachmentService(catalog, blobs).resolve_current(
+        principal_id=principal_id,
+        raw_attachments=[{"fileId": document.id}],
+        model=_model(images=False),
+    )
+    assert resolved.records == (document,)
+
+
+@pytest.mark.asyncio
+async def test_document_attachment_materializes_persisted_text_for_text_only_model() -> None:
+    catalog, blobs = FakeFileCatalog(), FakeBlobStore()
+    processing = FakeFileProcessingStore(catalog)
+    principal_id = str(uuid.uuid4())
+    record = _ready(
+        catalog,
+        blobs,
+        principal_id=principal_id,
+        mime_type="application/pdf",
+        data=b"original",
+        name="report.pdf",
+    )
+    text = "[page=1]\nRevenue was 42."
+    chunks = (
+        '{"type":"chunk","id":"c1","text":"Revenue was 42.",'
+        '"estimatedTokens":4,"ordinal":0,"provenance":{"page":1}}\n'
+    ).encode()
+    processing.add_derivative(
+        blobs, record, kind="extracted_text", data=text.encode(), mime_type="text/plain"
+    )
+    processing.add_derivative(
+        blobs, record, kind="chunks", data=chunks, mime_type="application/x-ndjson"
+    )
+    service = AttachmentService(catalog, blobs, processing_store=processing)
+    current = await service.resolve_current(
+        principal_id=principal_id,
+        raw_attachments=[{"fileId": record.id}],
+        model=_model(images=False),
+    )
+    message = PersistedUserMessage(
+        content=[TextContent(text="What was revenue?"), *current.references], timestamp=1
+    )
+
+    output = await service.materialize(
+        [message], principal_id=principal_id, model=_model(images=False), current=current
+    )
+
+    materialized = output[0].content[1]
+    assert isinstance(materialized, TextContent)
+    assert "Revenue was 42" in materialized.text
+    assert "untrusted reference data" in materialized.text
+
+
+@pytest.mark.asyncio
+async def test_long_document_uses_query_relevant_chunk_within_budget() -> None:
+    catalog, blobs = FakeFileCatalog(), FakeBlobStore()
+    processing = FakeFileProcessingStore(catalog)
+    principal_id = str(uuid.uuid4())
+    record = _ready(
+        catalog,
+        blobs,
+        principal_id=principal_id,
+        mime_type="text/plain",
+        data=b"original",
+        name="long.txt",
+    )
+    full_text = "irrelevant filler " * 200
+    chunks = (
+        '{"type":"chunk","id":"c1","text":"unrelated appendix",'
+        '"estimatedTokens":20,"ordinal":0,"provenance":{}}\n'
+        '{"type":"chunk","id":"c2","text":"needle revenue equals 42",'
+        '"estimatedTokens":20,"ordinal":1,"provenance":{"page":7}}\n'
+    ).encode()
+    processing.add_derivative(
+        blobs, record, kind="extracted_text", data=full_text.encode(), mime_type="text/plain"
+    )
+    processing.add_derivative(
+        blobs, record, kind="chunks", data=chunks, mime_type="application/x-ndjson"
+    )
+    service = AttachmentService(
+        catalog,
+        blobs,
+        processing_store=processing,
+        max_document_context_tokens=20,
+    )
+    current = await service.resolve_current(
+        principal_id=principal_id,
+        raw_attachments=[{"fileId": record.id}],
+        model=_model(images=False),
+    )
+    message = PersistedUserMessage(
+        content=[TextContent(text="Find the needle revenue"), *current.references], timestamp=1
+    )
+
+    output = await service.materialize(
+        [message], principal_id=principal_id, model=_model(images=False), current=current
+    )
+
+    text = output[0].content[1]
+    assert isinstance(text, TextContent)
+    assert "needle revenue equals 42" in text.text
+    assert "unrelated appendix" not in text.text
+    assert "page=7" in text.text
+    assert "mode=chunks" in text.text
+
+
+@pytest.mark.asyncio
+async def test_only_latest_historical_document_reference_is_rematerialized() -> None:
+    catalog, blobs = FakeFileCatalog(), FakeBlobStore()
+    processing = FakeFileProcessingStore(catalog)
+    principal_id = str(uuid.uuid4())
+    record = _ready(
+        catalog,
+        blobs,
+        principal_id=principal_id,
+        mime_type="text/plain",
+        data=b"original",
+        name="notes.txt",
+    )
+    processing.add_derivative(
+        blobs,
+        record,
+        kind="extracted_text",
+        data=b"persisted content",
+        mime_type="text/plain",
+    )
+    processing.add_derivative(
+        blobs,
+        record,
+        kind="chunks",
+        data=(
+            b'{"type":"chunk","id":"c1","text":"persisted content",'
+            b'"estimatedTokens":4,"ordinal":0,"provenance":{}}\n'
+        ),
+        mime_type="application/x-ndjson",
+    )
+    reference = FileReferenceContent(
+        fileId=record.id, mimeType=record.mime_type, displayName=record.original_name
+    )
+    messages = [
+        PersistedUserMessage(content=[reference], timestamp=1),
+        PersistedUserMessage(content=[reference], timestamp=2),
+    ]
+
+    output = await AttachmentService(
+        catalog, blobs, processing_store=processing
+    ).materialize(messages, principal_id=principal_id, model=_model(images=False))
+
+    assert isinstance(output[0].content[0], TextContent)
+    assert "superseded by newer reference" in output[0].content[0].text
+    assert isinstance(output[1].content[0], TextContent)
+    assert "persisted content" in output[1].content[0].text
 
 
 @pytest.mark.asyncio

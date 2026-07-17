@@ -45,7 +45,7 @@ core/resources/         ← skill, prompt_template, agent_definition, mcp_server
 | `agent_smith.app` | Use-case services transport-neutral | session/resource/task/agent-run orchestration |
 | `agent_smith.infra` | Concrete adapters | Postgres, LiteLLM, MCP SDK, settings |
 | `agent_smith.transports` | HTTP adapters | FastAPI + SSE (`/api/agent/invoke/stream`, …) |
-| `agent_smith.workers` | Scale-out boundary | Placeholder; agent runs still execute in-process on the HTTP request today |
+| `agent_smith.workers` | Background execution | Dedicated durable document-processing worker; agent runs still stream in-process over HTTP |
 
 **Khi nào dùng gì?**
 
@@ -80,14 +80,27 @@ model khi `OPENROUTER_API_KEY` đã được cấu hình. Public `modelKey` đ�
 catalog giữ OpenRouter route nội bộ và API chỉ trả các key user thực sự gọi được.
 Model mặc định được cấu hình riêng bằng `AGENT_SMITH_DEFAULT_MODEL`.
 
-## Managed files and image input
+## Managed files and attachment input
 
 Managed files keep binary data in private S3-compatible storage and metadata in
 Postgres. Upload through the file API, complete the upload, then send only
 `payload.attachments: [{"fileId": "..."}]` to `/api/agent/invoke/stream`.
-PNG, JPEG, GIF, and WebP are materialized only for the provider call; session
-history stores immutable file references, never binary/base64. Integration
-details and error contracts: [Parent App Integration](docs/PARENT_APP_INTEGRATION.md).
+PNG, JPEG, GIF, and WebP are materialized only for the provider call. TXT,
+Markdown, CSV, text-layer PDF, DOCX, and XLSX are processed asynchronously into
+private normalized derivatives, then resolved as bounded text context. Session
+history stores immutable file references, never binary/base64 or extracted
+document content.
+
+Run the durable document worker beside the HTTP service after migrations:
+
+```bash
+poetry run python -m agent_smith.workers.main
+```
+
+The queue is Postgres-backed and derivatives live in S3/R2; no Redis, RabbitMQ,
+vector database, embedding model, OCR service, or vision model is required for
+the current MVP. See [Document Processing](docs/DOCUMENT_PROCESSING.md) and
+[Parent App Integration](docs/PARENT_APP_INTEGRATION.md).
 
 ## Tests
 
@@ -104,7 +117,7 @@ src/agent_smith/
 ├── app/                # transport-neutral use-case services
 ├── infra/              # concrete adapters; storage split by backend
 ├── transports/         # HTTP/SSE
-└── workers/            # scale-out boundary (placeholder; HTTP runs in-process today)
+└── workers/            # durable document-processing worker entrypoint
 
 clients/web/            # future React/Vite test client
 tests/                  # unit tests

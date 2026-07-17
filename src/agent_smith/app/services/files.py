@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import binascii
 import json
 import re
@@ -10,6 +11,13 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from collections.abc import Callable
+
+from agent_smith.app.ports.document_processing import (
+    FileProcessingError,
+    FileProcessingStore,
+    ProcessingJobRecord,
+)
 
 from agent_smith.app.ports.files import (
     BlobStorageError,
@@ -32,14 +40,12 @@ DEFAULT_ALLOWED_MIME_TYPES = frozenset(
         "text/markdown",
         "text/csv",
         "application/pdf",
-        "application/msword",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "application/vnd.ms-excel",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }
 )
 READY_IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
-DOWNLOADABLE_STATUSES = frozenset({"uploaded", "processing", "ready"})
+DOWNLOADABLE_STATUSES = frozenset({"uploaded", "processing", "ready", "failed"})
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
@@ -74,6 +80,10 @@ class FileService:
         pending_ttl_seconds: int = 3600,
         deleted_retention_seconds: int = 7 * 24 * 3600,
         allowed_mime_types: frozenset[str] = DEFAULT_ALLOWED_MIME_TYPES,
+        processing_store: FileProcessingStore | None = None,
+        image_inspector: Callable[..., tuple[str, dict[str, Any]]] | None = None,
+        processing_pipeline_version: str = "document-v1",
+        processing_max_attempts: int = 5,
     ) -> None:
         self._catalog = catalog
         self._blobs = blobs
@@ -82,6 +92,10 @@ class FileService:
         self._pending_ttl_seconds = pending_ttl_seconds
         self._deleted_retention_seconds = deleted_retention_seconds
         self._allowed_mime_types = allowed_mime_types
+        self._processing_store = processing_store
+        self._image_inspector = image_inspector
+        self._processing_pipeline_version = processing_pipeline_version
+        self._processing_max_attempts = processing_max_attempts
 
     async def initiate_upload(
         self,
@@ -142,6 +156,20 @@ class FileService:
 
     async def complete_upload(self, *, principal_id: str, file_id: str) -> FileRecord:
         record = await self._require_file(principal_id, file_id)
+        if (
+            record.status == "uploaded"
+            and record.mime_type not in READY_IMAGE_MIME_TYPES
+            and self._processing_store is not None
+        ):
+            queued = await self._processing_store.mark_uploaded_and_enqueue(
+                file_id=file_id,
+                principal_id=principal_id,
+                etag=record.etag,
+                sha256=record.sha256,
+                pipeline_version=self._processing_pipeline_version,
+                max_attempts=self._processing_max_attempts,
+            )
+            return queued[0] if queued else record
         if record.status in {"uploaded", "processing", "ready"}:
             return record
         if record.status != "pending_upload":
@@ -171,15 +199,42 @@ class FileService:
                 raise FileServiceError(
                     "invalid_file", "Uploaded content type does not match.", status=400
                 )
-            updated = await self._catalog.mark_uploaded(
-                file_id=file_id,
-                principal_id=principal_id,
-                mime_type=record.mime_type,
-                etag=stat.etag,
-                sha256=record.sha256 or stat.checksum_sha256,
-            )
+            processing_metadata: dict[str, Any] | None = None
+            detected_mime_type: str | None = None
+            if record.mime_type in READY_IMAGE_MIME_TYPES and self._image_inspector is not None:
+                data = await self._blobs.read_object(
+                    object_key=record.object_key, max_bytes=record.size_bytes
+                )
+                detected_mime_type, processing_metadata = await asyncio.to_thread(
+                    self._image_inspector,
+                    data,
+                    declared_mime_type=record.mime_type,
+                )
+            if record.mime_type not in READY_IMAGE_MIME_TYPES and self._processing_store:
+                queued = await self._processing_store.mark_uploaded_and_enqueue(
+                    file_id=file_id,
+                    principal_id=principal_id,
+                    etag=stat.etag,
+                    sha256=record.sha256 or stat.checksum_sha256,
+                    pipeline_version=self._processing_pipeline_version,
+                    max_attempts=self._processing_max_attempts,
+                )
+                updated = queued[0] if queued else None
+            else:
+                updated = await self._catalog.mark_uploaded(
+                    file_id=file_id,
+                    principal_id=principal_id,
+                    mime_type=record.mime_type,
+                    etag=stat.etag,
+                    sha256=record.sha256 or stat.checksum_sha256,
+                    detected_mime_type=detected_mime_type,
+                    processing_metadata=processing_metadata,
+                )
         except FileServiceError:
             raise
+        except FileProcessingError as exc:
+            await self._fail(record, exc.code)
+            raise FileServiceError("invalid_file", exc.message, status=400) from exc
         except BlobStorageError as exc:
             raise FileServiceError(
                 "storage_unavailable", "Object storage is temporarily unavailable.", status=502
@@ -228,6 +283,13 @@ class FileService:
     async def get_file(self, *, principal_id: str, file_id: str) -> FileRecord:
         return await self._require_file(principal_id, file_id)
 
+    async def get_processing_jobs(
+        self, *, file_ids: list[str]
+    ) -> dict[str, ProcessingJobRecord]:
+        if self._processing_store is None:
+            return {}
+        return await self._processing_store.get_latest_jobs(file_ids=file_ids)
+
     async def create_download_url(self, *, principal_id: str, file_id: str) -> PresignedRequest:
         record = await self._require_file(principal_id, file_id)
         if record.status not in DOWNLOADABLE_STATUSES:
@@ -255,6 +317,8 @@ class FileService:
         )
         if deleted is None:
             raise FileServiceError("file_not_found", "File was not found.", status=404)
+        if self._processing_store is not None:
+            await self._processing_store.cancel_jobs(file_id=file_id)
         # Physical deletion is deliberately separate: Postgres and S3 cannot share
         # a transaction, and cleanup_deleted_files can retry safely after retention.
         return deleted
@@ -284,7 +348,8 @@ class FileService:
             marked = row
             if row.object_deleted_at is None:
                 try:
-                    await self._blobs.delete(object_key=row.object_key)
+                    prefix = row.object_key.rsplit("/original", 1)[0] + "/"
+                    await self._blobs.delete_prefix(prefix=prefix)
                 except BlobStorageError:
                     continue
                 marked = await self._catalog.mark_object_deleted(
@@ -330,7 +395,11 @@ def _validate_filename(value: str) -> str:
 def _validate_mime(value: str, allowed: frozenset[str]) -> str:
     mime = value.strip().lower().split(";", 1)[0]
     if mime not in allowed:
-        raise FileServiceError("invalid_file", "Unsupported mimeType.", status=400)
+        raise FileServiceError(
+            "unsupported_file_type",
+            "Unsupported mimeType.",
+            status=415,
+        )
     return mime
 
 

@@ -1,7 +1,9 @@
-"""Worker entrypoint placeholder."""
+"""Document-processing worker entrypoint."""
 
 from __future__ import annotations
 
+import asyncio
+import signal
 from pathlib import Path
 
 from agent_smith.app.container import AppContainer, load_dotenv
@@ -16,8 +18,20 @@ def create_worker() -> AgentWorker:
 
 
 def main() -> None:
-    create_worker()
-    print("Agent Smith worker initialized. No queue adapter is wired yet.")
+    async def run() -> None:
+        worker = create_worker()
+        loop = asyncio.get_running_loop()
+        for name in ("SIGINT", "SIGTERM"):
+            signum = getattr(signal, name, None)
+            if signum is not None:
+                try:
+                    loop.add_signal_handler(signum, worker.stop)
+                except NotImplementedError:  # Windows event loop
+                    pass
+        print(f"Agent Smith document worker started: {worker.worker_id}")
+        await worker.run_forever()
+
+    asyncio.run(run())
 
 
 if __name__ == "__main__":

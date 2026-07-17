@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from agent_smith.app.auth import AppAssertionError
 from agent_smith.app.services.files import FileService
 from agent_smith.transports.http.main import create_app
-from helpers.files import FakeBlobStore, FakeFileCatalog
+from helpers.files import FakeBlobStore, FakeFileCatalog, FakeFileProcessingStore
 
 
 class _Authentication:
@@ -68,6 +68,9 @@ def test_upload_list_and_cross_principal_access() -> None:
     assert created.json()["upload"]["method"] == "PUT"
     assert listed.status_code == 200
     assert [file["id"] for file in listed.json()["files"]] == [file_id]
+    assert listed.json()["files"][0]["detectedMimeType"] is None
+    assert listed.json()["files"][0]["processing"] is None
+    assert listed.json()["files"][0]["processingMetadata"] == {}
     assert hidden.status_code == 404
     assert hidden_delete.status_code == 404
 
@@ -89,6 +92,60 @@ def test_file_route_rejects_large_file_and_has_no_binary_proxy() -> None:
     assert response.status_code == 413
     assert response.json()["error"]["code"] == "file_too_large"
     assert "/api/files/upload-binary" not in paths
+
+
+def test_file_route_rejects_legacy_document_before_presigning() -> None:
+    client, _ = _client()
+    with client:
+        response = client.post(
+            "/api/files/uploads",
+            headers=_headers("a"),
+            json={
+                "originalName": "legacy.doc",
+                "mimeType": "application/msword",
+                "sizeBytes": 10,
+            },
+        )
+
+    assert response.status_code == 415
+    assert response.json()["error"]["code"] == "unsupported_file_type"
+
+
+def test_file_route_exposes_durable_processing_progress() -> None:
+    catalog, blobs = FakeFileCatalog(), FakeBlobStore()
+    processing = FakeFileProcessingStore(catalog)
+    container = SimpleNamespace(
+        settings=SimpleNamespace(http_docs_enabled=True, admin_token=None),
+        authentication=_Authentication(),
+        files=FileService(
+            catalog,
+            blobs,
+            max_bytes=1024,
+            presign_ttl_seconds=900,
+            processing_store=processing,
+        ),
+    )
+    client = TestClient(create_app(container=container))
+    with client:
+        initiated = client.post(
+            "/api/files/uploads",
+            headers=_headers("a"),
+            json={"originalName": "a.txt", "mimeType": "text/plain", "sizeBytes": 5},
+        )
+        file_id = initiated.json()["file"]["id"]
+        blobs.upload(catalog.records[file_id], b"hello")
+        completed = client.post(
+            f"/api/files/{file_id}/complete", headers=_headers("a")
+        )
+        fetched = client.get(f"/api/files/{file_id}", headers=_headers("a"))
+
+    for response in (completed, fetched):
+        processing_payload = response.json()["file"]["processing"]
+        assert processing_payload["status"] == "queued"
+        assert processing_payload["phase"] == "queued"
+        assert processing_payload["progressPercent"] == 0
+        assert processing_payload["attempts"] == 0
+        assert processing_payload["maxAttempts"] == 5
 
 
 def test_file_route_pagination_filter_and_deleted_download() -> None:

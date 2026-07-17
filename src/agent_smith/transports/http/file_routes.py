@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from agent_smith.app.auth import AppAssertionError
 from agent_smith.app.container import AppContainer
 from agent_smith.app.ports.files import FileRecord, PresignedRequest
+from agent_smith.app.ports.document_processing import ProcessingJobRecord
 from agent_smith.app.services.authentication import AuthenticatedPrincipal
 from agent_smith.app.services.files import FileServiceError
 from agent_smith.transports.http.common import (
@@ -76,7 +77,7 @@ async def initiate_upload(
     except FileServiceError as exc:
         raise _http_file_error(exc) from exc
     return json_response(
-        {"file": _file_payload(result.file), "upload": _presign_payload(result.upload)},
+        {"file": _file_payload(result.file, None), "upload": _presign_payload(result.upload)},
         status_code=HTTPStatus.CREATED,
     )
 
@@ -94,7 +95,8 @@ async def complete_upload(
         )
     except FileServiceError as exc:
         raise _http_file_error(exc) from exc
-    return json_response({"file": _file_payload(file)})
+    jobs = await container.files.get_processing_jobs(file_ids=[file.id])
+    return json_response({"file": _file_payload(file, jobs.get(file.id))})
 
 
 @router.get("/api/files")
@@ -126,9 +128,10 @@ async def list_files(
         )
     except FileServiceError as exc:
         raise _http_file_error(exc) from exc
+    jobs = await container.files.get_processing_jobs(file_ids=[file.id for file in page.files])
     return json_response(
         {
-            "files": [_file_payload(file) for file in page.files],
+            "files": [_file_payload(file, jobs.get(file.id)) for file in page.files],
             "nextCursor": page.next_cursor,
         }
     )
@@ -147,7 +150,8 @@ async def get_file(
         )
     except FileServiceError as exc:
         raise _http_file_error(exc) from exc
-    return json_response({"file": _file_payload(file)})
+    jobs = await container.files.get_processing_jobs(file_ids=[file.id])
+    return json_response({"file": _file_payload(file, jobs.get(file.id))})
 
 
 @router.post("/api/files/{file_id}/download-url")
@@ -182,20 +186,41 @@ async def delete_file(
     return Response(status_code=HTTPStatus.NO_CONTENT)
 
 
-def _file_payload(file: FileRecord) -> dict[str, Any]:
+def _file_payload(
+    file: FileRecord, processing: ProcessingJobRecord | None
+) -> dict[str, Any]:
     return {
         "id": file.id,
         "originalName": file.original_name,
         "mimeType": file.mime_type,
+        "detectedMimeType": file.detected_mime_type,
         "sizeBytes": file.size_bytes,
         "sha256": file.sha256,
         "status": file.status,
         "etag": file.etag,
         "failureReason": file.failure_reason,
         "metadata": file.metadata,
+        "processingMetadata": file.processing_metadata,
+        "processing": _processing_payload(processing),
         "createdAt": file.created_at,
         "updatedAt": file.updated_at,
         "deletedAt": file.deleted_at,
+    }
+
+
+def _processing_payload(job: ProcessingJobRecord | None) -> dict[str, Any] | None:
+    if job is None:
+        return None
+    return {
+        "jobId": job.id,
+        "status": job.status,
+        "phase": job.phase,
+        "progressPercent": job.progress_percent,
+        "attempts": job.attempts,
+        "maxAttempts": job.max_attempts,
+        "processor": job.processor,
+        "error": job.error,
+        "updatedAt": job.updated_at,
     }
 
 

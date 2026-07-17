@@ -8,6 +8,21 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 
 ## [Unreleased]
 
+### Added - Durable document processing
+
+- Thêm `FileProcessor`/normalized-document contracts, MIME content sniffing và
+  processors cục bộ cho TXT, Markdown, CSV, PDF text layer, DOCX và XLSX; ảnh
+  được decode/validate bằng Pillow trước khi `ready`.
+- Thêm migration `012_document_processing`, Postgres durable queue với lease,
+  heartbeat, retry full-jitter tối đa 5 attempts, progress polling, và derivative
+  catalog. Binary derivative nằm trên private S3/R2, không nằm trong Postgres.
+- Thêm worker process riêng và idempotent artifacts theo pipeline/content; không
+  cần Redis/RabbitMQ, vector DB, embedding, OCR hay vision model.
+- Document resolver materialize tài liệu ngắn thành text; tài liệu dài được
+  chunk + lexical rank dưới token budget, giữ provenance page/sheet/range.
+- Legacy DOC/XLS bị reject 415; scanned/password-protected/corrupt documents giữ
+  original nhưng chuyển sang `failed` bằng non-retryable error rõ ràng.
+
 ### Added - Managed session image attachments
 
 - Thêm migration `011_session_entry_files`: bind immutable managed file vào

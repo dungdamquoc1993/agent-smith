@@ -120,7 +120,7 @@ Body:
 }
 ```
 
-## Managed Image Attachments
+## Managed Attachments
 
 Upload the binary through Smith's managed file API before invoking the agent.
 The parent backend authenticates each file request with the same provider API key
@@ -129,16 +129,23 @@ presigned `PUT` URL and never receives S3/R2 credentials.
 
 ```text
 POST /api/files/uploads
+PUT <presigned upload URL>
 POST /api/files/{fileId}/complete
+GET /api/files/{fileId}               # poll until ready/failed
 POST /api/agent/invoke/stream
 ```
 
-After a successful image completion, pass only its `fileId` in
+Images become `ready` during completion. Documents are atomically enqueued and
+move through `uploaded -> processing -> ready|failed` in the dedicated worker.
+After the file is `ready`, pass only its `fileId` in
 `payload.attachments`. Smith resolves ownership and metadata server-side; callers
 must not send MIME type, filename, binary, base64, remote URLs, or provider asset
 IDs in the invoke request.
 
 - Supported prompt images: PNG, JPEG, GIF, and WebP.
+- Supported documents: UTF-8 TXT, Markdown, CSV, text-layer PDF, DOCX, and XLSX.
+- Legacy DOC/XLS are rejected with 415. Scanned PDFs, encrypted documents, and
+  corrupt documents retain their original but finish as `failed` in this MVP.
 - At most 8 attachments per invocation and 20 MiB of total raw image bytes by
   default. Both limits are server configuration.
 - `prompt` may be an empty string when `attachments` is non-empty. At least one
@@ -147,6 +154,34 @@ IDs in the invoke request.
 - Attachments are immutable session references. Smith reads and base64-encodes
   the private object only while preparing a provider request; neither Postgres
   nor the session payload stores image bytes.
+- Document processors persist normalized text/table/chunk derivatives privately.
+  The prompt resolver emits bounded text with file/page/sheet provenance; it
+  never sends the original document URL or binary to an LLM provider.
+
+The file response exposes worker state without another endpoint:
+
+```json
+{
+  "file": {
+    "status": "processing",
+    "detectedMimeType": "application/pdf",
+    "processing": {
+      "jobId": "job-uuid",
+      "status": "running",
+      "phase": "extracting",
+      "progressPercent": 30,
+      "attempts": 1,
+      "maxAttempts": 5,
+      "processor": "pypdf_text:1",
+      "error": null
+    }
+  }
+}
+```
+
+Polling clients should stop on file status `ready` or `failed`. The original is
+still downloadable when status is `failed`; only use as an LLM attachment is
+blocked.
 
 Validation occurs before Smith opens the SSE stream. Relevant responses are:
 
@@ -154,9 +189,9 @@ Validation occurs before Smith opens the SSE stream. Relevant responses are:
 |---:|---|---|
 | 400 | `invalid_attachments`, `duplicate_attachment`, `too_many_attachments`, `model_does_not_support_images` | Invalid attachment shape/count or text-only model |
 | 404 | `attachment_not_found` | Missing, deleted, or cross-principal file |
-| 409 | `attachment_not_ready` | Upload/processing is not complete |
-| 413 | `attachments_too_large` | Current invocation exceeds the materialization byte limit |
-| 415 | `unsupported_attachment_type` | File is not one of the supported image MIME types |
+| 409 | `attachment_not_ready`, `attachment_processing_failed` | Upload/processing is incomplete or failed |
+| 413 | `attachments_too_large`, `attachment_context_budget_exhausted` | Image bytes or document context exceed the configured budget |
+| 415 | `unsupported_attachment_type`, `unsupported_file_type` | MIME type is outside the supported image/document set |
 
 For the local/test SSE route, the equivalent shape is root-level:
 

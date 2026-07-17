@@ -417,66 +417,66 @@ Quy tắc:
 
 ### Processing contracts
 
-- [ ] Tạo `FileProcessor` port.
-- [ ] Định nghĩa `ProcessingResult` gồm extracted text, tables, page images và metadata.
-- [ ] Processor selection dựa trên MIME sniffed type, không dựa riêng vào extension.
-- [ ] Processor errors được phân loại retryable/non-retryable.
+- [x] Tạo `FileProcessor` port.
+- [x] Định nghĩa `ProcessingResult` gồm normalized text/tables, optional page-image artifacts và metadata.
+- [x] Processor selection dựa trên MIME sniffed type, không dựa riêng vào extension.
+- [x] Processor errors được phân loại retryable/non-retryable.
 
 ### Processing schema
 
-- [ ] Tạo `file_derivatives` table:
-  - [ ] `id`, `file_id`, `kind`
-  - [ ] `object_key`, `mime_type`, `size_bytes`
-  - [ ] `metadata`, timestamps
-- [ ] Cân nhắc/tạo `file_processing_jobs` table:
-  - [ ] status, attempts, processor
-  - [ ] error, started/completed timestamps
-- [ ] Derivatives cũng lưu trên S3/R2, không lưu binary trong Postgres.
+- [x] Tạo `file_derivatives` table:
+  - [x] `id`, `file_id`, `kind`
+  - [x] `object_key`, `mime_type`, `size_bytes`
+  - [x] `metadata`, timestamps
+- [x] Tạo `file_processing_jobs` table:
+  - [x] status, attempts, processor
+  - [x] error, started/completed timestamps
+- [x] Derivatives cũng lưu trên S3/R2, không lưu binary trong Postgres.
 
 ### Worker orchestration
 
-- [ ] Chọn durable job mechanism thay cho memory task runtime.
-- [ ] Enqueue processing sau khi complete upload.
-- [ ] Implement retry/backoff/idempotency.
-- [ ] Không giữ Postgres transaction trong lúc download/process/upload derivative.
-- [ ] Mark `ready` chỉ sau khi required processing hoàn tất.
-- [ ] Emit observable status/progress cho UI.
+- [x] Chọn Postgres durable job mechanism thay cho memory task runtime.
+- [x] Enqueue processing sau khi complete upload.
+- [x] Implement retry/backoff/idempotency.
+- [x] Không giữ Postgres transaction trong lúc download/process/upload derivative.
+- [x] Mark `ready` chỉ sau khi required processing hoàn tất.
+- [x] Emit observable status/progress cho UI qua file polling API.
 
 ### Format support matrix
 
-- [ ] Plain text (`text/plain`).
-- [ ] Markdown (`text/markdown`, `.md`).
-- [ ] CSV (`text/csv`).
-- [ ] PDF có text layer.
-- [ ] DOCX.
-- [ ] XLSX.
-- [ ] Image metadata/validation.
-- [ ] Legacy DOC — chốt converter/sandbox strategy trước khi implement.
-- [ ] Legacy XLS — chốt converter strategy trước khi implement.
-- [ ] Scanned PDF/OCR — để ngoài initial document-processing MVP nếu cần.
+- [x] Plain text (`text/plain`).
+- [x] Markdown (`text/markdown`, `.md`).
+- [x] CSV (`text/csv`).
+- [x] PDF có text layer.
+- [x] DOCX.
+- [x] XLSX.
+- [x] Image metadata/validation.
+- [x] Legacy DOC — reject sớm; converter phải chạy trong sandbox riêng ở milestone sau.
+- [x] Legacy XLS — reject sớm; converter phải chạy trong sandbox riêng ở milestone sau.
+- [x] Scanned PDF/OCR — ngoài initial document-processing MVP và fail non-retryable rõ ràng.
 
 ### LLM materialization
 
-- [ ] Tài liệu ngắn có thể materialize extracted text trực tiếp.
-- [ ] Tài liệu dài có chunking/token budget.
-- [ ] CSV/XLSX giữ sheet/table boundaries trong normalized representation.
-- [ ] PDF giữ page provenance.
-- [ ] Không tự động đưa toàn bộ library vào context.
+- [x] Tài liệu ngắn có thể materialize extracted text trực tiếp.
+- [x] Tài liệu dài có chunking/token budget và lexical ranking cục bộ.
+- [x] CSV/XLSX giữ sheet/table boundaries trong normalized representation.
+- [x] PDF giữ page provenance.
+- [x] Không tự động đưa toàn bộ library vào context.
 
 ### Tests
 
-- [ ] Golden fixtures cho từng format hỗ trợ.
-- [ ] Corrupt file fixtures.
-- [ ] Password-protected document behavior.
-- [ ] Oversized/zip-bomb protection.
-- [ ] Retry và idempotency tests.
-- [ ] Extracted content giữ provenance về file/page/sheet.
+- [x] Golden fixtures sinh deterministic trong tests cho từng format hỗ trợ.
+- [x] Corrupt file fixtures.
+- [x] Password-protected document behavior.
+- [x] Oversized/zip-bomb protection.
+- [x] Retry và idempotency tests.
+- [x] Extracted content giữ provenance về file/page/sheet.
 
 ### Definition of done
 
-- [ ] Upload tài liệu chuyển đúng `uploaded → processing → ready/failed`.
-- [ ] Prompt có thể sử dụng extracted content mà không cần partner preprocess.
-- [ ] Processing failure không làm hỏng original file/library metadata.
+- [x] Upload tài liệu chuyển đúng `uploaded → processing → ready/failed`.
+- [x] Prompt có thể sử dụng extracted content mà không cần partner preprocess.
+- [x] Processing failure không làm hỏng original file/library metadata.
 
 ---
 

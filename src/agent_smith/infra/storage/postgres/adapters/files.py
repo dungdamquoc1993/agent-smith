@@ -106,13 +106,24 @@ class PostgresFileCatalog:
         mime_type: str,
         etag: str | None,
         sha256: str | None,
+        detected_mime_type: str | None = None,
+        processing_metadata: dict[str, object] | None = None,
     ) -> FileRecord | None:
+        values: dict[str, object] = {
+            "mime_type": mime_type,
+            "etag": etag,
+            "sha256": sha256,
+        }
+        if detected_mime_type is not None:
+            values["detected_mime_type"] = detected_mime_type
+        if processing_metadata is not None:
+            values["processing_metadata"] = processing_metadata
         return await self._transition(
             file_id=file_id,
             principal_id=principal_id,
             from_statuses=(FileStatus.pending_upload,),
             to_status=FileStatus.uploaded,
-            values={"mime_type": mime_type, "etag": etag, "sha256": sha256},
+            values=values,
         )
 
     async def mark_processing(self, *, file_id: str, principal_id: str) -> FileRecord | None:
@@ -281,6 +292,8 @@ def _record(row: File) -> FileRecord:
         etag=row.etag,
         failure_reason=row.failure_reason,
         metadata=dict(row.file_metadata or {}),
+        detected_mime_type=row.detected_mime_type,
+        processing_metadata=dict(row.processing_metadata or {}),
         created_at=row.created_at,
         updated_at=row.updated_at,
         deleted_at=row.deleted_at,

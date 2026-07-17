@@ -8,9 +8,9 @@ from typing import Any
 
 from agent_smith.app.auth import AppAssertionVerifier, parse_trusted_apps
 from agent_smith.app.services.agent_runs import AgentRunService
+from agent_smith.app.services.attachments import AttachmentService
 from agent_smith.app.services.authentication import PrincipalAuthenticationService
 from agent_smith.app.services.files import FileService
-from agent_smith.app.services.attachments import AttachmentService
 from agent_smith.app.services.identity import PrincipalIdentityService
 from agent_smith.app.services.identity_providers import IdentityProviderManagementService
 from agent_smith.app.services.provider_auth import (
@@ -23,12 +23,14 @@ from agent_smith.app.services.tasks import TaskService
 from agent_smith.core.llm import bootstrap_providers
 from agent_smith.core.tasks import MemoryTaskRuntime
 from agent_smith.infra.config import get_settings
+from agent_smith.infra.document_processing import inspect_image
 from agent_smith.infra.storage.postgres.adapters import (
+    PostgresFileCatalog,
+    PostgresFileProcessingStore,
+    PostgresIdentityStore,
     PostgresPrincipalSessionDirectory,
     PostgresRecentConversationProvider,
     PostgresResourceStore,
-    PostgresIdentityStore,
-    PostgresFileCatalog,
     PostgresSessionCatalog,
 )
 from agent_smith.infra.storage.postgres.database import get_engine, get_session_factory
@@ -87,16 +89,20 @@ class AppContainer:
         )
         self.tasks = TaskService(MemoryTaskRuntime())
         file_catalog = PostgresFileCatalog(session_factory)
+        processing_store = PostgresFileProcessingStore(session_factory)
         blob_store = S3BlobStore(
-                create_s3_client(
-                    endpoint_url=settings.s3_endpoint_url,
-                    region=settings.s3_region,
-                    access_key_id=settings.s3_access_key_id,
-                    secret_access_key=settings.s3_secret_access_key,
-                    path_style=settings.s3_path_style,
-                ),
-                bucket=settings.s3_bucket,
-            )
+            create_s3_client(
+                endpoint_url=settings.s3_endpoint_url,
+                region=settings.s3_region,
+                access_key_id=settings.s3_access_key_id,
+                secret_access_key=settings.s3_secret_access_key,
+                path_style=settings.s3_path_style,
+            ),
+            bucket=settings.s3_bucket,
+        )
+        self.file_catalog = file_catalog
+        self.file_processing_store = processing_store
+        self.blob_store = blob_store
         self.files = FileService(
             file_catalog,
             blob_store,
@@ -104,6 +110,10 @@ class AppContainer:
             presign_ttl_seconds=settings.s3_presign_ttl_seconds,
             pending_ttl_seconds=settings.file_pending_ttl_seconds,
             deleted_retention_seconds=settings.file_deleted_retention_seconds,
+            processing_store=processing_store,
+            image_inspector=inspect_image,
+            processing_pipeline_version=settings.file_processing_pipeline_version,
+            processing_max_attempts=settings.file_processing_max_attempts,
         )
         self.attachments = AttachmentService(
             file_catalog,
@@ -111,6 +121,8 @@ class AppContainer:
             max_attachments=settings.attachment_max_count,
             max_materialized_bytes=settings.attachment_max_materialized_bytes,
             read_concurrency=settings.attachment_read_concurrency,
+            processing_store=processing_store,
+            max_document_context_tokens=settings.attachment_document_context_max_tokens,
         )
         self.agent_runs = AgentRunService(
             session_service=self.sessions,

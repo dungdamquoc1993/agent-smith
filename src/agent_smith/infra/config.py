@@ -106,6 +106,40 @@ class Settings(BaseSettings):
         ge=1,
         validation_alias="AGENT_SMITH_ATTACHMENT_READ_CONCURRENCY",
     )
+    file_processing_pipeline_version: str = Field(
+        default="document-v1",
+        validation_alias="AGENT_SMITH_FILE_PROCESSING_PIPELINE_VERSION",
+    )
+    file_processing_max_attempts: int = Field(
+        default=5,
+        ge=1,
+        validation_alias="AGENT_SMITH_FILE_PROCESSING_MAX_ATTEMPTS",
+    )
+    file_processing_poll_seconds: float = Field(
+        default=1.0,
+        gt=0,
+        validation_alias="AGENT_SMITH_FILE_PROCESSING_POLL_SECONDS",
+    )
+    file_processing_lease_seconds: int = Field(
+        default=60,
+        ge=10,
+        validation_alias="AGENT_SMITH_FILE_PROCESSING_LEASE_SECONDS",
+    )
+    file_processing_heartbeat_seconds: int = Field(
+        default=20,
+        ge=1,
+        validation_alias="AGENT_SMITH_FILE_PROCESSING_HEARTBEAT_SECONDS",
+    )
+    file_processing_timeout_seconds: int = Field(
+        default=600,
+        ge=10,
+        validation_alias="AGENT_SMITH_FILE_PROCESSING_TIMEOUT_SECONDS",
+    )
+    attachment_document_context_max_tokens: int = Field(
+        default=32_000,
+        ge=1_000,
+        validation_alias="AGENT_SMITH_ATTACHMENT_DOCUMENT_CONTEXT_MAX_TOKENS",
+    )
 
 
 @lru_cache

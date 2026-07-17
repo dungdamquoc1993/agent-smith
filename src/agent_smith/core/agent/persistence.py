@@ -48,7 +48,7 @@ RUNTIME_IMAGE_MARKER = "[Runtime image omitted from persisted session: {mime_typ
 def file_reference_marker(reference: FileReferenceContent, *, reason: str | None = None) -> str:
     suffix = f"; {reason}" if reason else ""
     return (
-        f"[Image attachment: {reference.display_name} "
+        f"[File attachment: {reference.display_name} "
         f"({reference.mime_type}, fileId={reference.file_id}){suffix}]"
     )
 

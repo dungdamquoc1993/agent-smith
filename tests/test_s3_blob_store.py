@@ -114,3 +114,47 @@ async def test_stat_falls_back_for_provider_without_checksum_mode() -> None:
 
     assert stat is not None and stat.size_bytes == 5
     assert client.head_object.call_args_list[1].kwargs == {"Bucket": "private", "Key": "key"}
+
+
+@pytest.mark.asyncio
+async def test_derivative_write_and_prefix_cleanup() -> None:
+    client = MagicMock()
+    client.put_object.return_value = {"ETag": '"etag"'}
+    client.list_objects_v2.return_value = {
+        "Contents": [{"Key": "principals/p/files/f/original"}, {"Key": "principals/p/files/f/d"}],
+        "IsTruncated": False,
+    }
+    store = S3BlobStore(client, bucket="private")
+
+    stat = await store.write_object(
+        object_key="principals/p/files/f/d", data=b"hello", mime_type="text/plain"
+    )
+    await store.delete_prefix(prefix="principals/p/files/f/")
+
+    assert stat.size_bytes == 5
+    assert stat.checksum_sha256 == hashlib.sha256(b"hello").hexdigest()
+    client.delete_objects.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_derivative_write_falls_back_when_provider_rejects_checksum() -> None:
+    client = MagicMock()
+    client.put_object.side_effect = [
+        ClientError(
+            {
+                "Error": {"Code": "NotImplemented"},
+                "ResponseMetadata": {"HTTPStatusCode": 501},
+            },
+            "PutObject",
+        ),
+        {"ETag": '"etag"'},
+    ]
+    store = S3BlobStore(client, bucket="private")
+
+    stat = await store.write_object(
+        object_key="principals/p/files/f/d", data=b"hello", mime_type="text/plain"
+    )
+
+    assert stat.checksum_sha256 == hashlib.sha256(b"hello").hexdigest()
+    assert "ChecksumSHA256" in client.put_object.call_args_list[0].kwargs
+    assert "ChecksumSHA256" not in client.put_object.call_args_list[1].kwargs
