@@ -2,6 +2,7 @@
 
 from agent_smith.infra.storage.postgres.adapters.identities import PostgresIdentityStore
 from agent_smith.infra.storage.postgres.adapters.files import PostgresFileCatalog
+from agent_smith.infra.storage.postgres.adapters.file_audit import PostgresFileAuditStore
 from agent_smith.infra.storage.postgres.adapters.file_processing import PostgresFileProcessingStore
 from agent_smith.infra.storage.postgres.adapters.mcp_credentials import (
     PostgresMcpCredentialStore,
@@ -17,6 +18,7 @@ from agent_smith.infra.storage.postgres.adapters.sessions import (
 __all__ = [
     "PostgresIdentityStore",
     "PostgresFileCatalog",
+    "PostgresFileAuditStore",
     "PostgresFileProcessingStore",
     "PostgresMcpCredentialStore",
     "PostgresRecentConversationProvider",

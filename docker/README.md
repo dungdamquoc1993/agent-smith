@@ -49,7 +49,8 @@ It also applies `minio-cors.json` for the documented localhost dev origins. For
 browser direct uploads in other environments, configure bucket CORS for the
 exact web origins used by your deployment and allow `PUT`, `GET`, `HEAD` plus the
 `Content-Type`/`x-amz-checksum-sha256` request headers. Do not use `*` origins in
-production and never make the bucket public.
+production and never make the bucket public. Production R2 setup and token
+rotation are documented in [R2_STORAGE_OPERATIONS.md](../docs/R2_STORAGE_OPERATIONS.md).
 
 After starting dependencies and applying migrations, run the HTTP service and
 document worker as separate processes:

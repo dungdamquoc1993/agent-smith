@@ -18,6 +18,7 @@ from agent_smith.infra.storage.postgres.database import Base
 from agent_smith.infra.storage.postgres.models import (  # noqa: F401
     ExternalIdentity,
     File,
+    FileAuditEvent,
     IdentityProvider,
     IdentityProviderApiKey,
     IdentityProviderAssertionKey,

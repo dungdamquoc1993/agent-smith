@@ -70,7 +70,7 @@ def create_app(
 
     @app.exception_handler(AgentSmithHttpError)
     async def handle_http_error(_request: Any, exc: AgentSmithHttpError):
-        return error_response(exc.status_code, exc.code, exc.message)
+        return error_response(exc.status_code, exc.code, exc.message, headers=exc.headers)
 
     @app.exception_handler(IdentityProviderManagementError)
     async def handle_management_error(_request: Any, exc: IdentityProviderManagementError):

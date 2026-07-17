@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from agent_smith.app.auth import AppAssertionError
 from agent_smith.app.context import ContextResolutionError
 from agent_smith.app.services.attachments import AttachmentError
+from agent_smith.app.ports.files import FileAuditUnavailable
 from agent_smith.app.container import AppContainer
 from agent_smith.transports.http.common import (
     AgentSmithHttpError,
@@ -126,6 +127,12 @@ async def agent_invoke_stream(
         raise AgentSmithHttpError(HTTPStatus.NOT_FOUND, "unknown_session", str(exc)) from exc
     except AttachmentError as exc:
         raise AgentSmithHttpError(exc.status, exc.code, exc.message) from exc
+    except FileAuditUnavailable as exc:
+        raise AgentSmithHttpError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "audit_unavailable",
+            "File audit storage is temporarily unavailable.",
+        ) from exc
     except ValueError as exc:
         raise AgentSmithHttpError(HTTPStatus.BAD_REQUEST, "invalid_invocation", str(exc)) from exc
 

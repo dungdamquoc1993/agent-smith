@@ -20,6 +20,37 @@ class BlobStorageError(RuntimeError):
     """A storage backend operation failed without exposing SDK details."""
 
 
+class FileAuditUnavailable(RuntimeError):
+    """A required audit event could not be durably persisted."""
+
+
+class FileQuotaExceeded(RuntimeError):
+    """A principal has no remaining original-object quota."""
+
+
+class TooManyPendingUploads(RuntimeError):
+    """A principal already has the maximum number of pending uploads."""
+
+
+@dataclass(frozen=True)
+class FileAuditActor:
+    subject: str
+    identity_provider_id: str | None = None
+
+
+@dataclass(frozen=True)
+class FileAuditEvent:
+    principal_id: str | None
+    identity_provider_id: str | None
+    actor_subject: str
+    file_id: str | None
+    action: str
+    outcome: str
+    details: dict[str, Any] = field(default_factory=dict)
+    correlation_id: str | None = None
+    occurred_at: datetime | None = None
+
+
 @dataclass(frozen=True)
 class FileRecord:
     id: str
@@ -76,7 +107,14 @@ class BlobObjectStat:
 
 
 class FileCatalog(Protocol):
-    async def create_pending(self, file: PendingFileRecord) -> FileRecord: ...
+    async def create_pending(
+        self,
+        file: PendingFileRecord,
+        *,
+        quota_bytes: int | None = None,
+        max_pending_uploads: int | None = None,
+        audit: FileAuditEvent | None = None,
+    ) -> FileRecord: ...
 
     async def get_file(
         self,
@@ -106,6 +144,8 @@ class FileCatalog(Protocol):
         sha256: str | None,
         detected_mime_type: str | None = None,
         processing_metadata: dict[str, Any] | None = None,
+        final_status: Literal["uploaded", "ready"] = "uploaded",
+        audit: FileAuditEvent | None = None,
     ) -> FileRecord | None: ...
 
     async def mark_processing(
@@ -128,6 +168,8 @@ class FileCatalog(Protocol):
         file_id: str,
         principal_id: str,
         reason: str,
+        pending_only: bool = False,
+        audit: FileAuditEvent | None = None,
     ) -> FileRecord | None: ...
 
     async def soft_delete(
@@ -136,6 +178,7 @@ class FileCatalog(Protocol):
         file_id: str,
         principal_id: str,
         deleted_at: datetime,
+        audit: FileAuditEvent | None = None,
     ) -> FileRecord | None: ...
 
     async def list_stale_pending(
@@ -152,11 +195,19 @@ class FileCatalog(Protocol):
         limit: int,
     ) -> list[FileRecord]: ...
 
+    async def list_rejected_objects(self, *, limit: int) -> list[FileRecord]: ...
+
     async def purge_file(self, *, file_id: str) -> bool: ...
 
     async def mark_object_deleted(
         self, *, file_id: str, deleted_at: datetime
     ) -> FileRecord | None: ...
+
+
+class FileAuditStore(Protocol):
+    async def append(self, events: list[FileAuditEvent]) -> None: ...
+
+    async def purge_before(self, *, occurred_before: datetime, limit: int) -> int: ...
 
 
 class BlobStore(Protocol):

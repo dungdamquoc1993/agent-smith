@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -38,8 +39,19 @@ class AgentWorker:
     async def run_forever(self) -> None:
         settings = self.container.settings
         last_reconciliation = datetime.min.replace(tzinfo=UTC)
+        last_maintenance = datetime.min.replace(tzinfo=UTC)
         while not self._stopping.is_set():
             try:
+                if (
+                    datetime.now(UTC) - last_maintenance
+                ).total_seconds() >= settings.file_maintenance_interval_seconds:
+                    try:
+                        await self.run_file_cleanup_once(limit=100)
+                    except Exception:
+                        logger.exception("File maintenance iteration failed")
+                    finally:
+                        # Maintenance failure must not starve document processing.
+                        last_maintenance = datetime.now(UTC)
                 if (datetime.now(UTC) - last_reconciliation).total_seconds() >= 60:
                     await self.container.file_processing_store.reconcile_uploaded(
                         pipeline_version=settings.file_processing_pipeline_version,
@@ -260,11 +272,20 @@ class AgentWorker:
         )
 
     async def run_file_cleanup_once(self, *, limit: int = 100) -> dict[str, int]:
-        """Run idempotent file cleanup; a future scheduler may call this repeatedly."""
-        return {
+        """Run the bounded, idempotent file-maintenance groups."""
+        started = time.monotonic()
+        summary = {
             "expiredUploads": await self.container.files.cleanup_stale_uploads(limit=limit),
+            "rejectedObjects": await self.container.files.cleanup_rejected_uploads(limit=limit),
             "purgedFiles": await self.container.files.cleanup_deleted_files(limit=limit),
+            "purgedAuditEvents": await self.container.files.cleanup_audit_events(limit=limit),
         }
+        duration_ms = round((time.monotonic() - started) * 1000)
+        logger.info(
+            "File maintenance completed",
+            extra={"counts": summary, "duration_ms": duration_ms},
+        )
+        return summary
 
 
 def _mime_compatible(declared: str, detected: str) -> bool:

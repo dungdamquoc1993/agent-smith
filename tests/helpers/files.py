@@ -6,11 +6,15 @@ from datetime import UTC, datetime
 from agent_smith.app.ports.files import (
     BlobObjectStat,
     BlobStorageError,
+    FileAuditEvent,
+    FileAuditUnavailable,
     FileCursor,
     FileRecord,
     FileStatus,
+    FileQuotaExceeded,
     PendingFileRecord,
     PresignedRequest,
+    TooManyPendingUploads,
 )
 from agent_smith.app.ports.document_processing import (
     DerivativeRecord,
@@ -22,8 +26,33 @@ class FakeFileCatalog:
     def __init__(self) -> None:
         self.records: dict[str, FileRecord] = {}
         self.referenced_file_ids: set[str] = set()
+        self.processing_file_ids: set[str] = set()
+        self.audit_events: list[FileAuditEvent] = []
+        self.fail_audit = False
 
-    async def create_pending(self, file: PendingFileRecord) -> FileRecord:
+    async def create_pending(
+        self,
+        file: PendingFileRecord,
+        *,
+        quota_bytes: int | None = None,
+        max_pending_uploads: int | None = None,
+        audit: FileAuditEvent | None = None,
+    ) -> FileRecord:
+        self._check_audit(audit)
+        principal_rows = [
+            row
+            for row in self.records.values()
+            if row.principal_id == file.principal_id
+        ]
+        if max_pending_uploads is not None and sum(
+            row.status == "pending_upload" for row in principal_rows
+        ) >= max_pending_uploads:
+            raise TooManyPendingUploads
+        usage = sum(
+            row.size_bytes for row in principal_rows if row.object_deleted_at is None
+        )
+        if quota_bytes is not None and usage + file.size_bytes > quota_bytes:
+            raise FileQuotaExceeded
         now = datetime.now(UTC)
         record = FileRecord(
             **file.__dict__,
@@ -32,6 +61,7 @@ class FakeFileCatalog:
             updated_at=now,
         )
         self.records[file.id] = record
+        self._append_audit(audit)
         return record
 
     async def get_file(
@@ -76,7 +106,8 @@ class FakeFileCatalog:
         return rows[:limit]
 
     async def mark_uploaded(self, **values: object) -> FileRecord | None:
-        return self._transition(values, {"pending_upload"}, "uploaded")
+        status = str(values.get("final_status", "uploaded"))
+        return self._transition(values, {"pending_upload"}, status)  # type: ignore[arg-type]
 
     async def mark_processing(self, **values: object) -> FileRecord | None:
         return self._transition(values, {"uploaded"}, "processing")
@@ -87,7 +118,9 @@ class FakeFileCatalog:
     async def mark_failed(self, **values: object) -> FileRecord | None:
         return self._transition(
             values,
-            {"pending_upload", "uploaded", "processing"},
+            {"pending_upload"}
+            if values.get("pending_only")
+            else {"pending_upload", "uploaded", "processing"},
             "failed",
         )
 
@@ -120,6 +153,17 @@ class FakeFileCatalog:
             )
         ][:limit]
 
+    async def list_rejected_objects(self, *, limit: int):
+        reasons = {"size_mismatch", "checksum_mismatch", "mime_mismatch", "upload_expired"}
+        return [
+            row
+            for row in self.records.values()
+            if row.status == "failed"
+            and row.failure_reason in reasons
+            and row.object_deleted_at is None
+            and row.id not in self.processing_file_ids
+        ][:limit]
+
     async def purge_file(self, *, file_id: str) -> bool:
         record = self.records.get(file_id)
         if (
@@ -136,7 +180,11 @@ class FakeFileCatalog:
         self, *, file_id: str, deleted_at: datetime
     ) -> FileRecord | None:
         record = self.records.get(file_id)
-        if record is None or record.status != "deleted" or record.object_deleted_at is not None:
+        if (
+            record is None
+            or record.status not in {"failed", "deleted"}
+            or record.object_deleted_at is not None
+        ):
             return None
         updated = replace(record, object_deleted_at=deleted_at, updated_at=datetime.now(UTC))
         self.records[file_id] = updated
@@ -148,6 +196,8 @@ class FakeFileCatalog:
         allowed: set[str],
         status: FileStatus,
     ) -> FileRecord | None:
+        audit = values.get("audit")
+        self._check_audit(audit if isinstance(audit, FileAuditEvent) else None)
         file_id = str(values["file_id"])
         record = self.records.get(file_id)
         if (
@@ -170,13 +220,43 @@ class FakeFileCatalog:
                 changes["failure_reason" if key == "reason" else key] = values[key]
         updated = replace(record, **changes)
         self.records[file_id] = updated
+        self._append_audit(audit if isinstance(audit, FileAuditEvent) else None)
         return updated
+
+    async def append(self, events: list[FileAuditEvent]) -> None:
+        if self.fail_audit:
+            raise FileAuditUnavailable("fake audit failure")
+        now = datetime.now(UTC)
+        self.audit_events.extend(
+            replace(event, occurred_at=event.occurred_at or now) for event in events
+        )
+
+    async def purge_before(self, *, occurred_before: datetime, limit: int) -> int:
+        old = [
+            event
+            for event in self.audit_events
+            if event.occurred_at is not None and event.occurred_at < occurred_before
+        ][:limit]
+        for event in old:
+            self.audit_events.remove(event)
+        return len(old)
+
+    def _check_audit(self, audit: FileAuditEvent | None) -> None:
+        if audit is not None and self.fail_audit:
+            raise FileAuditUnavailable("fake audit failure")
+
+    def _append_audit(self, audit: FileAuditEvent | None) -> None:
+        if audit is not None:
+            self.audit_events.append(
+                replace(audit, occurred_at=audit.occurred_at or datetime.now(UTC))
+            )
 
 
 class FakeBlobStore:
     def __init__(self) -> None:
         self.objects: dict[str, tuple[bytes, str, str | None]] = {}
         self.fail = False
+        self.fail_delete = False
         self.deleted: list[str] = []
 
     async def create_upload_url(self, **values: object) -> PresignedRequest:
@@ -222,6 +302,8 @@ class FakeBlobStore:
 
     async def delete(self, *, object_key: str) -> None:
         self._check()
+        if self.fail_delete:
+            raise BlobStorageError("fake delete failure")
         self.deleted.append(object_key)
         self.objects.pop(object_key, None)
 
@@ -234,6 +316,8 @@ class FakeBlobStore:
 
     async def delete_prefix(self, *, prefix: str) -> None:
         self._check()
+        if self.fail_delete:
+            raise BlobStorageError("fake delete failure")
         for key in [key for key in self.objects if key.startswith(prefix)]:
             self.deleted.append(key)
             del self.objects[key]
@@ -268,6 +352,7 @@ class FakeFileProcessingStore:
             updated_at=now,
         )
         self.jobs[record.id] = job
+        self.catalog.processing_file_ids.add(record.id)
         return record, job
 
     async def get_latest_jobs(self, *, file_ids: list[str]):

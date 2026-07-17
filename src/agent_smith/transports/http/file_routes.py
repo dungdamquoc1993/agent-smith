@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from agent_smith.app.auth import AppAssertionError
 from agent_smith.app.container import AppContainer
-from agent_smith.app.ports.files import FileRecord, PresignedRequest
+from agent_smith.app.ports.files import FileAuditActor, FileRecord, PresignedRequest
 from agent_smith.app.ports.document_processing import ProcessingJobRecord
 from agent_smith.app.services.authentication import AuthenticatedPrincipal
 from agent_smith.app.services.files import FileServiceError
@@ -59,6 +59,7 @@ async def authenticate_principal(
 @router.post("/api/files/uploads", status_code=int(HTTPStatus.CREATED))
 async def initiate_upload(
     request: Request,
+    correlation_id: str | None = Header(default=None, alias="X-Correlation-ID"),
     principal: AuthenticatedPrincipal = Depends(authenticate_principal),
     container: AppContainer = Depends(get_container),
 ):
@@ -71,6 +72,8 @@ async def initiate_upload(
             size_bytes=body.size_bytes,
             sha256=body.sha256,
             metadata=body.metadata,
+            actor=_audit_actor(principal),
+            correlation_id=correlation_id,
         )
     except ValidationError as exc:
         raise AgentSmithHttpError(HTTPStatus.BAD_REQUEST, "invalid_file", str(exc)) from exc
@@ -85,6 +88,7 @@ async def initiate_upload(
 @router.post("/api/files/{file_id}/complete")
 async def complete_upload(
     file_id: str,
+    correlation_id: str | None = Header(default=None, alias="X-Correlation-ID"),
     principal: AuthenticatedPrincipal = Depends(authenticate_principal),
     container: AppContainer = Depends(get_container),
 ):
@@ -92,6 +96,8 @@ async def complete_upload(
         file = await container.files.complete_upload(
             principal_id=principal.principal_id,
             file_id=file_id,
+            actor=_audit_actor(principal),
+            correlation_id=correlation_id,
         )
     except FileServiceError as exc:
         raise _http_file_error(exc) from exc
@@ -157,6 +163,7 @@ async def get_file(
 @router.post("/api/files/{file_id}/download-url")
 async def create_download_url(
     file_id: str,
+    correlation_id: str | None = Header(default=None, alias="X-Correlation-ID"),
     principal: AuthenticatedPrincipal = Depends(authenticate_principal),
     container: AppContainer = Depends(get_container),
 ):
@@ -164,6 +171,8 @@ async def create_download_url(
         download = await container.files.create_download_url(
             principal_id=principal.principal_id,
             file_id=file_id,
+            actor=_audit_actor(principal),
+            correlation_id=correlation_id,
         )
     except FileServiceError as exc:
         raise _http_file_error(exc) from exc
@@ -173,6 +182,7 @@ async def create_download_url(
 @router.delete("/api/files/{file_id}", status_code=int(HTTPStatus.NO_CONTENT))
 async def delete_file(
     file_id: str,
+    correlation_id: str | None = Header(default=None, alias="X-Correlation-ID"),
     principal: AuthenticatedPrincipal = Depends(authenticate_principal),
     container: AppContainer = Depends(get_container),
 ):
@@ -180,6 +190,8 @@ async def delete_file(
         await container.files.delete_file(
             principal_id=principal.principal_id,
             file_id=file_id,
+            actor=_audit_actor(principal),
+            correlation_id=correlation_id,
         )
     except FileServiceError as exc:
         raise _http_file_error(exc) from exc
@@ -234,4 +246,13 @@ def _presign_payload(request: PresignedRequest) -> dict[str, Any]:
 
 
 def _http_file_error(exc: FileServiceError) -> AgentSmithHttpError:
-    return AgentSmithHttpError(exc.status, exc.code, exc.message)
+    headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after is not None else None
+    return AgentSmithHttpError(exc.status, exc.code, exc.message, headers=headers)
+
+
+def _audit_actor(principal: AuthenticatedPrincipal) -> FileAuditActor:
+    actor = getattr(principal, "actor", None)
+    return FileAuditActor(
+        subject=str(getattr(actor, "subject", principal.principal_id)),
+        identity_provider_id=getattr(actor, "provider_id", None),
+    )

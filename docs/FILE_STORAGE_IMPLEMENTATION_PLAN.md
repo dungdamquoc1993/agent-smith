@@ -5,7 +5,7 @@
 Xây dựng file storage do Agent Smith quản lý hoàn toàn:
 
 - Postgres lưu metadata, ownership và lifecycle.
-- S3-compatible object storage (AWS S3 hoặc Cloudflare R2) lưu binary.
+- Cloudflare R2 private lưu binary qua S3-compatible adapter.
 - Client upload trực tiếp bằng presigned URL, không nhận S3 credentials.
 - Session chỉ lưu file reference, không lưu binary/base64.
 - App layer chuyển file thành nội dung LLM hiểu được trước khi gọi Harness/provider.
@@ -23,9 +23,16 @@ Xây dựng file storage do Agent Smith quản lý hoàn toàn:
 ## Contract MVP đã triển khai
 
 - MIME allowlist: PNG, JPEG, GIF, WebP, plain text, Markdown, CSV, PDF,
-  DOC/DOCX và XLS/XLSX.
+  DOCX và XLSX. Legacy DOC/XLS bị reject trước presign.
 - Giới hạn mặc định: 50 MiB/file; có thể cấu hình bằng environment.
-- Presigned upload/download URL: 15 phút.
+- Presigned upload/download URL: 10 phút.
+- Quota original object: 5 GiB/principal; tối đa 10 pending uploads.
+- Single-process token bucket: initiate 30/phút, complete 60/phút cho mỗi principal.
+- Token bucket in-memory giả định đúng một HTTP process; trước khi scale ngang phải
+  thay bằng distributed limiter.
+- Audit file operations giữ 90 ngày; soft-delete object retention giữ 7 ngày.
+- Quota cộng declared size của mọi original chưa có `object_deleted_at`, gồm pending,
+  processing, ready, failed và soft-deleted trong retention; không cộng derivative.
 - Pending upload hết hạn sau 1 giờ; soft-deleted metadata giữ 7 ngày.
 - Filename được phép trùng; UUID mới là định danh thật và object key không chứa filename.
 - Pagination mặc định 50, tối đa 100.
@@ -67,6 +74,8 @@ Quy tắc:
 - `complete upload` phải idempotent.
 - `deleted` là soft-delete ở Postgres; xóa object vật lý là async cleanup.
 - Upload hết hạn hoặc object không có metadata hợp lệ phải được cleanup.
+- Validation failure (`size_mismatch`, `checksum_mismatch`, `mime_mismatch`) xóa
+  original; processing failure giữ original và vẫn cho authenticated download.
 
 ---
 
@@ -235,7 +244,8 @@ Quy tắc:
 - [x] Implement `get_file()`.
 - [x] Implement `create_download_url()` với ownership check.
 - [x] Implement `delete_file()` bằng soft-delete; worker boundary expose cleanup idempotent.
-- [x] Không cho download file `pending_upload`, `failed` hoặc `deleted`.
+- [x] Không cho download `pending_upload`, `deleted` hoặc validation-rejected file;
+  processing failure vẫn giữ original downloadable.
 
 ### HTTP routes
 
@@ -264,7 +274,8 @@ Quy tắc:
 - [x] Cleanup `pending_upload` records hết hạn.
 - [ ] Cleanup orphan objects không có valid metadata record.
 - [x] Retry object delete khi S3/R2 tạm lỗi ở lần cleanup tiếp theo.
-- [x] DB create thành công nhưng presign thất bại: mark metadata `failed`.
+- [x] Presign được tạo trước reservation transaction; presign failure không để lại
+  metadata/quota reservation và URL không được trả nếu DB/audit commit thất bại.
 - [x] Object upload thành công nhưng client không gọi complete: stale-upload cleanup xóa object và mark `failed`.
 - [x] Các cleanup operations phải idempotent.
 
@@ -517,27 +528,36 @@ Quy tắc:
 
 ## Milestone 6 — Security, reliability và operations hardening
 
+Milestone 6 Lite cho trusted partner pilot đã hoàn tất các guardrail thiết yếu.
+Các mục production-scale còn lại bên dưới vẫn được defer có chủ đích; không được
+hiểu Lite là security sign-off cho public/untrusted rollout.
+
 ### Security
 
-- [ ] Private bucket policy được document và kiểm thử.
-- [ ] Presigned URL TTL ngắn và scope đúng object/method.
-- [ ] MIME allowlist + sniffing.
-- [ ] Filename sanitization cho display/header, không dùng cho object key.
+- [x] Private R2 configuration được document; contract suite kiểm tra anonymous access.
+- [x] Presigned URL TTL 10 phút và scope đúng object/method.
+- [x] MIME allowlist + sniffing.
+- [x] Filename sanitization gồm Unicode control/DEL; object key chỉ dùng UUID.
 - [ ] Malware scanning/quarantine trước `ready`.
-- [ ] Zip-bomb/decompression limits.
-- [ ] Rate limit upload initiation/completion.
-- [ ] Quota theo principal/tenant.
-- [ ] Audit log cho create/download/delete/attach.
-- [ ] Không log credentials, raw assertion hoặc presigned URL.
+- [x] Zip-bomb/decompression limits.
+- [x] Rate limit upload initiation/completion theo principal và operation.
+- [x] Quota 5 GiB/principal và pending cap được reserve trong transaction có row lock.
+- [x] Audit log cho initiate/complete/download/delete/attach, retention 90 ngày.
+- [x] Audit details dùng allowlist và không chứa filename, object key, URL hay auth material.
+
+> Malware scanning được defer vì pilot là trusted, low-volume. Đây là risk
+> acceptance tạm thời và là blocker bắt buộc phải đánh giá lại trước public hoặc
+> untrusted rollout.
 
 ### Reliability
 
 - [ ] Metrics theo status và processing latency.
 - [ ] S3 error rate/latency metrics.
+- [x] Worker cleanup bounded/idempotent cho expired, rejected và soft-deleted objects.
 - [ ] Pending/orphan cleanup metrics.
 - [ ] Dead-letter/retry visibility cho processing jobs.
 - [ ] Backup/restore strategy cho metadata.
-- [ ] Lifecycle/retention policy cho object storage.
+- [x] Application retention: pending 1 giờ, soft-delete 7 ngày, audit 90 ngày.
 - [ ] Reconciliation job giữa Postgres metadata và object storage.
 
 ### Scale features
@@ -550,7 +570,7 @@ Quy tắc:
 
 ### Definition of done
 
-- [ ] Có runbook cho storage outage, stuck processing và orphan objects.
+- [x] Có runbook cho R2 outage, stuck upload và cleanup failure.
 - [ ] Có dashboard/alerts cho các failure mode chính.
 - [ ] Security review hoàn tất trước production rollout rộng.
 
@@ -569,11 +589,11 @@ Quy tắc:
 
 ## Test matrix tổng thể
 
-- [ ] Unit tests không cần Postgres/S3 thật.
-- [ ] Postgres integration tests chạy khi có `AGENT_SMITH_TEST_POSTGRES_URL`.
-- [ ] S3 contract tests chạy với MinIO hoặc dedicated test bucket.
-- [ ] HTTP tests dùng fake ports và kiểm tra auth/error mapping.
-- [ ] End-to-end test: initiate → direct upload → complete → list → download → delete.
+- [x] Unit tests không cần Postgres/S3 thật.
+- [x] Postgres integration tests chạy opt-in với `AGENT_SMITH_TEST_POSTGRES_URL`.
+- [x] R2 contract tests chạy opt-in với dedicated `AGENT_SMITH_TEST_S3_*` bucket.
+- [x] HTTP tests dùng fake ports và kiểm tra auth/error mapping.
+- [x] Contract test: initiate → direct upload → complete → download → delete → cleanup.
 - [ ] End-to-end test: upload image → attach prompt → session replay.
 - [ ] End-to-end test: upload document → process → prompt sử dụng extracted content.
 - [ ] Architecture tests giữ SQLAlchemy trong Postgres backend và S3 SDK trong S3 backend.

@@ -25,6 +25,7 @@ from agent_smith.core.tasks import MemoryTaskRuntime
 from agent_smith.infra.config import get_settings
 from agent_smith.infra.document_processing import inspect_image
 from agent_smith.infra.storage.postgres.adapters import (
+    PostgresFileAuditStore,
     PostgresFileCatalog,
     PostgresFileProcessingStore,
     PostgresIdentityStore,
@@ -89,6 +90,7 @@ class AppContainer:
         )
         self.tasks = TaskService(MemoryTaskRuntime())
         file_catalog = PostgresFileCatalog(session_factory)
+        file_audit_store = PostgresFileAuditStore(session_factory)
         processing_store = PostgresFileProcessingStore(session_factory)
         blob_store = S3BlobStore(
             create_s3_client(
@@ -101,6 +103,7 @@ class AppContainer:
             bucket=settings.s3_bucket,
         )
         self.file_catalog = file_catalog
+        self.file_audit_store = file_audit_store
         self.file_processing_store = processing_store
         self.blob_store = blob_store
         self.files = FileService(
@@ -114,6 +117,12 @@ class AppContainer:
             image_inspector=inspect_image,
             processing_pipeline_version=settings.file_processing_pipeline_version,
             processing_max_attempts=settings.file_processing_max_attempts,
+            audit_store=file_audit_store,
+            principal_quota_bytes=settings.file_principal_quota_bytes,
+            max_pending_uploads=settings.file_max_pending_uploads,
+            init_rate_per_minute=settings.file_init_rate_per_minute,
+            complete_rate_per_minute=settings.file_complete_rate_per_minute,
+            audit_retention_seconds=settings.file_audit_retention_seconds,
         )
         self.attachments = AttachmentService(
             file_catalog,
@@ -132,6 +141,7 @@ class AppContainer:
             authentication_service=self.authentication,
             recent_conversation_provider=PostgresRecentConversationProvider(session_factory),
             attachment_service=self.attachments,
+            file_audit_store=file_audit_store,
         )
 
     def bootstrap_providers(self) -> None:

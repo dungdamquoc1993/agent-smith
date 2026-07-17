@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent_smith.app.ports.document_processing import (
@@ -15,7 +16,8 @@ from agent_smith.app.ports.document_processing import (
     PendingDerivative,
     ProcessingJobRecord,
 )
-from agent_smith.app.ports.files import FileRecord
+from agent_smith.app.ports.files import FileAuditEvent, FileAuditUnavailable, FileRecord
+from agent_smith.infra.storage.postgres.adapters.file_audit import add_audit_event
 from agent_smith.infra.storage.postgres.models.file import (
     File,
     FileDerivative,
@@ -38,45 +40,55 @@ class PostgresFileProcessingStore:
         sha256: str | None,
         pipeline_version: str,
         max_attempts: int,
+        audit: FileAuditEvent | None = None,
     ) -> tuple[FileRecord, ProcessingJobRecord] | None:
         now = datetime.now(UTC)
-        async with self._session_factory() as db, db.begin():
-            file = await db.scalar(
-                select(File)
-                .where(File.id == _uuid(file_id), File.principal_id == _uuid(principal_id))
-                .with_for_update()
-            )
-            if file is None or file.status not in {
-                FileStatus.pending_upload,
-                FileStatus.uploaded,
-                FileStatus.processing,
-            }:
-                return None
-            if file.status == FileStatus.pending_upload:
-                file.status = FileStatus.uploaded
-                file.etag = etag
-                file.sha256 = sha256
-                file.updated_at = now
-            job = await db.scalar(
-                select(FileProcessingJob).where(
-                    FileProcessingJob.file_id == file.id,
-                    FileProcessingJob.pipeline_version == pipeline_version,
+        try:
+            async with self._session_factory() as db, db.begin():
+                file = await db.scalar(
+                    select(File)
+                    .where(File.id == _uuid(file_id), File.principal_id == _uuid(principal_id))
+                    .with_for_update()
                 )
-            )
-            if job is None:
-                job = FileProcessingJob(
-                    id=uuid.uuid4(),
-                    file_id=file.id,
-                    pipeline_version=pipeline_version,
-                    status=ProcessingJobStatus.queued,
-                    max_attempts=max_attempts,
-                    available_at=now,
+                if file is None or file.status not in {
+                    FileStatus.pending_upload,
+                    FileStatus.uploaded,
+                    FileStatus.processing,
+                }:
+                    return None
+                if file.status == FileStatus.pending_upload:
+                    file.status = FileStatus.uploaded
+                    file.etag = etag
+                    file.sha256 = sha256
+                    file.updated_at = now
+                job = await db.scalar(
+                    select(FileProcessingJob).where(
+                        FileProcessingJob.file_id == file.id,
+                        FileProcessingJob.pipeline_version == pipeline_version,
+                    )
                 )
-                db.add(job)
-            await db.flush()
-            await db.refresh(file)
-            await db.refresh(job)
-            return _file_record(file), _job_record(job)
+                if job is None:
+                    job = FileProcessingJob(
+                        id=uuid.uuid4(),
+                        file_id=file.id,
+                        pipeline_version=pipeline_version,
+                        status=ProcessingJobStatus.queued,
+                        max_attempts=max_attempts,
+                        available_at=now,
+                    )
+                    db.add(job)
+                if audit is not None:
+                    add_audit_event(db, audit)
+                await db.flush()
+                await db.refresh(file)
+                await db.refresh(job)
+                return _file_record(file), _job_record(job)
+        except (SQLAlchemyError, ValueError) as exc:
+            if audit is not None:
+                raise FileAuditUnavailable(
+                    "Unable to persist required file audit event"
+                ) from exc
+            raise
 
     async def get_latest_jobs(
         self, *, file_ids: list[str]

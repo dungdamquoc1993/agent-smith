@@ -26,11 +26,13 @@ class AgentSmithHttpError(Exception):
         status_code: HTTPStatus | int,
         code: str,
         message: str,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = int(status_code)
         self.code = code
         self.message = message
+        self.headers = headers or {}
 
 
 def get_container(request: Request) -> AppContainer:
@@ -45,10 +47,12 @@ def error_response(
     status_code: HTTPStatus | int,
     code: str,
     message: str,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
-    return json_response(
-        {"error": {"code": code, "message": message}},
-        status_code=status_code,
+    return JSONResponse(
+        content=jsonable({"error": {"code": code, "message": message}}),
+        status_code=int(status_code),
+        headers=headers,
     )
 
 

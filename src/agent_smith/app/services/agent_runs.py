@@ -12,6 +12,7 @@ from typing import Any, TypeAlias
 from agent_smith.app.auth import AppAssertionError
 from agent_smith.app.context import ContextResolutionError, ContextResolver
 from agent_smith.app.invocation import AgentInvocation, VerifiedActor
+from agent_smith.app.ports.files import FileAuditEvent, FileAuditStore
 from agent_smith.app.services.agent_run_traces import create_agent_run_trace, install_trace_hooks
 from agent_smith.app.services.authentication import PrincipalAuthenticationService
 from agent_smith.app.services.resources import ResourceService
@@ -67,6 +68,7 @@ class AgentRunService:
         context_resolver: ContextResolver | None = None,
         recent_conversation_provider: RecentConversationProvider | None = None,
         attachment_service: AttachmentService | None = None,
+        file_audit_store: FileAuditStore | None = None,
     ) -> None:
         self._session_service = session_service
         self._resource_service = resource_service
@@ -74,6 +76,7 @@ class AgentRunService:
         self._context_resolver = context_resolver or ContextResolver()
         self._recent_conversation_provider = recent_conversation_provider
         self._attachment_service = attachment_service
+        self._file_audit_store = file_audit_store
         self.default_permission_mode = default_permission_mode
         self.default_model_key = default_model_key
 
@@ -271,6 +274,26 @@ class AgentRunService:
             session_id=invocation.session.smith_session_id,
             provenance=provenance,
         )
+        if attachments.records and self._file_audit_store is not None:
+            await self._file_audit_store.append(
+                [
+                    FileAuditEvent(
+                        principal_id=principal_id,
+                        identity_provider_id=actor.provider_id,
+                        actor_subject=actor.subject,
+                        file_id=record.id,
+                        action="file.attached",
+                        outcome="succeeded",
+                        correlation_id=invocation.correlation_id,
+                        details={
+                            "mimeType": record.detected_mime_type or record.mime_type,
+                            "declaredSize": record.size_bytes,
+                            "resultingStatus": record.status,
+                        },
+                    )
+                    for record in attachments.records
+                ]
+            )
         return PreparedAgentInvocation(
             invocation=invocation,
             actor=actor,

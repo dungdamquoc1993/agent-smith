@@ -71,7 +71,7 @@ class Settings(BaseSettings):
         validation_alias="AGENT_SMITH_S3_PATH_STYLE",
     )
     s3_presign_ttl_seconds: int = Field(
-        default=900,
+        default=600,
         ge=60,
         le=3600,
         validation_alias="AGENT_SMITH_S3_PRESIGN_TTL_SECONDS",
@@ -90,6 +90,36 @@ class Settings(BaseSettings):
         default=7 * 24 * 3600,
         ge=0,
         validation_alias="AGENT_SMITH_FILE_DELETED_RETENTION_SECONDS",
+    )
+    file_principal_quota_bytes: int = Field(
+        default=5 * 1024 * 1024 * 1024,
+        gt=0,
+        validation_alias="AGENT_SMITH_FILE_PRINCIPAL_QUOTA_BYTES",
+    )
+    file_max_pending_uploads: int = Field(
+        default=10,
+        ge=1,
+        validation_alias="AGENT_SMITH_FILE_MAX_PENDING_UPLOADS",
+    )
+    file_init_rate_per_minute: int = Field(
+        default=30,
+        ge=1,
+        validation_alias="AGENT_SMITH_FILE_INIT_RATE_PER_MINUTE",
+    )
+    file_complete_rate_per_minute: int = Field(
+        default=60,
+        ge=1,
+        validation_alias="AGENT_SMITH_FILE_COMPLETE_RATE_PER_MINUTE",
+    )
+    file_audit_retention_seconds: int = Field(
+        default=90 * 24 * 3600,
+        ge=0,
+        validation_alias="AGENT_SMITH_FILE_AUDIT_RETENTION_SECONDS",
+    )
+    file_maintenance_interval_seconds: int = Field(
+        default=300,
+        ge=10,
+        validation_alias="AGENT_SMITH_FILE_MAINTENANCE_INTERVAL_SECONDS",
     )
     attachment_max_count: int = Field(
         default=8,

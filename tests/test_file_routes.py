@@ -27,6 +27,7 @@ def _client() -> tuple[TestClient, FakeFileCatalog]:
             FakeBlobStore(),
             max_bytes=1024,
             presign_ttl_seconds=900,
+            max_pending_uploads=100,
         ),
     )
     return TestClient(create_app(container=container)), catalog
@@ -181,3 +182,29 @@ def test_file_route_pagination_filter_and_deleted_download() -> None:
     assert [file["originalName"] for file in filtered.json()["files"]] == ["c.md"]
     assert deleted.status_code == 204
     assert download.status_code == 404
+
+
+def test_file_route_rate_limit_has_retry_after_and_no_authentication_secret() -> None:
+    client, _ = _client()
+    with client:
+        responses = [
+            client.post(
+                "/api/files/uploads",
+                headers=_headers("a"),
+                json={"originalName": f"{index}.txt", "mimeType": "text/plain", "sizeBytes": 1},
+            )
+            for index in range(31)
+        ]
+        other_principal = client.post(
+            "/api/files/uploads",
+            headers=_headers("b"),
+            json={"originalName": "b.txt", "mimeType": "text/plain", "sizeBytes": 1},
+        )
+
+    limited = responses[-1]
+    assert all(response.status_code == 201 for response in responses[:-1])
+    assert limited.status_code == 429
+    assert limited.json()["error"]["code"] == "rate_limited"
+    assert int(limited.headers["Retry-After"]) >= 1
+    assert "assertion" not in limited.text
+    assert other_principal.status_code == 201

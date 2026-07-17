@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, Protocol
 
-from agent_smith.app.ports.files import FileRecord
+from agent_smith.app.ports.files import FileAuditEvent, FileRecord
 
 BlockKind = Literal["heading", "paragraph", "table"]
 JobStatus = Literal["queued", "running", "retry_wait", "succeeded", "failed", "cancelled"]
@@ -162,6 +162,7 @@ class FileProcessingStore(Protocol):
         sha256: str | None,
         pipeline_version: str,
         max_attempts: int,
+        audit: FileAuditEvent | None = None,
     ) -> tuple[FileRecord, ProcessingJobRecord] | None: ...
 
     async def get_latest_jobs(self, *, file_ids: list[str]) -> dict[str, ProcessingJobRecord]: ...
