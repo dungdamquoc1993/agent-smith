@@ -10,6 +10,7 @@ from agent_smith.app.auth import AppAssertionVerifier, parse_trusted_apps
 from agent_smith.app.services.agent_runs import AgentRunService
 from agent_smith.app.services.authentication import PrincipalAuthenticationService
 from agent_smith.app.services.files import FileService
+from agent_smith.app.services.attachments import AttachmentService
 from agent_smith.app.services.identity import PrincipalIdentityService
 from agent_smith.app.services.identity_providers import IdentityProviderManagementService
 from agent_smith.app.services.provider_auth import (
@@ -85,9 +86,8 @@ class AppContainer:
             default_agent_name=os.environ.get("AGENT_SMITH_TEST_AGENT_NAME", DEFAULT_AGENT_NAME),
         )
         self.tasks = TaskService(MemoryTaskRuntime())
-        self.files = FileService(
-            PostgresFileCatalog(session_factory),
-            S3BlobStore(
+        file_catalog = PostgresFileCatalog(session_factory)
+        blob_store = S3BlobStore(
                 create_s3_client(
                     endpoint_url=settings.s3_endpoint_url,
                     region=settings.s3_region,
@@ -96,11 +96,21 @@ class AppContainer:
                     path_style=settings.s3_path_style,
                 ),
                 bucket=settings.s3_bucket,
-            ),
+            )
+        self.files = FileService(
+            file_catalog,
+            blob_store,
             max_bytes=settings.file_max_bytes,
             presign_ttl_seconds=settings.s3_presign_ttl_seconds,
             pending_ttl_seconds=settings.file_pending_ttl_seconds,
             deleted_retention_seconds=settings.file_deleted_retention_seconds,
+        )
+        self.attachments = AttachmentService(
+            file_catalog,
+            blob_store,
+            max_attachments=settings.attachment_max_count,
+            max_materialized_bytes=settings.attachment_max_materialized_bytes,
+            read_concurrency=settings.attachment_read_concurrency,
         )
         self.agent_runs = AgentRunService(
             session_service=self.sessions,
@@ -109,6 +119,7 @@ class AppContainer:
             default_model_key=settings.default_model,
             authentication_service=self.authentication,
             recent_conversation_provider=PostgresRecentConversationProvider(session_factory),
+            attachment_service=self.attachments,
         )
 
     def bootstrap_providers(self) -> None:

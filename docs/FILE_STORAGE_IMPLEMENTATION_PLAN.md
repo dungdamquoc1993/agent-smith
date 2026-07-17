@@ -333,73 +333,83 @@ Quy tắc:
   `uploaded` cho đến Milestone 4.
 - [x] M3 chỉ materialize PNG, JPEG, GIF và WebP; model phải khai báo hỗ trợ
   `image`.
-- [x] Inline base64 cũ được đọc để backward compatibility nhưng mọi write mới
-  đều dùng file reference; không chạy migration đổi dữ liệu cũ.
+- [x] Persisted inline base64 cũ không được hỗ trợ và bị strict session reader
+  reject; không chạy migration đổi dữ liệu cũ vì không có production data cần giữ.
 - [x] Active session branch materialize các image references còn trong context
   để hỗ trợ hỏi tiếp về ảnh cũ. Recent conversations từ session khác không tự
   động materialize attachment.
 - [x] Giới hạn mặc định là 8 attachments mỗi invocation và tổng 20 MiB image
   bytes được materialize; cả hai đều configurable.
-- [x] M3 chưa triển khai provider file-upload/cache API; đây là optimization về
-  sau, không thay đổi persisted contract.
+- [x] Không dùng remote image URL, provider upload API, provider asset ID hoặc
+  provider-side cache. Provider asset IDs không thuộc kiến trúc M3 hiện tại.
+- [x] `/api/prompt/stream` nhận `attachments` ở root và
+  `/api/agent/invoke/stream` nhận `payload.attachments`; prompt có thể rỗng chỉ
+  khi có ít nhất một attachment hợp lệ.
 
 ### Database
 
-- [ ] Tạo migration `011_session_entry_files.py`.
-- [ ] Tạo bảng `session_entry_files`:
-  - [ ] `session_entry_id UUID REFERENCES session_entries(id)`
-  - [ ] `file_id UUID REFERENCES files(id)`
-  - [ ] `position INTEGER NOT NULL`
-  - [ ] `purpose VARCHAR(64) NOT NULL`
-- [ ] Dùng primary key `(session_entry_id, position)` và unique constraint
+- [x] Tạo migration `011_session_entry_files.py`, đồng thời thêm
+  `files.object_deleted_at` để cleanup object idempotent.
+- [x] Tạo bảng `session_entry_files`:
+  - [x] `session_entry_id UUID REFERENCES session_entries(id)`
+  - [x] `file_id UUID REFERENCES files(id)`
+  - [x] `position INTEGER NOT NULL`
+  - [x] `purpose VARCHAR(32) NOT NULL`
+- [x] Dùng primary key `(session_entry_id, position)` và unique constraint
   `(session_entry_id, file_id, purpose)` để giữ thứ tự và chặn duplicate binding.
-- [ ] Thêm index theo `session_entry_id` và `file_id`.
+- [x] Thêm index theo `session_entry_id` và `file_id`.
 - [x] Chốt delete behavior để session history không mất audit reference.
 
 ### Persisted message contract
 
-- [ ] Định nghĩa persisted `FileReferenceContent` chứa `fileId`, MIME và display name.
-- [ ] Không dùng `ImageContent.data` base64 làm persisted representation.
-- [ ] Tách persisted session content khỏi provider-ready content.
-- [ ] Giữ backward compatibility cho session entries cũ có inline images nếu cần.
-- [ ] Append session entry và attachment bindings trong cùng Postgres transaction.
+- [x] Định nghĩa persisted `FileReferenceContent` chứa `fileId`, MIME và display name.
+- [x] Không dùng `ImageContent.data` base64 làm persisted representation.
+- [x] Tách persisted session content khỏi provider-ready content.
+- [x] Không giữ backward compatibility cho persisted inline image cũ.
+- [x] Runtime-only image từ Harness/MCP/tool được project thành marker khi persist,
+  nhưng giữ overlay trong run hiện tại qua các tool turn.
+- [x] Append session entry và attachment bindings trong cùng Postgres transaction;
+  khóa/revalidate file row trước khi bind.
 
 ### Invocation và App resolution
 
-- [ ] Bổ sung `attachments: [{fileId}]` vào `AgentInvocationPayload`.
-- [ ] Validate mọi file thuộc cùng `principal_id` với invocation.
-- [ ] Reject file chưa `ready`.
-- [ ] Reject MIME/model input không được hỗ trợ.
-- [ ] Preserve attachment ordering.
-- [ ] Materialize image bytes ngay trước provider request.
-- [ ] Không giữ S3 connection hoặc bytes lâu hơn một provider turn.
-- [ ] Cân nhắc provider upload API/cache nếu base64 per request quá tốn kém.
+- [x] Bổ sung `attachments: [{fileId}]` vào cả hai streaming contract.
+- [x] Validate mọi file thuộc cùng `principal_id` với invocation.
+- [x] Reject file chưa `ready`.
+- [x] Reject MIME/model input không được hỗ trợ.
+- [x] Preserve attachment ordering.
+- [x] Materialize nguyên bytes PNG/JPEG/GIF/WebP ngay trước provider request.
+- [x] Full-object read có byte bound và S3 reads có concurrency limit.
+- [x] Không giữ S3 connection hoặc bytes lâu hơn một provider turn.
+- [x] Giới hạn current attachments 8 item/20 MiB; history được chọn newest-first
+  và phần không materialize trở thành provider-only tombstone.
 
 ### Session/Harness/provider boundary
 
-- [ ] Session contract có thể giữ generic file reference; provider request chỉ
+- [x] Session contract có thể giữ generic file reference; provider request chỉ
   nhận resolved text/image content.
-- [ ] S3/file services không được import vào Core/Harness.
-- [ ] Dùng async `convert_to_llm`/context transformation để resolve references.
-- [ ] Compaction/session replay giữ file reference, không duplicate binary.
-- [ ] Active branch materialize reference còn trong context; recent conversation
+- [x] S3/file services không được import vào Core/Harness.
+- [x] Dùng async `convert_to_llm` để resolve references.
+- [x] Compaction serialize reference thành marker, không gửi binary ảnh cũ vào
+  compaction request; session replay vẫn giữ reference.
+- [x] Active branch materialize reference còn trong context; recent conversation
   context không tự động load attachment từ session khác.
 
 ### Tests
 
-- [ ] Session entry persist file reference, không chứa base64.
-- [ ] Entry + attachment binding rollback cùng nhau khi lỗi.
-- [ ] Image materialization tạo đúng provider payload.
-- [ ] Cross-principal attachment bị reject.
-- [ ] Deleted/unready file bị reject.
-- [ ] Model không hỗ trợ image trả lỗi rõ ràng.
-- [ ] Fork session clone attachment bindings đúng cách.
+- [x] Session entry persist file reference, không chứa base64.
+- [x] Entry + attachment binding rollback cùng nhau khi lỗi.
+- [x] Image materialization tạo đúng provider payload cho bốn MIME type.
+- [x] Cross-principal attachment bị reject.
+- [x] Deleted/unready file bị reject.
+- [x] Model không hỗ trợ image trả lỗi rõ ràng.
+- [x] Fork session clone attachment bindings đúng cách.
 
 ### Definition of done
 
-- [ ] User có thể attach ảnh đã upload vào prompt.
-- [ ] Session replay vẫn hoạt động sau khi process restart.
-- [ ] Postgres không chứa image binary/base64 mới.
+- [x] User có thể attach ảnh đã upload vào prompt.
+- [x] Session replay materialize lại reference từ managed storage sau restart.
+- [x] Postgres không chứa image binary/base64 mới.
 
 ---
 

@@ -7,6 +7,7 @@ from typing import Any
 
 from agent_smith.core.llm.types import HookPayload, JsonValue
 from agent_smith.core.agent.types import AgentMessage
+from agent_smith.core.agent.persistence import project_message_for_persistence
 from agent_smith.core.agent.harness.session.types import (
     SessionContext,
     SessionMetadata,
@@ -51,7 +52,9 @@ class Session:
         return entry.id
 
     async def append_message(self, message: AgentMessage) -> str:
-        return await self._append_typed_entry({"type": "message", "message": message})
+        return await self._append_typed_entry(
+            {"type": "message", "message": project_message_for_persistence(message)}
+        )
 
     async def append_thinking_level_change(self, thinking_level: str) -> str:
         return await self._append_typed_entry(

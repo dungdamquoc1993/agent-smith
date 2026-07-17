@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, func, text
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -94,3 +94,25 @@ class SessionEntry(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     session: Mapped[Session] = relationship(back_populates="entries")
+
+
+class SessionEntryFile(Base):
+    __tablename__ = "session_entry_files"
+    __table_args__ = (
+        UniqueConstraint(
+            "session_entry_id", "file_id", "purpose", name="uq_session_entry_files_file_purpose"
+        ),
+        Index("ix_session_entry_files_entry", "session_entry_id"),
+        Index("ix_session_entry_files_file", "file_id"),
+    )
+
+    session_entry_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("session_entries.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    file_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("files.id", ondelete="RESTRICT"), nullable=False
+    )
+    position: Mapped[int] = mapped_column(Integer, primary_key=True)
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False)

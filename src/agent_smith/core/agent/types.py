@@ -27,8 +27,13 @@ from agent_smith.core.llm.types import (
     ToolResultMessage,
 )
 from agent_smith.core.permissions.types import CheckPermissionsFn, ToolPermissionSpec
+from agent_smith.core.agent.persistence import (
+    PersistedToolResultMessage,
+    PersistedUserMessage,
+    persisted_message_to_provider_markers,
+)
 
-AgentMessage = Message
+AgentMessage = Message | PersistedUserMessage | PersistedToolResultMessage
 AgentToolCall = ToolCall
 ToolExecutionMode = Literal["sequential", "parallel"]
 
@@ -83,7 +88,7 @@ class AgentContext(BaseModel):
 
 
 def default_convert_to_llm(messages: list[AgentMessage]) -> list[Message]:
-    return messages
+    return [persisted_message_to_provider_markers(message) for message in messages]
 
 
 class BeforeToolCallResult(BaseModel):

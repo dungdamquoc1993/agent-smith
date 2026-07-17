@@ -8,6 +8,20 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 
 ## [Unreleased]
 
+### Added - Managed session image attachments
+
+- Thêm migration `011_session_entry_files`: bind immutable managed file vào
+  session entry, clone binding khi fork, và giữ tombstone metadata an toàn sau
+  khi object đã được cleanup.
+- Thêm `attachments: [{fileId}]` cho `/api/agent/invoke/stream` và root-level
+  `attachments` cho `/api/prompt/stream`; hỗ trợ prompt chỉ có ảnh.
+- Tách persisted `fileReference` khỏi provider `ImageContent`: Postgres không
+  nhận image binary/base64; App chỉ đọc/encode object private ngay trước provider
+  request, với budget 20 MiB và history selection newest-first.
+- Image upload PNG/JPEG/GIF/WebP chuyển thẳng sang `ready`; bổ sung validation
+  ownership/status/MIME/model capability, bounded S3 object read, runtime image
+  overlay, và tests persistence/materialization/Postgres integration.
+
 ### Removed - Unused messaging / queue scaffolding
 
 - Xoa `app/envelope.py` (`CommandEnvelope`) va `app/events.py` (`AppEventEnvelope`) — khong con caller trong runtime HTTP.

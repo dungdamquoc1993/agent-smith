@@ -95,6 +95,9 @@ Body:
 {
   "payload": {
     "prompt": "Xin chào",
+    "attachments": [
+      {"fileId": "managed-file-uuid"}
+    ],
     "agentName": "workplace_assistant",
     "modelKey": "gpt-5.5"
   },
@@ -116,6 +119,56 @@ Body:
   "correlationId": "trace-from-parent"
 }
 ```
+
+## Managed Image Attachments
+
+Upload the binary through Smith's managed file API before invoking the agent.
+The parent backend authenticates each file request with the same provider API key
+and signed assertion used for invocation; the browser only receives a short-lived
+presigned `PUT` URL and never receives S3/R2 credentials.
+
+```text
+POST /api/files/uploads
+POST /api/files/{fileId}/complete
+POST /api/agent/invoke/stream
+```
+
+After a successful image completion, pass only its `fileId` in
+`payload.attachments`. Smith resolves ownership and metadata server-side; callers
+must not send MIME type, filename, binary, base64, remote URLs, or provider asset
+IDs in the invoke request.
+
+- Supported prompt images: PNG, JPEG, GIF, and WebP.
+- At most 8 attachments per invocation and 20 MiB of total raw image bytes by
+  default. Both limits are server configuration.
+- `prompt` may be an empty string when `attachments` is non-empty. At least one
+  of them is required.
+- The selected model must advertise image input support.
+- Attachments are immutable session references. Smith reads and base64-encodes
+  the private object only while preparing a provider request; neither Postgres
+  nor the session payload stores image bytes.
+
+Validation occurs before Smith opens the SSE stream. Relevant responses are:
+
+| Status | Error code | Meaning |
+|---:|---|---|
+| 400 | `invalid_attachments`, `duplicate_attachment`, `too_many_attachments`, `model_does_not_support_images` | Invalid attachment shape/count or text-only model |
+| 404 | `attachment_not_found` | Missing, deleted, or cross-principal file |
+| 409 | `attachment_not_ready` | Upload/processing is not complete |
+| 413 | `attachments_too_large` | Current invocation exceeds the materialization byte limit |
+| 415 | `unsupported_attachment_type` | File is not one of the supported image MIME types |
+
+For the local/test SSE route, the equivalent shape is root-level:
+
+```json
+{
+  "prompt": "Describe this image",
+  "attachments": [{"fileId": "managed-file-uuid"}]
+}
+```
+
+See [Managed File Storage Implementation Plan](FILE_STORAGE_IMPLEMENTATION_PLAN.md)
+for the storage lifecycle and retention behavior.
 
 ## Signed Assertion
 
@@ -187,7 +240,11 @@ app.post('/api/oneai/chat/stream', authenticate, async (req, res) => {
       Accept: 'text/event-stream',
     },
     body: JSON.stringify({
-      payload: { prompt: req.body.prompt, agentName: req.body.agentName },
+      payload: {
+        prompt: req.body.prompt ?? '',
+        attachments: req.body.attachments ?? [],
+        agentName: req.body.agentName,
+      },
       session: { smithSessionId: req.body.smithSessionId, externalSessionId: req.body.conversationId },
       surface: {
         app: 'adw',

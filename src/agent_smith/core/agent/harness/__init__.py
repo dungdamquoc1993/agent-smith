@@ -42,6 +42,7 @@ from agent_smith.core.agent.harness.resources import (
     substitute_args,
 )
 from agent_smith.core.agent.harness.session import (
+    FileReferenceContent,
     PendingSessionWrite,
     Session,
     SessionContext,
@@ -106,6 +107,7 @@ __all__ = [
     "AgentHarnessResources",
     "AgentHarnessSession",
     "AgentHarnessStreamOptions",
+    "FileReferenceContent",
     "AgentHarnessStreamOptionsPatch",
     "BeforeAgentStartEvent",
     "BeforeAgentStartResult",

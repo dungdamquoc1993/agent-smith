@@ -36,6 +36,7 @@ class FileRecord:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     deleted_at: datetime | None = None
+    object_deleted_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -149,6 +150,10 @@ class FileCatalog(Protocol):
 
     async def purge_file(self, *, file_id: str) -> bool: ...
 
+    async def mark_object_deleted(
+        self, *, file_id: str, deleted_at: datetime
+    ) -> FileRecord | None: ...
+
 
 class BlobStore(Protocol):
     async def create_upload_url(
@@ -173,5 +178,7 @@ class BlobStore(Protocol):
     async def stat(self, *, object_key: str) -> BlobObjectStat | None: ...
 
     async def read_range(self, *, object_key: str, start: int, end: int) -> bytes: ...
+
+    async def read_object(self, *, object_key: str, max_bytes: int) -> bytes: ...
 
     async def delete(self, *, object_key: str) -> None: ...

@@ -277,6 +277,53 @@ async def test_harness_prompt_accepts_prompt_options_model_with_images() -> None
 
 
 @pytest.mark.asyncio
+async def test_runtime_image_overlay_survives_tool_turn_but_persistence_uses_marker() -> None:
+    repo = MemorySessionRepo()
+    session = await repo.create(principal_id="principal-1")
+
+    async def execute(tool_call_id, params, signal=None, on_update=None):
+        _ = tool_call_id, params, signal, on_update
+        return AgentToolResult(content=[TextContent(text="tool output")])
+
+    tool = AgentTool(
+        name="inspect",
+        label="Inspect",
+        description="Inspect",
+        parameters={"type": "object", "properties": {}},
+        execute=execute,
+    )
+    responses = [
+        _assistant(
+            [ToolCall(id="call-1", name="inspect", arguments={})],
+            stop_reason="toolUse",
+        ),
+        _assistant([TextContent(text="done")]),
+    ]
+    provider_user_content: list[Any] = []
+
+    def stream_fn(model: Model, context: Context, options: SimpleStreamOptions | None = None):
+        _ = model, options
+        user = next(message for message in context.messages if message.role == "user")
+        provider_user_content.append(user.content)
+        return _stream_for(responses[len(provider_user_content) - 1])
+
+    harness = AgentHarness(session=session, model=_model(), tools=[tool], stream_fn=stream_fn)
+    await harness.prompt(
+        "describe",
+        AgentHarnessPromptOptions(
+            images=[ImageContent(data="aW1hZ2U=", mime_type="image/png")],
+        ),
+    )
+
+    assert len(provider_user_content) == 2
+    assert all(isinstance(content[1], ImageContent) for content in provider_user_content)
+    persisted_user = (await session.get_entries())[0].message
+    assert persisted_user is not None and isinstance(persisted_user.content, list)
+    assert persisted_user.content[1].type == "text"
+    assert "Runtime image omitted" in persisted_user.content[1].text
+
+
+@pytest.mark.asyncio
 async def test_harness_prompt_persists_messages_and_provider_hook_options() -> None:
     repo = MemorySessionRepo()
     session = await repo.create(principal_id="principal-1")

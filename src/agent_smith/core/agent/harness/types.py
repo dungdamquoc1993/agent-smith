@@ -19,7 +19,15 @@ from agent_smith.core.llm.types import (
     ProviderPayload,
     TextContent,
 )
-from agent_smith.core.agent.types import AgentEvent, AgentMessage, AgentTool, StreamFn
+from agent_smith.core.agent.types import (
+    AgentEvent,
+    AgentMessage,
+    AgentTool,
+    ConvertToLlmFn,
+    StreamFn,
+    default_convert_to_llm,
+)
+from agent_smith.core.agent.persistence import FileReferenceContent
 from agent_smith.core.agent.harness.compaction import CompactionPreparation, CompactionSettings
 from agent_smith.core.agent.harness.context_types import (
     RecentConversationProvider,
@@ -72,6 +80,7 @@ class AgentHarnessAuth(BaseModel):
 
 class AgentHarnessPromptOptions(BaseModel):
     images: list[ImageContent] | None = None
+    attachments: list[FileReferenceContent] | None = None
     turn_context_metadata: JsonObject | None = Field(default=None, alias="turnContextMetadata")
 
     model_config = {"populate_by_name": True}
@@ -382,6 +391,11 @@ class AgentHarnessOptions(BaseModel):
     active_tool_names: list[str] | None = Field(default=None, alias="activeToolNames")
     thinking_level: ModelThinkingLevel = Field(default="off", alias="thinkingLevel")
     stream_fn: StreamFn | None = Field(default=None, alias="streamFn", exclude=True)
+    convert_to_llm: ConvertToLlmFn = Field(
+        default=default_convert_to_llm,
+        alias="convertToLlm",
+        exclude=True,
+    )
     compaction_settings: CompactionSettings | None = Field(
         default=None,
         alias="compactionSettings",

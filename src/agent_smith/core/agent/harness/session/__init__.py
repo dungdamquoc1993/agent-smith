@@ -1,6 +1,7 @@
 """Single-session contracts and facade for the harness."""
 
 from agent_smith.core.agent.harness.session.session import Session
+from agent_smith.core.agent.persistence import FileReferenceContent
 from agent_smith.core.agent.harness.session.types import (
     PendingSessionWrite,
     SessionContext,
@@ -14,6 +15,7 @@ from agent_smith.core.agent.harness.session.types import (
 )
 
 __all__ = [
+    "FileReferenceContent",
     "PendingSessionWrite",
     "Session",
     "SessionContext",

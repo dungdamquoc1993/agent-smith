@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from agent_smith.app.auth import AppAssertionError
 from agent_smith.app.context import ContextResolutionError
+from agent_smith.app.services.attachments import AttachmentError
 from agent_smith.app.container import AppContainer
 from agent_smith.transports.http.common import (
     AgentSmithHttpError,
@@ -86,12 +87,17 @@ async def prompt_stream(
     container: AppContainer = Depends(get_container),
 ):
     body = await read_json_object(request)
-    prompt = str(body.get("prompt") or "").strip()
-    if not prompt:
-        raise AgentSmithHttpError(HTTPStatus.BAD_REQUEST, "Bad Request", "prompt is required")
+    try:
+        prepared = await container.agent_runs.prepare_prompt(body)
+    except AttachmentError as exc:
+        raise AgentSmithHttpError(exc.status, exc.code, exc.message) from exc
+    except LookupError as exc:
+        raise AgentSmithHttpError(HTTPStatus.NOT_FOUND, "unknown_session", str(exc)) from exc
+    except ValueError as exc:
+        raise AgentSmithHttpError(HTTPStatus.BAD_REQUEST, "invalid_prompt", str(exc)) from exc
 
     async def run(emit: Any) -> None:
-        await container.agent_runs.run_prompt_stream(body, emit)
+        await container.agent_runs.run_prepared_prompt_stream(prepared, emit)
 
     return sse_response(run)
 
@@ -118,6 +124,10 @@ async def agent_invoke_stream(
         raise AgentSmithHttpError(HTTPStatus.BAD_REQUEST, "invalid_context", str(exc)) from exc
     except LookupError as exc:
         raise AgentSmithHttpError(HTTPStatus.NOT_FOUND, "unknown_session", str(exc)) from exc
+    except AttachmentError as exc:
+        raise AgentSmithHttpError(exc.status, exc.code, exc.message) from exc
+    except ValueError as exc:
+        raise AgentSmithHttpError(HTTPStatus.BAD_REQUEST, "invalid_invocation", str(exc)) from exc
 
     async def run(emit: Any) -> None:
         await container.agent_runs.run_prepared_invocation_stream(prepared, emit)

@@ -16,6 +16,7 @@ from agent_smith.core.llm.types import (
     UserMessage,
 )
 from agent_smith.core.agent.types import AgentMessage
+from agent_smith.core.agent.persistence import FileReferenceContent, file_reference_marker
 from agent_smith.core.agent.harness.session.types import SessionTreeEntry
 
 COMPACTION_SUMMARY_PREFIX = "The conversation history before this point was compacted into the following summary:\n\n<summary>\n"
@@ -442,6 +443,8 @@ def _estimate_user_content_chars(content: Any) -> int:
             chars += len(block.text)
         elif getattr(block, "type", None) == "image":
             chars += 4_800
+        elif isinstance(block, FileReferenceContent):
+            chars += len(file_reference_marker(block))
     return chars
 
 
@@ -456,7 +459,13 @@ def _tool_result_text(message: ToolResultMessage) -> str:
 def _user_text(message: UserMessage) -> str:
     if isinstance(message.content, str):
         return message.content
-    return "\n".join(block.text for block in message.content if isinstance(block, TextContent))
+    return "\n".join(
+        block.text
+        if isinstance(block, TextContent)
+        else file_reference_marker(block)
+        for block in message.content
+        if isinstance(block, (TextContent, FileReferenceContent))
+    )
 
 
 def _safe_repr(value: Any) -> str:

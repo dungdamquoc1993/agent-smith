@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import and_, delete, or_, select, update
+from sqlalchemy import and_, delete, exists, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -16,6 +16,7 @@ from agent_smith.app.ports.files import (
     PendingFileRecord,
 )
 from agent_smith.infra.storage.postgres.models.file import File, FileStatus
+from agent_smith.infra.storage.postgres.models.session import SessionEntryFile
 
 
 class PostgresFileCatalog:
@@ -126,7 +127,7 @@ class PostgresFileCatalog:
         return await self._transition(
             file_id=file_id,
             principal_id=principal_id,
-            from_statuses=(FileStatus.processing,),
+            from_statuses=(FileStatus.uploaded, FileStatus.processing),
             to_status=FileStatus.ready,
         )
 
@@ -191,8 +192,28 @@ class PostgresFileCatalog:
         return await self._list_for_cleanup(
             File.status == FileStatus.deleted,
             File.deleted_at < deleted_before,
+            or_(
+                File.object_deleted_at.is_(None),
+                ~exists().where(SessionEntryFile.file_id == File.id),
+            ),
             limit=limit,
         )
+
+    async def mark_object_deleted(
+        self, *, file_id: str, deleted_at: datetime
+    ) -> FileRecord | None:
+        async with self._session_factory() as db, db.begin():
+            row = await db.scalar(
+                update(File)
+                .where(
+                    File.id == _uuid(file_id),
+                    File.status == FileStatus.deleted,
+                    File.object_deleted_at.is_(None),
+                )
+                .values(object_deleted_at=deleted_at, updated_at=datetime.now(UTC))
+                .returning(File)
+            )
+            return _record(row) if row is not None else None
 
     async def purge_file(self, *, file_id: str) -> bool:
         async with self._session_factory() as db, db.begin():
@@ -200,6 +221,8 @@ class PostgresFileCatalog:
                 delete(File).where(
                     File.id == _uuid(file_id),
                     File.status == FileStatus.deleted,
+                    File.object_deleted_at.is_not(None),
+                    ~exists().where(SessionEntryFile.file_id == File.id),
                 )
             )
             return bool(result.rowcount)
@@ -261,4 +284,5 @@ def _record(row: File) -> FileRecord:
         created_at=row.created_at,
         updated_at=row.updated_at,
         deleted_at=row.deleted_at,
+        object_deleted_at=row.object_deleted_at,
     )

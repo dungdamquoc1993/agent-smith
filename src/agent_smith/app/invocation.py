@@ -4,13 +4,30 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+import uuid
+
+from pydantic import BaseModel, Field, field_validator
 
 from agent_smith.core.llm.types import JsonObject, JsonValue
 
 
+class AttachmentInput(BaseModel):
+    file_id: str = Field(alias="fileId")
+
+    model_config = {"populate_by_name": True, "extra": "forbid"}
+
+    @field_validator("file_id")
+    @classmethod
+    def validate_file_id(cls, value: str) -> str:
+        try:
+            return str(uuid.UUID(value))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ValueError("fileId must be a UUID") from exc
+
+
 class AgentInvocationPayload(BaseModel):
     prompt: str
+    attachments: list[AttachmentInput] = Field(default_factory=list)
     agent_name: str | None = Field(default=None, alias="agentName")
     model_key: str | None = Field(default=None, alias="modelKey")
 

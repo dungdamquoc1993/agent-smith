@@ -17,7 +17,10 @@ from agent_smith.infra.storage.postgres.models.session import (
     SessionEntry as DbSessionEntry,
     SessionEntryType as DbSessionEntryType,
     SessionKind as DbSessionKind,
+    SessionEntryFile,
 )
+from agent_smith.infra.storage.postgres.models.file import File, FileStatus
+from agent_smith.core.agent.persistence import FileReferenceContent
 from agent_smith.core.agent.harness.session.session import Session
 from agent_smith.core.agent.harness.session.types import (
     SessionEntryType,
@@ -70,6 +73,19 @@ def _row_to_entry(row: DbSessionEntry) -> SessionTreeEntry:
     )
 
 
+def _entry_file_references(entry: SessionTreeEntry) -> list[tuple[int, FileReferenceContent]]:
+    if entry.type != "message" or entry.message is None or entry.message.role == "assistant":
+        return []
+    content = entry.message.content
+    if isinstance(content, str):
+        return []
+    return [
+        (position, block)
+        for position, block in enumerate(content)
+        if isinstance(block, FileReferenceContent)
+    ]
+
+
 class PostgresSessionStorage:
     def __init__(
         self,
@@ -94,16 +110,43 @@ class PostgresSessionStorage:
             session_row = await db.get(DbSession, _uuid(self._metadata.id))
             if session_row is None:
                 raise ValueError(f"Session {self._metadata.id} not found")
-            db.add(
-                DbSessionEntry(
-                    id=_uuid(entry.id),
-                    session_id=session_row.id,
-                    parent_id=_uuid(entry.parent_id),
-                    type=DbSessionEntryType(entry.type),
-                    payload=_entry_payload(entry),
-                    principal_id=session_row.principal_id,
-                )
+            entry_row = DbSessionEntry(
+                id=_uuid(entry.id),
+                session_id=session_row.id,
+                parent_id=_uuid(entry.parent_id),
+                type=DbSessionEntryType(entry.type),
+                payload=_entry_payload(entry),
+                principal_id=session_row.principal_id,
             )
+            db.add(entry_row)
+            references = _entry_file_references(entry)
+            if references:
+                ids = [_uuid(reference.file_id) for _, reference in references]
+                rows = list(
+                    await db.scalars(
+                        select(File).where(File.id.in_(ids)).with_for_update()
+                    )
+                )
+                by_id = {row.id: row for row in rows}
+                for position, reference in references:
+                    file_id = _uuid(reference.file_id)
+                    file_row = by_id.get(file_id)
+                    if (
+                        file_row is None
+                        or file_row.principal_id != session_row.principal_id
+                        or file_row.status != FileStatus.ready
+                        or file_row.mime_type != reference.mime_type
+                        or file_row.original_name != reference.display_name
+                    ):
+                        raise ValueError("Attachment is no longer available")
+                    db.add(
+                        SessionEntryFile(
+                            session_entry_id=entry_row.id,
+                            file_id=file_id,
+                            position=position,
+                            purpose="input",
+                        )
+                    )
             session_row.current_leaf_id = _uuid(entry.id)
 
     async def get_entry(self, entry_id: str) -> SessionTreeEntry | None:
@@ -323,6 +366,25 @@ class PostgresSessionCatalog:
                     )
                 )
                 target_row.current_leaf_id = new_id
+
+            source_bindings = list(
+                await db.scalars(
+                    select(SessionEntryFile).where(
+                        SessionEntryFile.session_entry_id.in_([entry.id for entry in branch])
+                    )
+                )
+            ) if branch else []
+            if source_bindings and target_row.principal_id != source_row.principal_id:
+                raise ValueError("Cannot fork file-bound session history across principals")
+            for binding in source_bindings:
+                db.add(
+                    SessionEntryFile(
+                        session_entry_id=id_map[binding.session_entry_id],
+                        file_id=binding.file_id,
+                        position=binding.position,
+                        purpose=binding.purpose,
+                    )
+                )
 
             metadata = _metadata_from_row(target_row)
 

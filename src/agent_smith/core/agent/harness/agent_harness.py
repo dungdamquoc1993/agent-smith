@@ -50,6 +50,11 @@ from agent_smith.core.agent.harness.resources import (
     parse_announced_agents_from_messages,
 )
 from agent_smith.core.agent.harness.session.types import PendingSessionWrite
+from agent_smith.core.agent.persistence import (
+    FileReferenceContent,
+    PersistedUserMessage,
+    RUNTIME_IMAGE_MARKER,
+)
 from agent_smith.core.agent.harness.types import (
     AbortEvent,
     AbortResult,
@@ -110,7 +115,17 @@ USER_MEMORY_SNAPSHOT_CUSTOM_TYPE = "user_memory_snapshot"
 RUNTIME_METADATA_SNAPSHOT_CUSTOM_TYPE = "runtime_metadata_snapshot"
 
 
-def create_user_message(text: str, images: list[ImageContent] | None = None) -> UserMessage:
+def create_user_message(
+    text: str,
+    images: list[ImageContent] | None = None,
+    attachments: list[FileReferenceContent] | None = None,
+) -> AgentMessage:
+    if attachments:
+        blocks: list[TextContent | FileReferenceContent] = []
+        if text:
+            blocks.append(TextContent(text=text))
+        blocks.extend(attachments)
+        return PersistedUserMessage(content=blocks, timestamp=now_ms())
     if images:
         return UserMessage(content=[TextContent(text=text), *images], timestamp=now_ms())
     return UserMessage(content=text, timestamp=now_ms())
@@ -306,6 +321,7 @@ class AgentHarness:
             else list(self.tools.keys())
         )
         self.stream_fn = resolved.stream_fn
+        self.convert_to_llm = resolved.convert_to_llm
         self.permission_mode = resolved.permission_mode
         self.permission_resolver = resolved.permission_resolver
         self.can_use_tool = resolved.can_use_tool
@@ -326,6 +342,7 @@ class AgentHarness:
         self._is_compacting = False
         self._announced_agent_names: set[str] = set()
         self._agent_catalog_reset_pending = False
+        self._runtime_message_overlays: dict[tuple[str, int], list[AgentMessage]] = {}
 
         self._validate_tool_names(self.active_tool_names)
 
@@ -347,6 +364,7 @@ class AgentHarness:
                 turn_state,
                 text,
                 prompt_options.images if prompt_options else None,
+                prompt_options.attachments if prompt_options else None,
             )
         except AgentHarnessError:
             self.phase = "idle"
@@ -356,6 +374,7 @@ class AgentHarness:
             raise AgentHarnessError("unknown", str(exc), exc) from exc
         finally:
             self._run_signal = None
+            self._runtime_message_overlays.clear()
 
     async def skill(self, name: str, additional_instructions: str | None = None) -> AssistantMessage:
         skill = next((candidate for candidate in self.resources.skills or [] if candidate.name == name), None)
@@ -556,8 +575,11 @@ class AgentHarness:
         turn_state: TurnState,
         text: str,
         images: list[ImageContent] | None = None,
+        attachments: list[FileReferenceContent] | None = None,
     ) -> AssistantMessage:
-        messages: list[AgentMessage] = [create_user_message(text, images)]
+        user_message = create_user_message(text, images, attachments)
+        self._remember_runtime_images(user_message)
+        messages: list[AgentMessage] = [user_message]
         if self._next_turn_queue:
             queued_messages = list(self._next_turn_queue)
             self._next_turn_queue.clear()
@@ -613,6 +635,26 @@ class AgentHarness:
 
     async def _create_turn_state(self) -> TurnState:
         context = await self.session.build_context()
+        overlay_indexes: dict[tuple[str, int], int] = {}
+        overlaid_messages: list[AgentMessage] = []
+        for message in context.messages:
+            key = (message.role, message.timestamp)
+            index = overlay_indexes.get(key, 0)
+            candidates = self._runtime_message_overlays.get(key, [])
+            has_runtime_marker = isinstance(message.content, list) and any(
+                isinstance(block, TextContent)
+                and block.text.startswith(RUNTIME_IMAGE_MARKER.split("{", 1)[0])
+                for block in message.content
+            )
+            replacement = (
+                candidates[index]
+                if has_runtime_marker and index < len(candidates)
+                else message
+            )
+            if has_runtime_marker:
+                overlay_indexes[key] = index + 1
+            overlaid_messages.append(replacement.model_copy(deep=True))
+        context.messages = overlaid_messages
         active_tools = [
             self.tools[name]
             for name in self.active_tool_names
@@ -973,6 +1015,7 @@ class AgentHarness:
         return AgentLoopConfig(
             model=turn_state["model"],
             reasoning=reasoning,
+            convert_to_llm=self.convert_to_llm,
             transform_context=transform_context,
             before_tool_call=before_tool_call,
             after_tool_call=after_tool_call,
@@ -1051,6 +1094,7 @@ class AgentHarness:
 
     async def _handle_agent_event(self, event: AgentEvent) -> None:
         if isinstance(event, MessageEndEvent) or event.type == "message_end":
+            self._remember_runtime_images(event.message)
             await self.session.append_message(event.message)
             await self._emit_any(event)
             return
@@ -1067,6 +1111,15 @@ class AgentHarness:
             await self._emit_own(SettledEvent(next_turn_count=len(self._next_turn_queue)))
             return
         await self._emit_any(event)
+
+    def _remember_runtime_images(self, message: AgentMessage) -> None:
+        content = getattr(message, "content", None)
+        if isinstance(content, list) and any(isinstance(block, ImageContent) for block in content):
+            key = (message.role, message.timestamp)
+            candidates = self._runtime_message_overlays.setdefault(key, [])
+            snapshot = message.model_copy(deep=True)
+            if not any(candidate == snapshot for candidate in candidates):
+                candidates.append(snapshot)
 
     async def _emit_run_failure(self, model: Model, error: Exception) -> None:
         failure = create_failure_message(model, error, bool(self._run_signal and self._run_signal.is_set()))

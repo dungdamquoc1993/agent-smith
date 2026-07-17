@@ -7,6 +7,7 @@ from typing import Literal, NotRequired, Protocol, TypedDict
 
 from pydantic import BaseModel, Field
 
+from agent_smith.core.agent.persistence import PersistedMessage
 from agent_smith.core.agent.types import AgentMessage
 from agent_smith.core.llm.types import HookPayload, JsonValue
 
@@ -61,7 +62,7 @@ class SessionTreeEntry(BaseModel):
     parent_id: str | None = Field(default=None, alias="parentId")
     timestamp: str
 
-    message: AgentMessage | None = None
+    message: PersistedMessage | None = None
     provider: str | None = None
     model_id: str | None = Field(default=None, alias="modelId")
     thinking_level: str | None = Field(default=None, alias="thinkingLevel")

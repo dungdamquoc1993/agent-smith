@@ -16,6 +16,7 @@ from agent_smith.app.services.agent_run_traces import create_agent_run_trace, in
 from agent_smith.app.services.authentication import PrincipalAuthenticationService
 from agent_smith.app.services.resources import ResourceService
 from agent_smith.app.services.sessions import SessionService
+from agent_smith.app.services.attachments import AttachmentService, ResolvedAttachments
 from agent_smith.core.agent import AgentHarnessError
 from agent_smith.core.agent.harness.context_types import RecentConversationProvider
 from agent_smith.core.agent.harness.session.session import Session
@@ -39,6 +40,19 @@ class PreparedAgentInvocation:
     turn_context: JsonObject
     session_provenance: JsonObject
     session: Session
+    model: Model
+    attachments: ResolvedAttachments
+
+
+@dataclass
+class PreparedPrompt:
+    prompt: str
+    agent_name: str
+    context_metadata: dict[str, Any] | None
+    session: Session
+    principal_id: str
+    model: Model
+    attachments: ResolvedAttachments
 
 
 class AgentRunService:
@@ -52,12 +66,14 @@ class AgentRunService:
         authentication_service: PrincipalAuthenticationService | None = None,
         context_resolver: ContextResolver | None = None,
         recent_conversation_provider: RecentConversationProvider | None = None,
+        attachment_service: AttachmentService | None = None,
     ) -> None:
         self._session_service = session_service
         self._resource_service = resource_service
         self._authentication_service = authentication_service
         self._context_resolver = context_resolver or ContextResolver()
         self._recent_conversation_provider = recent_conversation_provider
+        self._attachment_service = attachment_service
         self.default_permission_mode = default_permission_mode
         self.default_model_key = default_model_key
 
@@ -97,25 +113,49 @@ class AgentRunService:
             raise ValueError(f"Model {model.provider}/{model.id} has no public key")
         return model.key
 
-    async def run_prompt_stream(self, payload: dict[str, Any], emit: AgentRunEventSink) -> None:
-        try:
-            prompt = str(payload.get("prompt") or "").strip()
-            if not prompt:
-                raise ValueError("prompt is required")
-            agent_name = str(
-                payload.get("agentName") or self._resource_service.default_agent_name
-            ).strip()
-            session_id = payload.get("sessionId")
-            if session_id is not None:
-                session_id = str(session_id)
-            raw_context_metadata = payload.get("contextMetadata")
-            context_metadata = (
-                raw_context_metadata if isinstance(raw_context_metadata, dict) else None
-            )
-            selected_model = self._selected_model(
-                str(payload.get("modelKey")) if payload.get("modelKey") is not None else None
-            )
+    async def prepare_prompt(self, payload: dict[str, Any]) -> PreparedPrompt:
+        raw_prompt = payload.get("prompt")
+        if not isinstance(raw_prompt, str):
+            raise ValueError("prompt must be a string")
+        prompt = raw_prompt.strip()
+        selected_model = self._selected_model(
+            str(payload.get("modelKey")) if payload.get("modelKey") is not None else None
+        )
+        principal = await self._session_service.ensure_principal()
+        attachments = await self._resolve_attachments(
+            principal_id=principal.id,
+            raw_attachments=payload.get("attachments", []),
+            model=selected_model,
+        )
+        if not prompt and not attachments.records:
+            raise ValueError("prompt or attachments is required")
+        agent_name = str(
+            payload.get("agentName") or self._resource_service.default_agent_name
+        ).strip()
+        session_id = payload.get("sessionId")
+        if session_id is not None:
+            session_id = str(session_id)
+        raw_context_metadata = payload.get("contextMetadata")
+        context_metadata = raw_context_metadata if isinstance(raw_context_metadata, dict) else None
+        session = await self._session_service.open_or_create_session(session_id)
+        return PreparedPrompt(
+            prompt=prompt,
+            agent_name=agent_name,
+            context_metadata=context_metadata,
+            session=session,
+            principal_id=principal.id,
+            model=selected_model,
+            attachments=attachments,
+        )
 
+    async def run_prompt_stream(self, payload: dict[str, Any], emit: AgentRunEventSink) -> None:
+        prepared = await self.prepare_prompt(payload)
+        await self.run_prepared_prompt_stream(prepared, emit)
+
+    async def run_prepared_prompt_stream(
+        self, prepared: PreparedPrompt, emit: AgentRunEventSink
+    ) -> None:
+        try:
             store = self._resource_service.store()
             resolver = ResourceResolver([store])
             tool_registry = create_base_tool_registry(
@@ -126,17 +166,22 @@ class AgentRunService:
             factory = AgentFactory(
                 resource_resolver=resolver,
                 tool_registry=tool_registry,
-                default_model=selected_model,
-                model_resolver=lambda _definition: selected_model,
+                default_model=prepared.model,
+                model_resolver=lambda _definition: prepared.model,
+                convert_to_llm=self._attachment_converter(
+                    principal_id=prepared.principal_id,
+                    model=prepared.model,
+                    attachments=prepared.attachments,
+                ),
                 default_permission_mode=self.default_permission_mode,
-                context_metadata=context_metadata,
+                context_metadata=prepared.context_metadata,
                 recent_conversation_provider=self._recent_conversation_provider,
             )
-            session = await self._session_service.open_or_create_session(session_id)
+            session = prepared.session
             metadata = await session.get_metadata()
             await _emit(emit, "session", metadata)
 
-            harness = await factory.create_harness(agent_name, session=session)
+            harness = await factory.create_harness(prepared.agent_name, session=session)
             trace = create_agent_run_trace(
                 flow="prompt_stream",
                 run_id=str(uuid.uuid4()),
@@ -149,7 +194,10 @@ class AgentRunService:
 
             unsubscribe = harness.subscribe(emit_harness)
             try:
-                response = await harness.prompt(prompt)
+                response = await harness.prompt(
+                    prepared.prompt,
+                    {"attachments": prepared.attachments.references},
+                )
             finally:
                 unsubscribe()
 
@@ -207,6 +255,17 @@ class AgentRunService:
             actor=actor,
             principal_id=principal_id,
         )
+        selected_model = self._selected_model(invocation.payload.model_key)
+        attachments = await self._resolve_attachments(
+            principal_id=principal_id,
+            raw_attachments=[
+                item.model_dump(mode="json", by_alias=True)
+                for item in invocation.payload.attachments
+            ],
+            model=selected_model,
+        )
+        if not invocation.payload.prompt.strip() and not attachments.records:
+            raise ValueError("prompt or attachments is required")
         session = await self._session_service.open_or_create_session_for_principal(
             principal_id=principal_id,
             session_id=invocation.session.smith_session_id,
@@ -220,6 +279,8 @@ class AgentRunService:
             turn_context=turn_context,
             session_provenance=provenance,
             session=session,
+            model=selected_model,
+            attachments=attachments,
         )
 
     async def run_prepared_invocation_stream(
@@ -251,10 +312,8 @@ class AgentRunService:
         try:
             payload = prepared.invocation.payload
             prompt = payload.prompt.strip()
-            if not prompt:
-                raise ValueError("prompt is required")
             agent_name = (payload.agent_name or self._resource_service.default_agent_name).strip()
-            selected_model = self._selected_model(payload.model_key)
+            selected_model = prepared.model
 
             await emit_smith(
                 "run.started",
@@ -285,6 +344,11 @@ class AgentRunService:
                 tool_registry=tool_registry,
                 default_model=selected_model,
                 model_resolver=lambda _definition: selected_model,
+                convert_to_llm=self._attachment_converter(
+                    principal_id=prepared.principal_id,
+                    model=selected_model,
+                    attachments=prepared.attachments,
+                ),
                 default_permission_mode=self.default_permission_mode,
                 context_metadata=prepared.stable_context,
                 recent_conversation_provider=self._recent_conversation_provider,
@@ -312,7 +376,10 @@ class AgentRunService:
             try:
                 response = await harness.prompt(
                     prompt,
-                    {"turnContextMetadata": prepared.turn_context},
+                    {
+                        "turnContextMetadata": prepared.turn_context,
+                        "attachments": prepared.attachments.references,
+                    },
                 )
             finally:
                 unsubscribe()
@@ -349,6 +416,38 @@ class AgentRunService:
         if model is None:
             raise ValueError(f"Unknown or unavailable model selection: {key}")
         return model
+
+    async def _resolve_attachments(
+        self,
+        *,
+        principal_id: str,
+        raw_attachments: Any,
+        model: Model,
+    ) -> ResolvedAttachments:
+        if self._attachment_service is None:
+            if raw_attachments:
+                raise ValueError("Image attachments are not configured")
+            return ResolvedAttachments()
+        return await self._attachment_service.resolve_current(
+            principal_id=principal_id,
+            raw_attachments=raw_attachments,
+            model=model,
+        )
+
+    def _attachment_converter(
+        self,
+        *,
+        principal_id: str,
+        model: Model,
+        attachments: ResolvedAttachments,
+    ):
+        if self._attachment_service is None:
+            return None
+        return self._attachment_service.converter(
+            principal_id=principal_id,
+            model=model,
+            current=attachments,
+        )
 
 
 def assistant_text(message: AssistantMessage) -> str:

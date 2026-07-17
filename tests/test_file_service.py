@@ -41,6 +41,25 @@ async def test_initiate_complete_and_complete_again() -> None:
 
 
 @pytest.mark.asyncio
+async def test_complete_image_moves_directly_to_ready() -> None:
+    service, _, blobs = _service()
+    data = b"\x89PNG\r\n\x1a\n"
+    initiated = await service.initiate_upload(
+        principal_id="principal-a",
+        original_name="photo.png",
+        mime_type="image/png",
+        size_bytes=len(data),
+    )
+    blobs.upload(initiated.file, data)
+
+    completed = await service.complete_upload(
+        principal_id="principal-a", file_id=initiated.file.id
+    )
+
+    assert completed.status == "ready"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("data", "error_message"),
     [
@@ -143,3 +162,33 @@ async def test_stale_pending_cleanup_is_idempotent() -> None:
     assert await service.cleanup_stale_uploads() == 1
     assert await service.cleanup_stale_uploads() == 0
     assert catalog.records[initiated.file.id].failure_reason == "upload_expired"
+
+
+@pytest.mark.asyncio
+async def test_deleted_object_cleanup_keeps_referenced_tombstone_without_redeleting() -> None:
+    service, catalog, blobs = _service()
+    initiated = await service.initiate_upload(
+        principal_id="principal-a",
+        original_name="a.txt",
+        mime_type="text/plain",
+        size_bytes=1,
+    )
+    blobs.upload(initiated.file, b"a")
+    await service.complete_upload(principal_id="principal-a", file_id=initiated.file.id)
+    deleted = await service.delete_file(principal_id="principal-a", file_id=initiated.file.id)
+    catalog.records[deleted.id] = replace(
+        deleted,
+        deleted_at=datetime.now(UTC) - timedelta(days=8),
+    )
+    catalog.referenced_file_ids.add(deleted.id)
+
+    assert await service.cleanup_deleted_files() == 1
+    assert catalog.records[deleted.id].object_deleted_at is not None
+    assert blobs.deleted == [deleted.object_key]
+    assert await service.cleanup_deleted_files() == 0
+    assert blobs.deleted == [deleted.object_key]
+
+    catalog.referenced_file_ids.remove(deleted.id)
+    assert await service.cleanup_deleted_files() == 1
+    assert deleted.id not in catalog.records
+    assert blobs.deleted == [deleted.object_key]

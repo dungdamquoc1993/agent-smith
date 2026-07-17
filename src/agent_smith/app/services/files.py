@@ -38,6 +38,7 @@ DEFAULT_ALLOWED_MIME_TYPES = frozenset(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }
 )
+READY_IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
 DOWNLOADABLE_STATUSES = frozenset({"uploaded", "processing", "ready"})
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
@@ -188,6 +189,17 @@ class FileService:
             if current.status in {"uploaded", "processing", "ready"}:
                 return current
             raise FileServiceError("invalid_file_state", "File state changed.", status=409)
+        if updated.mime_type in READY_IMAGE_MIME_TYPES:
+            ready = await self._catalog.mark_ready(
+                file_id=updated.id,
+                principal_id=updated.principal_id,
+            )
+            if ready is not None:
+                return ready
+            current = await self._require_file(principal_id, file_id)
+            if current.status == "ready":
+                return current
+            raise FileServiceError("invalid_file_state", "File state changed.", status=409)
         return updated
 
     async def list_files(
@@ -269,11 +281,22 @@ class FileService:
         rows = await self._catalog.list_deleted(deleted_before=cutoff, limit=limit)
         handled = 0
         for row in rows:
-            try:
-                await self._blobs.delete(object_key=row.object_key)
-            except BlobStorageError:
-                continue
-            if await self._catalog.purge_file(file_id=row.id):
+            marked = row
+            if row.object_deleted_at is None:
+                try:
+                    await self._blobs.delete(object_key=row.object_key)
+                except BlobStorageError:
+                    continue
+                marked = await self._catalog.mark_object_deleted(
+                    file_id=row.id,
+                    deleted_at=datetime.now(UTC),
+                )
+                if marked is None:
+                    continue
+            # FK-bound metadata remains as a tombstone; unbound metadata can be
+            # removed immediately after the object deletion is recorded.
+            purged = await self._catalog.purge_file(file_id=row.id)
+            if row.object_deleted_at is None or purged:
                 handled += 1
         return handled
 

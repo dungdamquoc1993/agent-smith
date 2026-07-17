@@ -18,7 +18,12 @@ from agent_smith.core.agent.harness.types import (
     GetAgentHarnessAuthFn,
 )
 from agent_smith.core.agent.harness.context_types import RecentConversationProvider
-from agent_smith.core.agent.types import AgentTool, StreamFn
+from agent_smith.core.agent.types import (
+    AgentTool,
+    ConvertToLlmFn,
+    StreamFn,
+    default_convert_to_llm,
+)
 from agent_smith.core.llm.models import get_model
 from agent_smith.core.llm.types import JsonObject, MaybeAwaitable, Model
 from agent_smith.core.permissions import (
@@ -52,6 +57,7 @@ class AgentFactory:
         default_model: Model,
         model_resolver: ModelResolver | None = None,
         stream_fn: StreamFn | None = None,
+        convert_to_llm: ConvertToLlmFn | None = None,
         get_api_key_and_headers: GetAgentHarnessAuthFn | None = None,
         stream_options: AgentHarnessStreamOptions | dict | None = None,
         compaction_settings: CompactionSettings | None = None,
@@ -69,6 +75,7 @@ class AgentFactory:
         self.default_model = default_model
         self.model_resolver = model_resolver
         self.stream_fn = stream_fn
+        self.convert_to_llm = convert_to_llm
         self.get_api_key_and_headers = get_api_key_and_headers
         self.stream_options = (
             AgentHarnessStreamOptions.model_validate(stream_options)
@@ -191,6 +198,7 @@ class AgentFactory:
             tools=tools,
             active_tool_names=active_tool_names,
             stream_fn=stream_fn or self.stream_fn,
+            convert_to_llm=self.convert_to_llm or default_convert_to_llm,
             get_api_key_and_headers=get_api_key_and_headers or self.get_api_key_and_headers,
             stream_options=resolved_stream_options,
             compaction_settings=compaction_settings or self.compaction_settings,

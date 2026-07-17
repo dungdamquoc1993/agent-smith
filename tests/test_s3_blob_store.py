@@ -45,7 +45,10 @@ async def test_stat_range_read_and_delete() -> None:
         "ETag": '"etag"',
         "ChecksumSHA256": checksum,
     }
-    client.get_object.return_value = {"Body": BytesIO(b"hello")}
+    client.get_object.side_effect = [
+        {"Body": BytesIO(b"hello")},
+        {"Body": BytesIO(b"hello")},
+    ]
     store = S3BlobStore(client, bucket="private")
 
     stat = await store.stat(object_key="key")
@@ -58,6 +61,20 @@ async def test_stat_range_read_and_delete() -> None:
     assert data == b"hello"
     client.get_object.assert_called_once_with(Bucket="private", Key="key", Range="bytes=0-4")
     client.delete_object.assert_called_once_with(Bucket="private", Key="key")
+
+
+@pytest.mark.asyncio
+async def test_full_object_read_is_bounded() -> None:
+    client = MagicMock()
+    client.get_object.side_effect = [
+        {"Body": BytesIO(b"hello")},
+        {"Body": BytesIO(b"hello")},
+    ]
+    store = S3BlobStore(client, bucket="private")
+
+    assert await store.read_object(object_key="key", max_bytes=5) == b"hello"
+    with pytest.raises(BlobStorageError, match="bounded"):
+        await store.read_object(object_key="key", max_bytes=4)
 
 
 @pytest.mark.asyncio

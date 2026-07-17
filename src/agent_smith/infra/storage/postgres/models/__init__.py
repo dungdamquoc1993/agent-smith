@@ -11,7 +11,7 @@ from agent_smith.infra.storage.postgres.models.principal import (
     Principal,
 )
 from agent_smith.infra.storage.postgres.models.resource import Resource, ResourceVersion
-from agent_smith.infra.storage.postgres.models.session import Session, SessionEntry
+from agent_smith.infra.storage.postgres.models.session import Session, SessionEntry, SessionEntryFile
 
 __all__ = [
     "File",
@@ -26,4 +26,5 @@ __all__ = [
     "ResourceVersion",
     "Session",
     "SessionEntry",
+    "SessionEntryFile",
 ]

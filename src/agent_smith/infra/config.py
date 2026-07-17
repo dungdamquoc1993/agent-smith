@@ -91,6 +91,21 @@ class Settings(BaseSettings):
         ge=0,
         validation_alias="AGENT_SMITH_FILE_DELETED_RETENTION_SECONDS",
     )
+    attachment_max_count: int = Field(
+        default=8,
+        ge=1,
+        validation_alias="AGENT_SMITH_ATTACHMENT_MAX_COUNT",
+    )
+    attachment_max_materialized_bytes: int = Field(
+        default=20 * 1024 * 1024,
+        gt=0,
+        validation_alias="AGENT_SMITH_ATTACHMENT_MAX_MATERIALIZED_BYTES",
+    )
+    attachment_read_concurrency: int = Field(
+        default=4,
+        ge=1,
+        validation_alias="AGENT_SMITH_ATTACHMENT_READ_CONCURRENCY",
+    )
 
 
 @lru_cache

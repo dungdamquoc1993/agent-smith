@@ -17,6 +17,7 @@ from agent_smith.app.ports.files import (
 class FakeFileCatalog:
     def __init__(self) -> None:
         self.records: dict[str, FileRecord] = {}
+        self.referenced_file_ids: set[str] = set()
 
     async def create_pending(self, file: PendingFileRecord) -> FileRecord:
         now = datetime.now(UTC)
@@ -77,7 +78,7 @@ class FakeFileCatalog:
         return self._transition(values, {"uploaded"}, "processing")
 
     async def mark_ready(self, **values: object) -> FileRecord | None:
-        return self._transition(values, {"processing"}, "ready")
+        return self._transition(values, {"uploaded", "processing"}, "ready")
 
     async def mark_failed(self, **values: object) -> FileRecord | None:
         return self._transition(
@@ -109,14 +110,33 @@ class FakeFileCatalog:
             if row.status == "deleted"
             and row.deleted_at is not None
             and row.deleted_at < deleted_before
+            and (
+                row.object_deleted_at is None
+                or row.id not in self.referenced_file_ids
+            )
         ][:limit]
 
     async def purge_file(self, *, file_id: str) -> bool:
         record = self.records.get(file_id)
-        if record is None or record.status != "deleted":
+        if (
+            record is None
+            or record.status != "deleted"
+            or record.object_deleted_at is None
+            or file_id in self.referenced_file_ids
+        ):
             return False
         del self.records[file_id]
         return True
+
+    async def mark_object_deleted(
+        self, *, file_id: str, deleted_at: datetime
+    ) -> FileRecord | None:
+        record = self.records.get(file_id)
+        if record is None or record.status != "deleted" or record.object_deleted_at is not None:
+            return None
+        updated = replace(record, object_deleted_at=deleted_at, updated_at=datetime.now(UTC))
+        self.records[file_id] = updated
+        return updated
 
     def _transition(
         self,
@@ -180,6 +200,13 @@ class FakeBlobStore:
     async def read_range(self, *, object_key: str, start: int, end: int) -> bytes:
         self._check()
         return self.objects[object_key][0][start : end + 1]
+
+    async def read_object(self, *, object_key: str, max_bytes: int) -> bytes:
+        self._check()
+        data = self.objects[object_key][0]
+        if len(data) > max_bytes:
+            raise BlobStorageError("fake object exceeds bounded read")
+        return data
 
     async def delete(self, *, object_key: str) -> None:
         self._check()

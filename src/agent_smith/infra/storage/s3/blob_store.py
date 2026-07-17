@@ -143,6 +143,29 @@ class S3BlobStore:
         except (BotoCoreError, ClientError, KeyError) as exc:
             raise BlobStorageError("Unable to read stored object") from exc
 
+    async def read_object(self, *, object_key: str, max_bytes: int) -> bytes:
+        if max_bytes < 0:
+            raise ValueError("max_bytes must not be negative")
+        body: Any | None = None
+        try:
+            response = await asyncio.to_thread(
+                self._client.get_object,
+                Bucket=self._bucket,
+                Key=object_key,
+            )
+            body = response["Body"]
+            data = await asyncio.to_thread(body.read, max_bytes + 1)
+            if len(data) > max_bytes:
+                raise BlobStorageError("Stored object exceeds bounded read limit")
+            return data
+        except BlobStorageError:
+            raise
+        except (BotoCoreError, ClientError, KeyError) as exc:
+            raise BlobStorageError("Unable to read stored object") from exc
+        finally:
+            if body is not None and callable(getattr(body, "close", None)):
+                await asyncio.to_thread(body.close)
+
     async def delete(self, *, object_key: str) -> None:
         try:
             await asyncio.to_thread(
