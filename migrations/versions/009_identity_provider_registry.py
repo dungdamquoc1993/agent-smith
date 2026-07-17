@@ -22,8 +22,16 @@ KEY_STATUS = ("active", "revoked", "expired")
 
 def upgrade() -> None:
     bind = op.get_bind()
-    provider_status = postgresql.ENUM(*PROVIDER_STATUS, name="identity_provider_status")
-    key_status = postgresql.ENUM(*KEY_STATUS, name="identity_provider_key_status")
+    provider_status = postgresql.ENUM(
+        *PROVIDER_STATUS,
+        name="identity_provider_status",
+        create_type=False,
+    )
+    key_status = postgresql.ENUM(
+        *KEY_STATUS,
+        name="identity_provider_key_status",
+        create_type=False,
+    )
     provider_status.create(bind, checkfirst=True)
     key_status.create(bind, checkfirst=True)
 
