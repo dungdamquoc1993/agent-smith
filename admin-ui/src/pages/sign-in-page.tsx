@@ -12,6 +12,7 @@ import { ErrorNotice } from "../components/error-notice"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
+import { ThemeToggle } from "../components/theme-toggle"
 
 type Values = z.infer<typeof signInSchema>
 
@@ -25,9 +26,10 @@ export function SignInPage() {
     onSuccess: (data) => { client.setQueryData(sessionQuery.queryKey, data); form.reset(); navigate("/providers", { replace: true }) },
   })
   if (session.isSuccess) return <Navigate to="/providers" replace />
-  return <main className="grid min-h-screen place-items-center bg-[radial-gradient(circle_at_top_left,_#dbeafe,_transparent_35%),linear-gradient(to_bottom_right,#f8fafc,#eef2ff)] p-4">
+  return <main className="auth-background relative grid min-h-screen place-items-center p-4">
+    <ThemeToggle className="absolute right-4 top-4 bg-card/70 shadow-sm backdrop-blur sm:right-6 sm:top-6" />
     <Card className="w-full max-w-md shadow-xl">
-      <CardHeader className="pb-4"><div className="mb-4 flex h-11 w-11 items-center justify-center rounded-lg bg-slate-950 text-white"><ShieldCheck className="h-6 w-6" /></div><CardTitle className="text-2xl">Sign in to Agent Smith</CardTitle><CardDescription>Use your admin operator credentials to access the control plane.</CardDescription></CardHeader>
+      <CardHeader className="pb-4"><div className="mb-4 flex h-11 w-11 items-center justify-center rounded-lg bg-slate-950 text-white dark:bg-blue-500"><ShieldCheck className="h-6 w-6" /></div><CardTitle className="text-2xl">Sign in to Agent Smith</CardTitle><CardDescription>Use your admin operator credentials to access the control plane.</CardDescription></CardHeader>
       <CardContent><form className="space-y-4" onSubmit={form.handleSubmit((values) => mutation.mutate(values))} noValidate>
         {mutation.isError && <ErrorNotice error={mutation.error} title="Sign-in failed" />}
         <div><label className="field-label" htmlFor="username">Username</label><Input id="username" autoComplete="username" autoFocus {...form.register("username")} />{form.formState.errors.username && <p className="field-error">{form.formState.errors.username.message}</p>}</div>

@@ -27,7 +27,7 @@ function UnauthorizedBridge() {
 function AuthenticatedLayout() {
   const location = useLocation()
   const session = useQuery(sessionQuery)
-  if (session.isPending) return <div className="min-h-screen bg-white"><LoadingState label="Checking your session…" /></div>
+  if (session.isPending) return <div className="min-h-screen bg-background"><LoadingState label="Checking your session…" /></div>
   if (session.error instanceof ApiError && session.error.status === 401) return <Navigate to="/sign-in" replace state={{ from: location }} />
   if (session.isError) return <Navigate to="/sign-in" replace />
   return <AppShell operator={session.data.operator}><Outlet /></AppShell>
