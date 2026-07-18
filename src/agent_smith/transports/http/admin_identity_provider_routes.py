@@ -6,7 +6,7 @@ from http import HTTPStatus
 
 from fastapi import APIRouter, Depends, Request
 
-from agent_smith.app.container import AppContainer
+from agent_smith.bootstrap.http import HttpContainer
 from agent_smith.transports.http.common import (
     get_container,
     json_response,
@@ -30,14 +30,14 @@ router = APIRouter(
 
 
 @router.get("/identity-providers")
-async def list_identity_providers(container: AppContainer = Depends(get_container)):
+async def list_identity_providers(container: HttpContainer = Depends(get_container)):
     return json_response(await container.identity_providers.list_providers())
 
 
 @router.post("/identity-providers", status_code=int(HTTPStatus.CREATED))
 async def create_identity_provider(
     request: Request,
-    container: AppContainer = Depends(get_container),
+    container: HttpContainer = Depends(get_container),
 ):
     body = await read_json_object(request)
     return json_response(
@@ -49,7 +49,7 @@ async def create_identity_provider(
 @router.get("/identity-providers/{provider_id}")
 async def get_identity_provider(
     provider_id: str,
-    container: AppContainer = Depends(get_container),
+    container: HttpContainer = Depends(get_container),
 ):
     return json_response(await container.identity_providers.get_provider(provider_id))
 
@@ -58,7 +58,7 @@ async def get_identity_provider(
 async def update_identity_provider(
     provider_id: str,
     request: Request,
-    container: AppContainer = Depends(get_container),
+    container: HttpContainer = Depends(get_container),
 ):
     body = await read_json_object(request)
     return json_response(await container.identity_providers.update_provider(provider_id, body))
@@ -67,7 +67,7 @@ async def update_identity_provider(
 @router.get("/identity-providers/{provider_id}/api-keys")
 async def list_provider_api_keys(
     provider_id: str,
-    container: AppContainer = Depends(get_container),
+    container: HttpContainer = Depends(get_container),
 ):
     return json_response(await container.identity_providers.list_api_keys(provider_id))
 
@@ -76,7 +76,7 @@ async def list_provider_api_keys(
 async def create_provider_api_key(
     provider_id: str,
     request: Request,
-    container: AppContainer = Depends(get_container),
+    container: HttpContainer = Depends(get_container),
 ):
     body = await read_json_object(request)
     return json_response(
@@ -88,7 +88,7 @@ async def create_provider_api_key(
 @router.post("/identity-provider-api-keys/{key_id}/revoke")
 async def revoke_provider_api_key(
     key_id: str,
-    container: AppContainer = Depends(get_container),
+    container: HttpContainer = Depends(get_container),
 ):
     return json_response(await container.identity_providers.revoke_api_key(key_id))
 
@@ -96,7 +96,7 @@ async def revoke_provider_api_key(
 @router.get("/identity-providers/{provider_id}/assertion-keys")
 async def list_provider_assertion_keys(
     provider_id: str,
-    container: AppContainer = Depends(get_container),
+    container: HttpContainer = Depends(get_container),
 ):
     return json_response(await container.identity_providers.list_assertion_keys(provider_id))
 
@@ -105,7 +105,7 @@ async def list_provider_assertion_keys(
 async def create_provider_assertion_key(
     provider_id: str,
     request: Request,
-    container: AppContainer = Depends(get_container),
+    container: HttpContainer = Depends(get_container),
 ):
     body = await read_json_object(request)
     return json_response(
@@ -117,6 +117,6 @@ async def create_provider_assertion_key(
 @router.post("/identity-provider-assertion-keys/{key_id}/revoke")
 async def revoke_provider_assertion_key(
     key_id: str,
-    container: AppContainer = Depends(get_container),
+    container: HttpContainer = Depends(get_container),
 ):
     return json_response(await container.identity_providers.revoke_assertion_key(key_id))

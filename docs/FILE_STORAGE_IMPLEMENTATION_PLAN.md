@@ -198,7 +198,7 @@ Quy tắc:
   - [x] `AGENT_SMITH_S3_PRESIGN_TTL_SECONDS`
   - [x] `AGENT_SMITH_FILE_MAX_BYTES`
 - [x] Validate empty/invalid configuration khi bootstrap settings/file service.
-- [x] Wire `PostgresFileCatalog` và `S3BlobStore` trong `AppContainer`.
+- [x] Wire `PostgresFileCatalog` và `S3BlobStore` tại HTTP composition root.
 - [x] Thêm bucket CORS documentation cho browser direct upload.
 - [x] Cập nhật `.env.example` và Docker docs.
 

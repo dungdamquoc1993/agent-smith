@@ -12,13 +12,13 @@ import time
 import unicodedata
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 from collections.abc import Callable
 
 from agent_smith.app.ports.document_processing import (
     FileProcessingError,
-    FileProcessingStore,
+    FileProcessingRepository,
     ProcessingJobRecord,
 )
 
@@ -141,10 +141,8 @@ class FileService:
         *,
         max_bytes: int,
         presign_ttl_seconds: int,
-        pending_ttl_seconds: int = 3600,
-        deleted_retention_seconds: int = 7 * 24 * 3600,
         allowed_mime_types: frozenset[str] = DEFAULT_ALLOWED_MIME_TYPES,
-        processing_store: FileProcessingStore | None = None,
+        processing_repository: FileProcessingRepository | None = None,
         image_inspector: Callable[..., tuple[str, dict[str, Any]]] | None = None,
         processing_pipeline_version: str = "document-v1",
         processing_max_attempts: int = 5,
@@ -153,17 +151,14 @@ class FileService:
         max_pending_uploads: int = 10,
         init_rate_per_minute: int = 30,
         complete_rate_per_minute: int = 60,
-        audit_retention_seconds: int = 90 * 24 * 3600,
         rate_limiter: PrincipalRateLimiter | None = None,
     ) -> None:
         self._catalog = catalog
         self._blobs = blobs
         self._max_bytes = max_bytes
         self._presign_ttl_seconds = presign_ttl_seconds
-        self._pending_ttl_seconds = pending_ttl_seconds
-        self._deleted_retention_seconds = deleted_retention_seconds
         self._allowed_mime_types = allowed_mime_types
-        self._processing_store = processing_store
+        self._processing_repository = processing_repository
         self._image_inspector = image_inspector
         self._processing_pipeline_version = processing_pipeline_version
         self._processing_max_attempts = processing_max_attempts
@@ -174,7 +169,6 @@ class FileService:
         self._max_pending_uploads = max_pending_uploads
         self._init_rate_per_minute = init_rate_per_minute
         self._complete_rate_per_minute = complete_rate_per_minute
-        self._audit_retention_seconds = audit_retention_seconds
         self._rate_limiter = rate_limiter or PrincipalRateLimiter()
 
     async def initiate_upload(
@@ -282,9 +276,9 @@ class FileService:
         if (
             record.status == "uploaded"
             and record.mime_type not in READY_IMAGE_MIME_TYPES
-            and self._processing_store is not None
+            and self._processing_repository is not None
         ):
-            queued = await self._processing_store.mark_uploaded_and_enqueue(
+            queued = await self._processing_repository.mark_uploaded_and_enqueue(
                 file_id=file_id,
                 principal_id=principal_id,
                 etag=record.etag,
@@ -376,8 +370,8 @@ class FileService:
                 declared_size=record.size_bytes,
                 resulting_status=resulting_status,
             )
-            if record.mime_type not in READY_IMAGE_MIME_TYPES and self._processing_store:
-                queued = await self._processing_store.mark_uploaded_and_enqueue(
+            if record.mime_type not in READY_IMAGE_MIME_TYPES and self._processing_repository:
+                queued = await self._processing_repository.mark_uploaded_and_enqueue(
                     file_id=file_id,
                     principal_id=principal_id,
                     etag=stat.etag,
@@ -464,9 +458,9 @@ class FileService:
     async def get_processing_jobs(
         self, *, file_ids: list[str]
     ) -> dict[str, ProcessingJobRecord]:
-        if self._processing_store is None:
+        if self._processing_repository is None:
             return {}
-        return await self._processing_store.get_latest_jobs(file_ids=file_ids)
+        return await self._processing_repository.get_latest_jobs(file_ids=file_ids)
 
     async def create_download_url(
         self,
@@ -480,10 +474,10 @@ class FileService:
         rejected_original = (
             record.status == "failed" and record.failure_reason in REJECTED_ORIGINAL_FAILURES
         )
-        if rejected_original and self._processing_store is not None:
+        if rejected_original and self._processing_repository is not None:
             # A legacy processing failure may share a code with upload validation;
             # the durable job proves the original belongs to the processing path.
-            jobs = await self._processing_store.get_latest_jobs(file_ids=[record.id])
+            jobs = await self._processing_repository.get_latest_jobs(file_ids=[record.id])
             rejected_original = record.id not in jobs
         if (
             record.status not in DOWNLOADABLE_STATUSES
@@ -549,81 +543,11 @@ class FileService:
             raise _audit_unavailable() from exc
         if deleted is None:
             raise FileServiceError("file_not_found", "File was not found.", status=404)
-        if self._processing_store is not None:
-            await self._processing_store.cancel_jobs(file_id=file_id)
+        if self._processing_repository is not None:
+            await self._processing_repository.cancel_jobs(file_id=file_id)
         # Physical deletion is deliberately separate: Postgres and S3 cannot share
         # a transaction, and cleanup_deleted_files can retry safely after retention.
         return deleted
-
-    async def cleanup_stale_uploads(self, *, limit: int = 100) -> int:
-        cutoff = datetime.now(UTC) - timedelta(seconds=self._pending_ttl_seconds)
-        rows = await self._catalog.list_stale_pending(created_before=cutoff, limit=limit)
-        handled = 0
-        for row in rows:
-            failed = await self._catalog.mark_failed(
-                file_id=row.id,
-                principal_id=row.principal_id,
-                reason="upload_expired",
-                pending_only=True,
-            )
-            if failed is None:
-                continue
-            try:
-                await self._blobs.delete(object_key=row.object_key)
-            except BlobStorageError:
-                continue
-            if await self._catalog.mark_object_deleted(
-                file_id=row.id,
-                deleted_at=datetime.now(UTC),
-            ):
-                handled += 1
-        return handled
-
-    async def cleanup_rejected_uploads(self, *, limit: int = 100) -> int:
-        rows = await self._catalog.list_rejected_objects(limit=limit)
-        handled = 0
-        for row in rows:
-            try:
-                await self._blobs.delete(object_key=row.object_key)
-            except BlobStorageError:
-                continue
-            if await self._catalog.mark_object_deleted(
-                file_id=row.id,
-                deleted_at=datetime.now(UTC),
-            ):
-                handled += 1
-        return handled
-
-    async def cleanup_deleted_files(self, *, limit: int = 100) -> int:
-        cutoff = datetime.now(UTC) - timedelta(seconds=self._deleted_retention_seconds)
-        rows = await self._catalog.list_deleted(deleted_before=cutoff, limit=limit)
-        handled = 0
-        for row in rows:
-            marked = row
-            if row.object_deleted_at is None:
-                try:
-                    prefix = row.object_key.rsplit("/original", 1)[0] + "/"
-                    await self._blobs.delete_prefix(prefix=prefix)
-                except BlobStorageError:
-                    continue
-                marked = await self._catalog.mark_object_deleted(
-                    file_id=row.id,
-                    deleted_at=datetime.now(UTC),
-                )
-                if marked is None:
-                    continue
-            # FK-bound metadata remains as a tombstone; unbound metadata can be
-            # removed immediately after the object deletion is recorded.
-            purged = await self._catalog.purge_file(file_id=row.id)
-            if row.object_deleted_at is None or purged:
-                handled += 1
-        return handled
-
-    async def cleanup_audit_events(self, *, limit: int = 100) -> int:
-        if self._audit_store is None:
-            return 0
-        cutoff = datetime.now(UTC) - timedelta(seconds=self._audit_retention_seconds)
-        return await self._audit_store.purge_before(occurred_before=cutoff, limit=limit)
 
     async def _require_file(self, principal_id: str, file_id: str) -> FileRecord:
         try:

@@ -27,15 +27,33 @@ def test_core_does_not_depend_on_concrete_storage() -> None:
     assert violations == {}
 
 
-def test_application_services_use_ports_not_storage_implementations() -> None:
+def test_application_layer_uses_ports_not_infrastructure() -> None:
     violations = {
         str(path.relative_to(SRC)): module
-        for path in (SRC / "app" / "services").rglob("*.py")
+        for path in (SRC / "app").rglob("*.py")
         for module in _imported_modules(path)
         if module == "sqlalchemy"
         or module.startswith("sqlalchemy.")
         or module == "agent_smith.infra"
         or module.startswith("agent_smith.infra.")
+    }
+    assert violations == {}
+
+
+def test_document_worker_logic_does_not_import_composition_or_concrete_storage() -> None:
+    forbidden = (
+        "agent_smith.bootstrap",
+        "agent_smith.transports.http",
+        "agent_smith.infra.storage.postgres",
+        "agent_smith.infra.storage.s3",
+    )
+    worker_root = SRC / "workers" / "document_processing"
+    violations = {
+        str(path.relative_to(SRC)): module
+        for path in worker_root.glob("*.py")
+        if path.name != "main.py"
+        for module in _imported_modules(path)
+        if any(module == prefix or module.startswith(f"{prefix}.") for prefix in forbidden)
     }
     assert violations == {}
 

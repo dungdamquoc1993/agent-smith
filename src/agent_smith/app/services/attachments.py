@@ -14,7 +14,7 @@ from typing import Any
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from agent_smith.app.ports.files import BlobStorageError, BlobStore, FileCatalog, FileRecord
-from agent_smith.app.ports.document_processing import FileProcessingStore
+from agent_smith.app.ports.document_processing import FileDerivativeReader
 from agent_smith.core.agent.harness.compaction import estimate_tokens
 from agent_smith.core.agent.persistence import (
     FileReferenceContent,
@@ -95,7 +95,7 @@ class AttachmentService:
         max_attachments: int = 8,
         max_materialized_bytes: int = 20 * 1024 * 1024,
         read_concurrency: int = 4,
-        processing_store: FileProcessingStore | None = None,
+        derivative_reader: FileDerivativeReader | None = None,
         max_document_context_tokens: int = 32_000,
     ) -> None:
         self._catalog = catalog
@@ -103,7 +103,7 @@ class AttachmentService:
         self.max_attachments = max_attachments
         self.max_materialized_bytes = max_materialized_bytes
         self._read_concurrency = max(1, read_concurrency)
-        self._processing_store = processing_store
+        self._derivative_reader = derivative_reader
         self.max_document_context_tokens = max(1, max_document_context_tokens)
 
     async def resolve_current(
@@ -261,7 +261,7 @@ class AttachmentService:
                         remaining_image_bytes -= record.size_bytes
                         selected_images.append((key, record))
                 elif mime_type in DOCUMENT_MIME_TYPES:
-                    if self._processing_store is None:
+                    if self._derivative_reader is None:
                         reason = "document derivatives are unavailable"
                     else:
                         selected_documents.append((key, record))
@@ -369,7 +369,7 @@ class AttachmentService:
         messages: list[AgentMessage],
         model: Model,
     ) -> dict[tuple[int, int], str]:
-        if not documents or self._processing_store is None:
+        if not documents or self._derivative_reader is None:
             return {}
         base_tokens = sum(estimate_tokens(message) for message in messages)
         available = min(
@@ -384,7 +384,7 @@ class AttachmentService:
             )
         payloads: list[dict[str, Any]] = []
         for key, record in documents:
-            derivatives = await self._processing_store.list_derivatives(
+            derivatives = await self._derivative_reader.list_derivatives(
                 file_id=record.id, kinds=("extracted_text", "chunks")
             )
             by_kind = {item.kind: item for item in derivatives}

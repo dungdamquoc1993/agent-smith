@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
-from agent_smith.infra.storage.postgres.models.resource import (
+from agent_smith.infra.storage.postgres.models.resources import (
     Resource as DbResource,
     ResourceKindEnum,
     ResourceScopeEnum,

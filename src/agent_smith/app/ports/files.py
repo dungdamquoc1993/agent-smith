@@ -181,6 +181,12 @@ class FileCatalog(Protocol):
         audit: FileAuditEvent | None = None,
     ) -> FileRecord | None: ...
 
+
+class FileMaintenanceStore(Protocol):
+    async def mark_expired_upload(
+        self, *, file_id: str, principal_id: str
+    ) -> FileRecord | None: ...
+
     async def list_stale_pending(
         self,
         *,
@@ -203,11 +209,13 @@ class FileCatalog(Protocol):
         self, *, file_id: str, deleted_at: datetime
     ) -> FileRecord | None: ...
 
+    async def purge_audit_events_before(
+        self, *, occurred_before: datetime, limit: int
+    ) -> int: ...
+
 
 class FileAuditStore(Protocol):
     async def append(self, events: list[FileAuditEvent]) -> None: ...
-
-    async def purge_before(self, *, occurred_before: datetime, limit: int) -> int: ...
 
 
 class BlobStore(Protocol):

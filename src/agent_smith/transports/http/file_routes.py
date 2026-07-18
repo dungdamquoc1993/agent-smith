@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from agent_smith.app.auth import AppAssertionError
-from agent_smith.app.container import AppContainer
+from agent_smith.bootstrap.http import HttpContainer
 from agent_smith.app.ports.files import FileAuditActor, FileRecord, PresignedRequest
 from agent_smith.app.ports.document_processing import ProcessingJobRecord
 from agent_smith.app.services.authentication import AuthenticatedPrincipal
@@ -45,7 +45,7 @@ class InitiateUploadBody(BaseModel):
 async def authenticate_principal(
     provider_api_key: str | None = Header(default=None, alias="X-Agent-Smith-Provider-Key"),
     authorization: str | None = Header(default=None, alias="Authorization"),
-    container: AppContainer = Depends(get_container),
+    container: HttpContainer = Depends(get_container),
 ) -> AuthenticatedPrincipal:
     try:
         return await container.authentication.authenticate(
@@ -61,7 +61,7 @@ async def initiate_upload(
     request: Request,
     correlation_id: str | None = Header(default=None, alias="X-Correlation-ID"),
     principal: AuthenticatedPrincipal = Depends(authenticate_principal),
-    container: AppContainer = Depends(get_container),
+    container: HttpContainer = Depends(get_container),
 ):
     try:
         body = InitiateUploadBody.model_validate(await read_json_object(request))
@@ -90,7 +90,7 @@ async def complete_upload(
     file_id: str,
     correlation_id: str | None = Header(default=None, alias="X-Correlation-ID"),
     principal: AuthenticatedPrincipal = Depends(authenticate_principal),
-    container: AppContainer = Depends(get_container),
+    container: HttpContainer = Depends(get_container),
 ):
     try:
         file = await container.files.complete_upload(
@@ -112,7 +112,7 @@ async def list_files(
     status: str | None = None,
     mime_type: str | None = Query(default=None, alias="mimeType"),
     principal: AuthenticatedPrincipal = Depends(authenticate_principal),
-    container: AppContainer = Depends(get_container),
+    container: HttpContainer = Depends(get_container),
 ):
     valid_statuses = {
         "pending_upload",
@@ -147,7 +147,7 @@ async def list_files(
 async def get_file(
     file_id: str,
     principal: AuthenticatedPrincipal = Depends(authenticate_principal),
-    container: AppContainer = Depends(get_container),
+    container: HttpContainer = Depends(get_container),
 ):
     try:
         file = await container.files.get_file(
@@ -165,7 +165,7 @@ async def create_download_url(
     file_id: str,
     correlation_id: str | None = Header(default=None, alias="X-Correlation-ID"),
     principal: AuthenticatedPrincipal = Depends(authenticate_principal),
-    container: AppContainer = Depends(get_container),
+    container: HttpContainer = Depends(get_container),
 ):
     try:
         download = await container.files.create_download_url(
@@ -184,7 +184,7 @@ async def delete_file(
     file_id: str,
     correlation_id: str | None = Header(default=None, alias="X-Correlation-ID"),
     principal: AuthenticatedPrincipal = Depends(authenticate_principal),
-    container: AppContainer = Depends(get_container),
+    container: HttpContainer = Depends(get_container),
 ):
     try:
         await container.files.delete_file(

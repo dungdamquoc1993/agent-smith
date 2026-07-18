@@ -10,12 +10,14 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from agent_smith.app.ports.document_processing import PendingDerivative
 from agent_smith.app.ports.files import PendingFileRecord
 from agent_smith.infra.storage.postgres.adapters import (
+    PostgresDocumentJobQueue,
     PostgresFileCatalog,
-    PostgresFileProcessingStore,
+    PostgresFileDerivativeReader,
+    PostgresFileProcessingRepository,
 )
 from agent_smith.infra.storage.postgres.database import Base
-from agent_smith.infra.storage.postgres.models.file import File
-from agent_smith.infra.storage.postgres.models.principal import Principal
+from agent_smith.infra.storage.postgres.models.files import File
+from agent_smith.infra.storage.postgres.models.principals import Principal
 
 
 @pytest.mark.asyncio
@@ -26,7 +28,9 @@ async def test_postgres_processing_queue_claim_and_finalize_when_configured() ->
     engine = create_async_engine(postgres_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     catalog = PostgresFileCatalog(factory)
-    processing = PostgresFileProcessingStore(factory)
+    processing = PostgresFileProcessingRepository(factory)
+    queue = PostgresDocumentJobQueue(factory)
+    derivative_reader = PostgresFileDerivativeReader(factory)
     principal_id = uuid.uuid4()
     file_id = uuid.uuid4()
     try:
@@ -53,15 +57,15 @@ async def test_postgres_processing_queue_claim_and_finalize_when_configured() ->
             max_attempts=5,
         )
         assert queued is not None and queued[1].status == "queued"
-        claimed = await processing.claim_next(worker_id="worker-a", lease_seconds=60)
+        claimed = await queue.claim_next(worker_id="worker-a", lease_seconds=60)
         assert claimed is not None and claimed[0].attempts == 1
-        assert await processing.set_detected_type(
+        assert await queue.set_detected_type(
             job_id=claimed[0].id,
             worker_id="worker-a",
             detected_mime_type="text/plain",
             processor="plain_text:1",
         )
-        assert await processing.complete_job(
+        assert await queue.complete_job(
             job_id=claimed[0].id,
             worker_id="worker-a",
             derivatives=[
@@ -78,7 +82,7 @@ async def test_postgres_processing_queue_claim_and_finalize_when_configured() ->
         ready = await catalog.get_file(file_id=str(file_id), principal_id=str(principal_id))
         assert ready is not None and ready.status == "ready"
         assert ready.detected_mime_type == "text/plain"
-        derivatives = await processing.list_derivatives(file_id=str(file_id))
+        derivatives = await derivative_reader.list_derivatives(file_id=str(file_id))
         assert [row.kind for row in derivatives] == ["extracted_text"]
     finally:
         async with factory() as db, db.begin():

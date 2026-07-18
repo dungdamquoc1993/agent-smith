@@ -1,25 +1,23 @@
-"""Dedicated durable document-processing worker."""
+"""Durable document-processing loop with explicit dependencies."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import random
-import time
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from agent_smith.app.container import AppContainer
 from agent_smith.app.ports.document_processing import (
+    DocumentJobQueue,
     FileProcessingError,
+    FileTypeDetector,
     PendingDerivative,
     ProcessingInput,
+    ProcessorRegistry,
 )
-from agent_smith.app.ports.files import BlobStorageError
-from agent_smith.infra.document_processing import (
-    SupportedFileTypeDetector,
-    create_processor_registry,
-)
+from agent_smith.app.ports.files import BlobStorageError, BlobStore, FileRecord
 from agent_smith.infra.document_processing.serialization import (
     artifact_identity,
     build_core_artifacts,
@@ -28,34 +26,46 @@ from agent_smith.infra.document_processing.serialization import (
 logger = logging.getLogger(__name__)
 
 
-class AgentWorker:
-    def __init__(self, container: AppContainer) -> None:
-        self.container = container
-        self.worker_id = f"worker-{uuid.uuid4().hex[:12]}"
-        self._detector = SupportedFileTypeDetector()
-        self._processors = create_processor_registry()
-        self._stopping = asyncio.Event()
+@dataclass(frozen=True)
+class DocumentProcessingConfig:
+    max_file_bytes: int
+    poll_seconds: float
+    lease_seconds: int
+    heartbeat_seconds: int
+    timeout_seconds: int
+    pipeline_version: str
+    max_attempts: int
+    reconciliation_seconds: float = 60.0
 
-    async def run_forever(self) -> None:
-        settings = self.container.settings
+
+class DocumentProcessingWorker:
+    def __init__(
+        self,
+        job_queue: DocumentJobQueue,
+        blob_store: BlobStore,
+        file_type_detector: FileTypeDetector,
+        processor_registry: ProcessorRegistry,
+        config: DocumentProcessingConfig,
+        *,
+        worker_id: str | None = None,
+    ) -> None:
+        self._queue = job_queue
+        self._blobs = blob_store
+        self._detector = file_type_detector
+        self._processors = processor_registry
+        self.config = config
+        self.worker_id = worker_id or f"worker-{uuid.uuid4().hex[:12]}"
+
+    async def run_forever(self, stop_event: asyncio.Event) -> None:
         last_reconciliation = datetime.min.replace(tzinfo=UTC)
-        last_maintenance = datetime.min.replace(tzinfo=UTC)
-        while not self._stopping.is_set():
+        while not stop_event.is_set():
             try:
                 if (
-                    datetime.now(UTC) - last_maintenance
-                ).total_seconds() >= settings.file_maintenance_interval_seconds:
-                    try:
-                        await self.run_file_cleanup_once(limit=100)
-                    except Exception:
-                        logger.exception("File maintenance iteration failed")
-                    finally:
-                        # Maintenance failure must not starve document processing.
-                        last_maintenance = datetime.now(UTC)
-                if (datetime.now(UTC) - last_reconciliation).total_seconds() >= 60:
-                    await self.container.file_processing_store.reconcile_uploaded(
-                        pipeline_version=settings.file_processing_pipeline_version,
-                        max_attempts=settings.file_processing_max_attempts,
+                    datetime.now(UTC) - last_reconciliation
+                ).total_seconds() >= self.config.reconciliation_seconds:
+                    await self._queue.reconcile_uploaded(
+                        pipeline_version=self.config.pipeline_version,
+                        max_attempts=self.config.max_attempts,
                     )
                     last_reconciliation = datetime.now(UTC)
                 handled = await self.run_processing_once()
@@ -65,20 +75,14 @@ class AgentWorker:
             if handled:
                 continue
             try:
-                await asyncio.wait_for(
-                    self._stopping.wait(), timeout=settings.file_processing_poll_seconds
-                )
+                await asyncio.wait_for(stop_event.wait(), timeout=self.config.poll_seconds)
             except TimeoutError:
                 pass
 
-    def stop(self) -> None:
-        self._stopping.set()
-
     async def run_processing_once(self) -> bool:
-        settings = self.container.settings
-        claimed = await self.container.file_processing_store.claim_next(
+        claimed = await self._queue.claim_next(
             worker_id=self.worker_id,
-            lease_seconds=settings.file_processing_lease_seconds,
+            lease_seconds=self.config.lease_seconds,
         )
         if claimed is None:
             return False
@@ -87,7 +91,7 @@ class AgentWorker:
         try:
             await asyncio.wait_for(
                 self._process(job.id, job.pipeline_version, file),
-                timeout=settings.file_processing_timeout_seconds,
+                timeout=self.config.timeout_seconds,
             )
         except TimeoutError:
             await self._handle_error(
@@ -95,7 +99,9 @@ class AgentWorker:
                 job.attempts,
                 job.max_attempts,
                 FileProcessingError(
-                    "processing_timeout", "Document processing timed out.", retryable=True
+                    "processing_timeout",
+                    "Document processing timed out.",
+                    retryable=True,
                 ),
             )
         except FileProcessingError as exc:
@@ -106,7 +112,9 @@ class AgentWorker:
                 job.attempts,
                 job.max_attempts,
                 FileProcessingError(
-                    "storage_unavailable", "Object storage is temporarily unavailable.", retryable=True
+                    "storage_unavailable",
+                    "Object storage is temporarily unavailable.",
+                    retryable=True,
                 ),
             )
         except Exception:
@@ -116,7 +124,9 @@ class AgentWorker:
                 job.attempts,
                 job.max_attempts,
                 FileProcessingError(
-                    "processor_failure", "Document processor failed unexpectedly.", retryable=True
+                    "processor_failure",
+                    "Document processor failed unexpectedly.",
+                    retryable=True,
                 ),
             )
         finally:
@@ -127,11 +137,12 @@ class AgentWorker:
                 pass
         return True
 
-    async def _process(self, job_id: str, pipeline_version: str, file) -> None:
-        settings = self.container.settings
-        data = await self.container.blob_store.read_object(
+    async def _process(
+        self, job_id: str, pipeline_version: str, file: FileRecord
+    ) -> None:
+        data = await self._blobs.read_object(
             object_key=file.object_key,
-            max_bytes=settings.file_max_bytes,
+            max_bytes=self.config.max_file_bytes,
         )
         await self._progress(job_id, "detecting", 15)
         detected = self._detector.detect(
@@ -146,7 +157,7 @@ class AgentWorker:
                 retryable=False,
             )
         processor = self._processors.resolve(detected.mime_type)
-        owned = await self.container.file_processing_store.set_detected_type(
+        owned = await self._queue.set_detected_type(
             job_id=job_id,
             worker_id=self.worker_id,
             detected_mime_type=detected.mime_type,
@@ -182,7 +193,7 @@ class AgentWorker:
                 artifact=artifact,
             )
             object_key = f"principals/{file.principal_id}/{relative_key}"
-            stat = await self.container.blob_store.write_object(
+            stat = await self._blobs.write_object(
                 object_key=object_key,
                 data=artifact.data,
                 mime_type=artifact.mime_type,
@@ -204,7 +215,7 @@ class AgentWorker:
             "pipelineVersion": pipeline_version,
             "warnings": list(result.warnings),
         }
-        completed = await self.container.file_processing_store.complete_job(
+        completed = await self._queue.complete_job(
             job_id=job_id,
             worker_id=self.worker_id,
             derivatives=pending,
@@ -214,14 +225,13 @@ class AgentWorker:
             raise FileProcessingError("lease_lost", "Processing lease was lost.", retryable=True)
 
     async def _heartbeat(self, job_id: str) -> None:
-        settings = self.container.settings
         while True:
-            await asyncio.sleep(settings.file_processing_heartbeat_seconds)
+            await asyncio.sleep(self.config.heartbeat_seconds)
             try:
-                alive = await self.container.file_processing_store.heartbeat(
+                alive = await self._queue.heartbeat(
                     job_id=job_id,
                     worker_id=self.worker_id,
-                    lease_seconds=settings.file_processing_lease_seconds,
+                    lease_seconds=self.config.lease_seconds,
                 )
             except Exception:
                 logger.exception("Document worker heartbeat failed", extra={"job_id": job_id})
@@ -230,7 +240,7 @@ class AgentWorker:
                 return
 
     async def _progress(self, job_id: str, phase: str, percent: int) -> None:
-        await self.container.file_processing_store.update_progress(
+        await self._queue.update_progress(
             job_id=job_id,
             worker_id=self.worker_id,
             phase=phase,
@@ -254,7 +264,7 @@ class AgentWorker:
                 "Document processing failed permanently",
                 extra={"job_id": job_id, "error_code": error.code},
             )
-            await self.container.file_processing_store.fail_job(
+            await self._queue.fail_job(
                 job_id=job_id, worker_id=self.worker_id, error=payload
             )
             return
@@ -264,28 +274,12 @@ class AgentWorker:
             "Document processing scheduled for retry",
             extra={"job_id": job_id, "error_code": error.code, "attempts": attempts},
         )
-        await self.container.file_processing_store.schedule_retry(
+        await self._queue.schedule_retry(
             job_id=job_id,
             worker_id=self.worker_id,
             error=payload,
             available_at=available_at,
         )
-
-    async def run_file_cleanup_once(self, *, limit: int = 100) -> dict[str, int]:
-        """Run the bounded, idempotent file-maintenance groups."""
-        started = time.monotonic()
-        summary = {
-            "expiredUploads": await self.container.files.cleanup_stale_uploads(limit=limit),
-            "rejectedObjects": await self.container.files.cleanup_rejected_uploads(limit=limit),
-            "purgedFiles": await self.container.files.cleanup_deleted_files(limit=limit),
-            "purgedAuditEvents": await self.container.files.cleanup_audit_events(limit=limit),
-        }
-        duration_ms = round((time.monotonic() - started) * 1000)
-        logger.info(
-            "File maintenance completed",
-            extra={"counts": summary, "duration_ms": duration_ms},
-        )
-        return summary
 
 
 def _mime_compatible(declared: str, detected: str) -> bool:

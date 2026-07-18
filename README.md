@@ -94,7 +94,7 @@ document content.
 Run the durable document worker beside the HTTP service after migrations:
 
 ```bash
-poetry run python -m agent_smith.workers.main
+poetry run python -m agent_smith.workers.document_processing.main
 ```
 
 The queue is Postgres-backed and derivatives live in S3/R2; no Redis, RabbitMQ,

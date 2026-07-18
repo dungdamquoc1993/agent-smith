@@ -11,7 +11,13 @@ from agent_smith.app.services.files import (
     FileServiceError,
     PrincipalRateLimiter,
 )
-from helpers.files import FakeBlobStore, FakeFileCatalog, FakeFileProcessingStore
+from agent_smith.app.services.file_maintenance import FileMaintenanceService
+from helpers.files import (
+    FakeBlobStore,
+    FakeFileCatalog,
+    FakeFileMaintenanceStore,
+    FakeFileProcessingRepository,
+)
 
 
 def _service() -> tuple[FileService, FakeFileCatalog, FakeBlobStore]:
@@ -21,6 +27,23 @@ def _service() -> tuple[FileService, FakeFileCatalog, FakeBlobStore]:
         FileService(catalog, blobs, max_bytes=1024, presign_ttl_seconds=900),
         catalog,
         blobs,
+    )
+
+
+def _maintenance(
+    catalog: FakeFileCatalog,
+    blobs: FakeBlobStore,
+    *,
+    pending_ttl_seconds: int = 3600,
+    deleted_retention_seconds: int = 7 * 24 * 3600,
+    audit_retention_seconds: int = 90 * 24 * 3600,
+) -> FileMaintenanceService:
+    return FileMaintenanceService(
+        FakeFileMaintenanceStore(catalog),
+        blobs,
+        pending_ttl_seconds=pending_ttl_seconds,
+        deleted_retention_seconds=deleted_retention_seconds,
+        audit_retention_seconds=audit_retention_seconds,
     )
 
 
@@ -67,13 +90,13 @@ async def test_complete_image_moves_directly_to_ready() -> None:
 @pytest.mark.asyncio
 async def test_complete_document_atomically_enqueues_when_processing_store_is_configured() -> None:
     catalog, blobs = FakeFileCatalog(), FakeBlobStore()
-    processing = FakeFileProcessingStore(catalog)
+    processing = FakeFileProcessingRepository(catalog)
     service = FileService(
         catalog,
         blobs,
         max_bytes=1024,
         presign_ttl_seconds=900,
-        processing_store=processing,
+        processing_repository=processing,
     )
     initiated = await service.initiate_upload(
         principal_id="principal-a",
@@ -189,7 +212,7 @@ async def test_rejected_upload_stays_non_downloadable_while_delete_retries() -> 
     assert exc.value.code == "invalid_file_state"
 
     blobs.fail_delete = False
-    assert await service.cleanup_rejected_uploads() == 1
+    assert await _maintenance(catalog, blobs).cleanup_rejected_uploads() == 1
     assert catalog.records[initiated.file.id].object_deleted_at is not None
 
 
@@ -276,13 +299,13 @@ async def test_failed_processing_keeps_original_downloadable() -> None:
 @pytest.mark.asyncio
 async def test_rejected_cleanup_does_not_delete_processing_mime_failure() -> None:
     catalog, blobs = FakeFileCatalog(), FakeBlobStore()
-    processing = FakeFileProcessingStore(catalog)
+    processing = FakeFileProcessingRepository(catalog)
     service = FileService(
         catalog,
         blobs,
         max_bytes=1024,
         presign_ttl_seconds=600,
-        processing_store=processing,
+        processing_repository=processing,
     )
     initiated = await service.initiate_upload(
         principal_id="principal-a",
@@ -299,7 +322,7 @@ async def test_rejected_cleanup_does_not_delete_processing_mime_failure() -> Non
     )
     assert failed is not None
 
-    assert await service.cleanup_rejected_uploads() == 0
+    assert await _maintenance(catalog, blobs).cleanup_rejected_uploads() == 0
     assert initiated.file.object_key in blobs.objects
     assert (
         await service.create_download_url(
@@ -323,8 +346,8 @@ async def test_stale_pending_cleanup_is_idempotent() -> None:
     )
     blobs.upload(initiated.file, b"a")
 
-    assert await service.cleanup_stale_uploads() == 1
-    assert await service.cleanup_stale_uploads() == 0
+    assert await _maintenance(catalog, blobs).cleanup_stale_uploads() == 1
+    assert await _maintenance(catalog, blobs).cleanup_stale_uploads() == 0
     assert catalog.records[initiated.file.id].failure_reason == "upload_expired"
 
 
@@ -346,14 +369,14 @@ async def test_deleted_object_cleanup_keeps_referenced_tombstone_without_redelet
     )
     catalog.referenced_file_ids.add(deleted.id)
 
-    assert await service.cleanup_deleted_files() == 1
+    assert await _maintenance(catalog, blobs).cleanup_deleted_files() == 1
     assert catalog.records[deleted.id].object_deleted_at is not None
     assert blobs.deleted == [deleted.object_key]
-    assert await service.cleanup_deleted_files() == 0
+    assert await _maintenance(catalog, blobs).cleanup_deleted_files() == 0
     assert blobs.deleted == [deleted.object_key]
 
     catalog.referenced_file_ids.remove(deleted.id)
-    assert await service.cleanup_deleted_files() == 1
+    assert await _maintenance(catalog, blobs).cleanup_deleted_files() == 1
     assert deleted.id not in catalog.records
     assert blobs.deleted == [deleted.object_key]
 
@@ -429,7 +452,7 @@ async def test_quota_allows_exact_limit_and_rejects_excess() -> None:
 
 @pytest.mark.asyncio
 async def test_pending_upload_cap_rejects_eleventh_record() -> None:
-    service, catalog, _ = _service()
+    service, catalog, blobs = _service()
     for index in range(10):
         await service.initiate_upload(
             principal_id="principal-a",
@@ -543,7 +566,7 @@ async def test_audit_failure_rolls_back_file_mutation() -> None:
 
 @pytest.mark.asyncio
 async def test_audit_retention_cleanup_is_bounded_and_idempotent() -> None:
-    service, catalog, _ = _service()
+    _service_value, catalog, blobs = _service()
     old = datetime.now(UTC) - timedelta(days=91)
     catalog.audit_events.extend(
         [
@@ -567,8 +590,8 @@ async def test_audit_retention_cleanup_is_bounded_and_idempotent() -> None:
             ),
         ]
     )
-    assert await service.cleanup_audit_events(limit=1) == 1
-    assert await service.cleanup_audit_events(limit=1) == 0
+    assert await _maintenance(catalog, blobs).cleanup_audit_events(limit=1) == 1
+    assert await _maintenance(catalog, blobs).cleanup_audit_events(limit=1) == 0
     assert len(catalog.audit_events) == 1
 
 

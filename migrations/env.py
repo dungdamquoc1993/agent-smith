@@ -14,21 +14,8 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from agent_smith.infra.config import get_settings
 from agent_smith.infra.storage.postgres.database import Base
 
-# Import models so metadata is populated
-from agent_smith.infra.storage.postgres.models import (  # noqa: F401
-    ExternalIdentity,
-    File,
-    FileAuditEvent,
-    IdentityProvider,
-    IdentityProviderApiKey,
-    IdentityProviderAssertionKey,
-    McpCredentialRecord,
-    Principal,
-    Resource,
-    ResourceVersion,
-    Session,
-    SessionEntry,
-)
+# Import the package so every model module registers with Base.metadata.
+from agent_smith.infra.storage.postgres import models as postgres_models  # noqa: F401
 
 config = context.config
 

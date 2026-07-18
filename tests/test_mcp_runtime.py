@@ -31,7 +31,7 @@ from agent_smith.core.llm.models import make_litellm_model
 from agent_smith.core.llm.types import ImageContent, TextContent
 from agent_smith.infra.storage.postgres.database import Base
 from agent_smith.infra.storage.postgres.adapters import PostgresMcpCredentialStore
-from agent_smith.infra.storage.postgres.models.mcp import McpCredentialRecord
+from agent_smith.infra.storage.postgres.models.mcp_credentials import McpCredentialRecord
 from agent_smith.core.resources import ResourceResolver
 from agent_smith.core.runtime import AgentFactory, ToolRegistry
 from helpers.resource_stores import MemoryResourceStore

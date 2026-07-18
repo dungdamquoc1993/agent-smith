@@ -12,9 +12,9 @@ from agent_smith.core.agent.persistence import FileReferenceContent, PersistedUs
 from agent_smith.core.llm.types import TextContent
 from agent_smith.infra.storage.postgres.adapters.sessions import PostgresSessionCatalog
 from agent_smith.infra.storage.postgres.database import Base
-from agent_smith.infra.storage.postgres.models.file import File, FileStatus
-from agent_smith.infra.storage.postgres.models.principal import Principal
-from agent_smith.infra.storage.postgres.models.session import (
+from agent_smith.infra.storage.postgres.models.files import File, FileStatus
+from agent_smith.infra.storage.postgres.models.principals import Principal
+from agent_smith.infra.storage.postgres.models.sessions import (
     Session as DbSession,
     SessionEntry as DbSessionEntry,
     SessionEntryFile,

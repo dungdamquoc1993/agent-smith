@@ -97,6 +97,10 @@ class FileProcessor(Protocol):
     async def process(self, value: ProcessingInput) -> ProcessingResult: ...
 
 
+class ProcessorRegistry(Protocol):
+    def resolve(self, mime_type: str) -> FileProcessor: ...
+
+
 @dataclass(frozen=True)
 class DetectedFile:
     mime_type: str
@@ -152,7 +156,7 @@ class ProcessingJobRecord:
     updated_at: datetime | None = None
 
 
-class FileProcessingStore(Protocol):
+class FileProcessingRepository(Protocol):
     async def mark_uploaded_and_enqueue(
         self,
         *,
@@ -166,6 +170,17 @@ class FileProcessingStore(Protocol):
     ) -> tuple[FileRecord, ProcessingJobRecord] | None: ...
 
     async def get_latest_jobs(self, *, file_ids: list[str]) -> dict[str, ProcessingJobRecord]: ...
+
+    async def cancel_jobs(self, *, file_id: str) -> None: ...
+
+
+class FileDerivativeReader(Protocol):
+    async def list_derivatives(
+        self, *, file_id: str, kinds: tuple[str, ...] | None = None
+    ) -> list[DerivativeRecord]: ...
+
+
+class DocumentJobQueue(Protocol):
 
     async def claim_next(
         self,
@@ -221,12 +236,6 @@ class FileProcessingStore(Protocol):
         derivatives: list[PendingDerivative],
         processing_metadata: dict[str, Any],
     ) -> bool: ...
-
-    async def list_derivatives(
-        self, *, file_id: str, kinds: tuple[str, ...] | None = None
-    ) -> list[DerivativeRecord]: ...
-
-    async def cancel_jobs(self, *, file_id: str) -> None: ...
 
     async def reconcile_uploaded(
         self, *, pipeline_version: str, max_attempts: int, limit: int = 100

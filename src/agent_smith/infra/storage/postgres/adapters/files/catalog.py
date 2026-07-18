@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import and_, delete, exists, func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -19,10 +19,10 @@ from agent_smith.app.ports.files import (
     PendingFileRecord,
     TooManyPendingUploads,
 )
-from agent_smith.infra.storage.postgres.adapters.file_audit import add_audit_event
-from agent_smith.infra.storage.postgres.models.file import File, FileProcessingJob, FileStatus
-from agent_smith.infra.storage.postgres.models.principal import Principal
-from agent_smith.infra.storage.postgres.models.session import SessionEntryFile
+from agent_smith.infra.storage.postgres.adapters.files.audit import add_audit_event
+from agent_smith.infra.storage.postgres.adapters.files.records import file_record
+from agent_smith.infra.storage.postgres.models.files import File, FileStatus
+from agent_smith.infra.storage.postgres.models.principals import Principal
 
 
 class PostgresFileCatalog:
@@ -86,7 +86,7 @@ class PostgresFileCatalog:
                     add_audit_event(db, audit)
                 await db.flush()
                 await db.refresh(row)
-                return _record(row)
+                return file_record(row)
         except IntegrityError as exc:
             if audit is not None:
                 raise FileAuditUnavailable(
@@ -115,7 +115,7 @@ class PostgresFileCatalog:
             conditions.append(File.status != FileStatus.deleted)
         async with self._session_factory() as db:
             row = await db.scalar(select(File).where(*conditions))
-            return _record(row) if row is not None else None
+            return file_record(row) if row is not None else None
 
     async def list_files(
         self,
@@ -150,7 +150,7 @@ class PostgresFileCatalog:
                     .limit(limit)
                 )
             ).all()
-            return [_record(row) for row in rows]
+            return [file_record(row) for row in rows]
 
     async def mark_uploaded(
         self,
@@ -248,73 +248,6 @@ class PostgresFileCatalog:
             audit=audit,
         )
 
-    async def list_stale_pending(
-        self,
-        *,
-        created_before: datetime,
-        limit: int,
-    ) -> list[FileRecord]:
-        return await self._list_for_cleanup(
-            File.status == FileStatus.pending_upload,
-            File.created_at < created_before,
-            limit=limit,
-        )
-
-    async def list_deleted(
-        self,
-        *,
-        deleted_before: datetime,
-        limit: int,
-    ) -> list[FileRecord]:
-        return await self._list_for_cleanup(
-            File.status == FileStatus.deleted,
-            File.deleted_at < deleted_before,
-            or_(
-                File.object_deleted_at.is_(None),
-                ~exists().where(SessionEntryFile.file_id == File.id),
-            ),
-            limit=limit,
-        )
-
-    async def list_rejected_objects(self, *, limit: int) -> list[FileRecord]:
-        return await self._list_for_cleanup(
-            File.status == FileStatus.failed,
-            File.failure_reason.in_(
-                ("size_mismatch", "checksum_mismatch", "mime_mismatch", "upload_expired")
-            ),
-            File.object_deleted_at.is_(None),
-            ~exists().where(FileProcessingJob.file_id == File.id),
-            limit=limit,
-        )
-
-    async def mark_object_deleted(
-        self, *, file_id: str, deleted_at: datetime
-    ) -> FileRecord | None:
-        async with self._session_factory() as db, db.begin():
-            row = await db.scalar(
-                update(File)
-                .where(
-                    File.id == _uuid(file_id),
-                    File.status.in_((FileStatus.failed, FileStatus.deleted)),
-                    File.object_deleted_at.is_(None),
-                )
-                .values(object_deleted_at=deleted_at, updated_at=datetime.now(UTC))
-                .returning(File)
-            )
-            return _record(row) if row is not None else None
-
-    async def purge_file(self, *, file_id: str) -> bool:
-        async with self._session_factory() as db, db.begin():
-            result = await db.execute(
-                delete(File).where(
-                    File.id == _uuid(file_id),
-                    File.status == FileStatus.deleted,
-                    File.object_deleted_at.is_not(None),
-                    ~exists().where(SessionEntryFile.file_id == File.id),
-                )
-            )
-            return bool(result.rowcount)
-
     async def _transition(
         self,
         *,
@@ -342,7 +275,7 @@ class PostgresFileCatalog:
                 if row is not None and audit is not None:
                     add_audit_event(db, audit)
                     await db.flush()
-                return _record(row) if row is not None else None
+                return file_record(row) if row is not None else None
         except (SQLAlchemyError, ValueError) as exc:
             if audit is not None:
                 raise FileAuditUnavailable(
@@ -350,40 +283,8 @@ class PostgresFileCatalog:
                 ) from exc
             raise
 
-    async def _list_for_cleanup(self, *conditions: object, limit: int) -> list[FileRecord]:
-        async with self._session_factory() as db:
-            rows = (
-                await db.scalars(
-                    select(File).where(*conditions).order_by(File.created_at).limit(limit)
-                )
-            ).all()
-            return [_record(row) for row in rows]
-
-
 def _uuid(value: str) -> uuid.UUID:
     try:
         return uuid.UUID(value)
     except ValueError as exc:
         raise ValueError("Invalid UUID") from exc
-
-
-def _record(row: File) -> FileRecord:
-    return FileRecord(
-        id=str(row.id),
-        principal_id=str(row.principal_id),
-        original_name=row.original_name,
-        mime_type=row.mime_type,
-        size_bytes=row.size_bytes,
-        sha256=row.sha256,
-        object_key=row.object_key,
-        status=row.status.value,
-        etag=row.etag,
-        failure_reason=row.failure_reason,
-        metadata=dict(row.file_metadata or {}),
-        detected_mime_type=row.detected_mime_type,
-        processing_metadata=dict(row.processing_metadata or {}),
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-        deleted_at=row.deleted_at,
-        object_deleted_at=row.object_deleted_at,
-    )

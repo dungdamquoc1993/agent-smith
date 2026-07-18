@@ -28,7 +28,7 @@ from agent_smith.core.agent import (
 )
 from agent_smith.infra.storage.postgres.adapters.sessions import PostgresSessionCatalog
 from agent_smith.infra.storage.postgres.database import Base
-from agent_smith.infra.storage.postgres.models.principal import Principal
+from agent_smith.infra.storage.postgres.models.principals import Principal
 from agent_smith.core.llm.events import create_assistant_message_event_stream
 from agent_smith.core.llm.models import make_litellm_model
 from agent_smith.core.llm.types import (

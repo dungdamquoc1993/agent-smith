@@ -21,8 +21,11 @@ from agent_smith.app.services.provider_auth import (
     IdentityProviderSecretCodec,
 )
 from agent_smith.infra.storage.postgres.database import Base
-from agent_smith.infra.storage.postgres.adapters import PostgresIdentityStore
-from agent_smith.infra.storage.postgres.models.principal import (
+from agent_smith.infra.storage.postgres.adapters import (
+    PostgresIdentityProviderAdminStore,
+    PostgresIdentityProviderAuthStore,
+)
+from agent_smith.infra.storage.postgres.models.identity_providers import (
     IdentityProvider,
     IdentityProviderApiKey,
     IdentityProviderAssertionKey,
@@ -39,10 +42,11 @@ async def test_identity_provider_management_lifecycle_when_database_is_configure
     engine = create_async_engine(postgres_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     codec = IdentityProviderSecretCodec(_fernet_key())
-    identity_store = PostgresIdentityStore(factory)
-    management = IdentityProviderManagementService(identity_store, secret_codec=codec)
+    management = IdentityProviderManagementService(
+        PostgresIdentityProviderAdminStore(factory), secret_codec=codec
+    )
     auth = IdentityProviderAuthService(
-        identity_store,
+        PostgresIdentityProviderAuthStore(factory),
         assertion_verifier=AppAssertionVerifier(
             parse_trusted_apps(audience="agent-smith", raw_json="{}")
         ),

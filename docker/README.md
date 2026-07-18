@@ -57,7 +57,7 @@ document worker as separate processes:
 
 ```bash
 poetry run python -m agent_smith.transports.http.main
-poetry run python -m agent_smith.workers.main
+poetry run python -m agent_smith.workers.document_processing.main
 ```
 
 ## Adding More Dependencies

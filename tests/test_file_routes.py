@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from agent_smith.app.auth import AppAssertionError
 from agent_smith.app.services.files import FileService
 from agent_smith.transports.http.main import create_app
-from helpers.files import FakeBlobStore, FakeFileCatalog, FakeFileProcessingStore
+from helpers.files import FakeBlobStore, FakeFileCatalog, FakeFileProcessingRepository
 
 
 class _Authentication:
@@ -114,7 +114,7 @@ def test_file_route_rejects_legacy_document_before_presigning() -> None:
 
 def test_file_route_exposes_durable_processing_progress() -> None:
     catalog, blobs = FakeFileCatalog(), FakeBlobStore()
-    processing = FakeFileProcessingStore(catalog)
+    processing = FakeFileProcessingRepository(catalog)
     container = SimpleNamespace(
         settings=SimpleNamespace(http_docs_enabled=True, admin_token=None),
         authentication=_Authentication(),
@@ -123,7 +123,7 @@ def test_file_route_exposes_durable_processing_progress() -> None:
             blobs,
             max_bytes=1024,
             presign_ttl_seconds=900,
-            processing_store=processing,
+            processing_repository=processing,
         ),
     )
     client = TestClient(create_app(container=container))

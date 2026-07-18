@@ -17,8 +17,9 @@ from agent_smith.app.ports.files import (
 )
 from agent_smith.infra.storage.postgres.adapters import PostgresFileCatalog
 from agent_smith.infra.storage.postgres.database import Base
-from agent_smith.infra.storage.postgres.models.file import File, FileAuditEvent
-from agent_smith.infra.storage.postgres.models.principal import Principal
+from agent_smith.infra.storage.postgres.models.file_audit import FileAuditEvent
+from agent_smith.infra.storage.postgres.models.files import File
+from agent_smith.infra.storage.postgres.models.principals import Principal
 
 
 @pytest.mark.asyncio

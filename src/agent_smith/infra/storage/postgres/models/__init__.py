@@ -1,33 +1,47 @@
 """SQLAlchemy models owned by the Postgres backend."""
 
-from agent_smith.infra.storage.postgres.models.file import (
-    File,
-    FileAuditEvent,
+from agent_smith.infra.storage.postgres.models.app_assertions import AppAssertionNonce
+from agent_smith.infra.storage.postgres.models.file_audit import FileAuditEvent
+from agent_smith.infra.storage.postgres.models.file_processing import (
     FileDerivative,
     FileProcessingJob,
+    ProcessingJobStatus,
 )
-from agent_smith.infra.storage.postgres.models.mcp import McpCredentialRecord
-from agent_smith.infra.storage.postgres.models.principal import (
-    AppAssertionNonce,
+from agent_smith.infra.storage.postgres.models.files import File, FileStatus
+from agent_smith.infra.storage.postgres.models.identity_providers import (
     ExternalIdentity,
     IdentityProvider,
     IdentityProviderApiKey,
     IdentityProviderAssertionKey,
-    Principal,
+    IdentityProviderKeyStatus,
+    IdentityProviderStatus,
 )
-from agent_smith.infra.storage.postgres.models.resource import Resource, ResourceVersion
-from agent_smith.infra.storage.postgres.models.session import Session, SessionEntry, SessionEntryFile
+from agent_smith.infra.storage.postgres.models.mcp_credentials import McpCredentialRecord
+from agent_smith.infra.storage.postgres.models.principals import Principal, PrincipalStatus
+from agent_smith.infra.storage.postgres.models.resources import Resource, ResourceVersion
+from agent_smith.infra.storage.postgres.models.sessions import (
+    Session,
+    SessionEntry,
+    SessionEntryFile,
+    SessionEntryType,
+    SessionKind,
+)
 
 __all__ = [
     "File",
+    "FileStatus",
     "FileAuditEvent",
     "FileDerivative",
     "FileProcessingJob",
+    "ProcessingJobStatus",
     "McpCredentialRecord",
     "Principal",
+    "PrincipalStatus",
     "IdentityProvider",
     "IdentityProviderApiKey",
     "IdentityProviderAssertionKey",
+    "IdentityProviderKeyStatus",
+    "IdentityProviderStatus",
     "ExternalIdentity",
     "AppAssertionNonce",
     "Resource",
@@ -35,4 +49,6 @@ __all__ = [
     "Session",
     "SessionEntry",
     "SessionEntryFile",
+    "SessionEntryType",
+    "SessionKind",
 ]

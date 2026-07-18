@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import Depends, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from agent_smith.app.container import AppContainer
+from agent_smith.bootstrap.http import HttpContainer
 from agent_smith.app.services.agent_runs import AgentRunEventSink
 from agent_smith.transports.http.sse import jsonable, sse_chunk
 
@@ -35,7 +35,7 @@ class AgentSmithHttpError(Exception):
         self.headers = headers or {}
 
 
-def get_container(request: Request) -> AppContainer:
+def get_container(request: Request) -> HttpContainer:
     return request.app.state.container
 
 
@@ -79,7 +79,7 @@ async def read_json_object(request: Request) -> dict[str, Any]:
 
 def require_admin_token(
     authorization: str | None = Header(default=None, alias="Authorization"),
-    container: AppContainer = Depends(get_container),
+    container: HttpContainer = Depends(get_container),
 ) -> None:
     configured = (container.settings.admin_token or "").strip()
     if not configured:

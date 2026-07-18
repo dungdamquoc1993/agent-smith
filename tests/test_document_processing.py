@@ -4,8 +4,6 @@ import io
 import json
 import uuid
 import zipfile
-from types import SimpleNamespace
-
 import pytest
 
 from agent_smith.app.ports.document_processing import FileProcessingError, ProcessingInput
@@ -16,8 +14,28 @@ from agent_smith.infra.document_processing import (
     inspect_image,
 )
 from agent_smith.infra.document_processing.serialization import build_core_artifacts, parse_jsonl
-from agent_smith.workers.agent_worker import AgentWorker
-from helpers.files import FakeBlobStore, FakeFileCatalog, FakeFileProcessingStore
+from agent_smith.workers.document_processing.worker import (
+    DocumentProcessingConfig,
+    DocumentProcessingWorker,
+)
+from helpers.files import (
+    FakeBlobStore,
+    FakeDocumentJobQueue,
+    FakeFileCatalog,
+    FakeFileProcessingRepository,
+)
+
+
+def _worker_config() -> DocumentProcessingConfig:
+    return DocumentProcessingConfig(
+        max_file_bytes=1024,
+        poll_seconds=1,
+        lease_seconds=60,
+        heartbeat_seconds=20,
+        timeout_seconds=30,
+        pipeline_version="document-v1",
+        max_attempts=5,
+    )
 
 
 def _file(mime_type: str, name: str) -> FileRecord:
@@ -298,7 +316,8 @@ def test_ooxml_sniffing_rejects_fake_zip_and_high_ratio_payload() -> None:
 @pytest.mark.asyncio
 async def test_worker_processes_uploaded_text_to_persisted_derivatives() -> None:
     catalog, blobs = FakeFileCatalog(), FakeBlobStore()
-    store = FakeFileProcessingStore(catalog)
+    processing = FakeFileProcessingRepository(catalog)
+    queue = FakeDocumentJobQueue(catalog, state=processing.state)
     file_id = str(uuid.uuid4())
     record = FileRecord(
         id=file_id,
@@ -311,7 +330,7 @@ async def test_worker_processes_uploaded_text_to_persisted_derivatives() -> None
     )
     catalog.records[file_id] = record
     blobs.objects[record.object_key] = (b"hello world", "text/plain", None)
-    queued = await store.mark_uploaded_and_enqueue(
+    queued = await processing.mark_uploaded_and_enqueue(
         file_id=file_id,
         principal_id="principal-a",
         etag="etag",
@@ -320,22 +339,17 @@ async def test_worker_processes_uploaded_text_to_persisted_derivatives() -> None
         max_attempts=5,
     )
     assert queued is not None
-    container = SimpleNamespace(
-        settings=SimpleNamespace(
-            file_processing_lease_seconds=60,
-            file_processing_timeout_seconds=30,
-            file_processing_heartbeat_seconds=20,
-            file_processing_poll_seconds=1,
-            file_max_bytes=1024,
-        ),
-        file_processing_store=store,
-        blob_store=blobs,
+    worker = DocumentProcessingWorker(
+        queue,
+        blobs,
+        SupportedFileTypeDetector(),
+        create_processor_registry(),
+        _worker_config(),
     )
-    worker = AgentWorker(container)  # type: ignore[arg-type]
 
     assert await worker.run_processing_once() is True
     assert catalog.records[file_id].status == "ready"
-    assert {item.kind for item in store.derivatives[file_id]} == {
+    assert {item.kind for item in queue.derivatives[file_id]} == {
         "normalized_document",
         "extracted_text",
         "chunks",
@@ -346,14 +360,8 @@ async def test_worker_processes_uploaded_text_to_persisted_derivatives() -> None
 @pytest.mark.asyncio
 async def test_worker_classifies_storage_retry_and_corrupt_document_failure() -> None:
     catalog, blobs = FakeFileCatalog(), FakeBlobStore()
-    store = FakeFileProcessingStore(catalog)
-    settings = SimpleNamespace(
-        file_processing_lease_seconds=60,
-        file_processing_timeout_seconds=30,
-        file_processing_heartbeat_seconds=20,
-        file_processing_poll_seconds=1,
-        file_max_bytes=1024,
-    )
+    processing = FakeFileProcessingRepository(catalog)
+    queue_store = FakeDocumentJobQueue(catalog, state=processing.state)
 
     async def queue(data: bytes, suffix: str) -> FileRecord:
         file_id = str(uuid.uuid4())
@@ -368,7 +376,7 @@ async def test_worker_classifies_storage_retry_and_corrupt_document_failure() ->
         )
         catalog.records[file_id] = record
         blobs.objects[record.object_key] = (data, "text/plain", None)
-        assert await store.mark_uploaded_and_enqueue(
+        assert await processing.mark_uploaded_and_enqueue(
             file_id=file_id,
             principal_id="principal-a",
             etag="etag",
@@ -379,23 +387,23 @@ async def test_worker_classifies_storage_retry_and_corrupt_document_failure() ->
         return record
 
     retryable = await queue(b"temporary", "retry")
-    worker = AgentWorker(
-        SimpleNamespace(
-            settings=settings,
-            file_processing_store=store,
-            blob_store=blobs,
-        )
-    )  # type: ignore[arg-type]
+    worker = DocumentProcessingWorker(
+        queue_store,
+        blobs,
+        SupportedFileTypeDetector(),
+        create_processor_registry(),
+        _worker_config(),
+    )
     blobs.fail = True
     assert await worker.run_processing_once() is True
     blobs.fail = False
-    assert store.jobs[retryable.id].status == "retry_wait"
+    assert queue_store.jobs[retryable.id].status == "retry_wait"
     assert catalog.records[retryable.id].status == "processing"
     assert retryable.object_key in blobs.objects
 
     corrupt = await queue(b"\x00\x00", "corrupt")
     assert await worker.run_processing_once() is True
-    assert store.jobs[corrupt.id].status == "failed"
+    assert queue_store.jobs[corrupt.id].status == "failed"
     assert catalog.records[corrupt.id].status == "failed"
     assert catalog.records[corrupt.id].failure_reason == "unsupported_file_type"
     assert corrupt.object_key in blobs.objects

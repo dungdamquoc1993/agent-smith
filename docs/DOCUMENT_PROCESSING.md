@@ -53,7 +53,7 @@ retry an toàn. Reconciliation định kỳ enqueue các file `uploaded` bị b�
 Chạy worker riêng:
 
 ```bash
-poetry run python -m agent_smith.workers.main
+poetry run python -m agent_smith.workers.document_processing.main
 ```
 
 UI poll `GET /api/files/{fileId}` hoặc `GET /api/files`; field `processing` trả

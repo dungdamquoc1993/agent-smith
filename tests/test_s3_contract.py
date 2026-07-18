@@ -8,8 +8,9 @@ import httpx
 import pytest
 
 from agent_smith.infra.storage.s3 import S3BlobStore, create_s3_client
+from agent_smith.app.services.file_maintenance import FileMaintenanceService
 from agent_smith.app.services.files import FileService
-from helpers.files import FakeFileCatalog
+from helpers.files import FakeFileCatalog, FakeFileMaintenanceStore
 
 
 @pytest.mark.asyncio
@@ -128,7 +129,13 @@ async def test_full_file_lifecycle_against_r2_when_configured() -> None:
         store,
         max_bytes=50 * 1024 * 1024,
         presign_ttl_seconds=600,
+    )
+    maintenance = FileMaintenanceService(
+        FakeFileMaintenanceStore(catalog),
+        store,
+        pending_ttl_seconds=3600,
         deleted_retention_seconds=0,
+        audit_retention_seconds=90 * 24 * 3600,
     )
     initiated = await service.initiate_upload(
         principal_id=str(uuid.uuid4()),
@@ -160,7 +167,7 @@ async def test_full_file_lifecycle_against_r2_when_configured() -> None:
             principal_id=initiated.file.principal_id,
             file_id=initiated.file.id,
         )
-        assert await service.cleanup_deleted_files() == 1
+        assert await maintenance.cleanup_deleted_files() == 1
         assert await store.stat(object_key=initiated.file.object_key) is None
     finally:
         await store.delete(object_key=initiated.file.object_key)

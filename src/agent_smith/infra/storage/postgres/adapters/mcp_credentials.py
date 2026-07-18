@@ -15,7 +15,7 @@ from agent_smith.infra.mcp.credentials import (
 )
 from agent_smith.infra.mcp.errors import McpCredentialError
 from agent_smith.infra.mcp.types import McpCredential
-from agent_smith.infra.storage.postgres.models.mcp import McpCredentialRecord
+from agent_smith.infra.storage.postgres.models.mcp_credentials import McpCredentialRecord
 
 
 class PostgresMcpCredentialStore:

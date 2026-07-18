@@ -14,9 +14,9 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
-from agent_smith.app.container import AppContainer, load_dotenv
 from agent_smith.app.services.identity_providers import IdentityProviderManagementError
-from agent_smith.infra.config import get_settings
+from agent_smith.bootstrap.http import build_http_container
+from agent_smith.infra.config import get_settings, load_environment
 from agent_smith.transports.http.admin_identity_provider_routes import (
     ADMIN_IDENTITY_PROVIDER_ROUTES,
     router as admin_identity_provider_router,
@@ -41,7 +41,7 @@ def create_app(
     container: Any | None = None,
     static_dir: Path | None = None,
 ) -> FastAPI:
-    load_dotenv(REPO_ROOT / ".env")
+    load_environment(REPO_ROOT / ".env")
     settings = container.settings if container is not None else get_settings()
     docs_enabled = bool(getattr(settings, "http_docs_enabled", True))
 
@@ -52,10 +52,12 @@ def create_app(
             yield
             return
 
-        app_container = AppContainer()
-        app_container.bootstrap_providers()
+        app_container = build_http_container(settings)
         app.state.container = app_container
-        yield
+        try:
+            yield
+        finally:
+            await app_container.close()
 
     app = FastAPI(
         title="Agent Smith HTTP",

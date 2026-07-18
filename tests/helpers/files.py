@@ -330,7 +330,53 @@ class FakeBlobStore:
             raise BlobStorageError("fake storage failure")
 
 
-class FakeFileProcessingStore:
+class FakeFileMaintenanceStore:
+    def __init__(self, catalog: FakeFileCatalog) -> None:
+        self.catalog = catalog
+
+    async def mark_expired_upload(
+        self, *, file_id: str, principal_id: str
+    ) -> FileRecord | None:
+        return await self.catalog.mark_failed(
+            file_id=file_id,
+            principal_id=principal_id,
+            reason="upload_expired",
+            pending_only=True,
+        )
+
+    async def list_stale_pending(self, *, created_before: datetime, limit: int):
+        return await self.catalog.list_stale_pending(
+            created_before=created_before,
+            limit=limit,
+        )
+
+    async def list_deleted(self, *, deleted_before: datetime, limit: int):
+        return await self.catalog.list_deleted(deleted_before=deleted_before, limit=limit)
+
+    async def list_rejected_objects(self, *, limit: int):
+        return await self.catalog.list_rejected_objects(limit=limit)
+
+    async def purge_file(self, *, file_id: str) -> bool:
+        return await self.catalog.purge_file(file_id=file_id)
+
+    async def mark_object_deleted(
+        self, *, file_id: str, deleted_at: datetime
+    ) -> FileRecord | None:
+        return await self.catalog.mark_object_deleted(
+            file_id=file_id,
+            deleted_at=deleted_at,
+        )
+
+    async def purge_audit_events_before(
+        self, *, occurred_before: datetime, limit: int
+    ) -> int:
+        return await self.catalog.purge_before(
+            occurred_before=occurred_before,
+            limit=limit,
+        )
+
+
+class _FakeProcessingState:
     def __init__(self, catalog: FakeFileCatalog) -> None:
         self.catalog = catalog
         self.jobs: dict[str, ProcessingJobRecord] = {}
@@ -516,3 +562,105 @@ class FakeFileProcessingStore:
                 )
             return True
         return False
+
+
+class FakeFileProcessingRepository:
+    def __init__(
+        self,
+        catalog: FakeFileCatalog,
+        *,
+        state: _FakeProcessingState | None = None,
+    ) -> None:
+        self.state = state or _FakeProcessingState(catalog)
+
+    @property
+    def jobs(self) -> dict[str, ProcessingJobRecord]:
+        return self.state.jobs
+
+    async def mark_uploaded_and_enqueue(self, **values: object):
+        return await self.state.mark_uploaded_and_enqueue(**values)
+
+    async def get_latest_jobs(self, *, file_ids: list[str]):
+        return await self.state.get_latest_jobs(file_ids=file_ids)
+
+    async def cancel_jobs(self, *, file_id: str) -> None:
+        await self.state.cancel_jobs(file_id=file_id)
+
+
+class FakeFileDerivativeReader:
+    def __init__(
+        self,
+        catalog: FakeFileCatalog,
+        *,
+        state: _FakeProcessingState | None = None,
+    ) -> None:
+        self.state = state or _FakeProcessingState(catalog)
+
+    @property
+    def derivatives(self) -> dict[str, list[DerivativeRecord]]:
+        return self.state.derivatives
+
+    async def list_derivatives(self, *, file_id: str, kinds=None):
+        return await self.state.list_derivatives(file_id=file_id, kinds=kinds)
+
+    def add_derivative(
+        self,
+        blobs: FakeBlobStore,
+        record: FileRecord,
+        *,
+        kind: str,
+        data: bytes,
+        mime_type: str,
+    ) -> None:
+        self.state.add_derivative(
+            blobs,
+            record,
+            kind=kind,
+            data=data,
+            mime_type=mime_type,
+        )
+
+
+class FakeDocumentJobQueue:
+    def __init__(
+        self,
+        catalog: FakeFileCatalog,
+        *,
+        state: _FakeProcessingState | None = None,
+    ) -> None:
+        self.state = state or _FakeProcessingState(catalog)
+
+    @property
+    def jobs(self) -> dict[str, ProcessingJobRecord]:
+        return self.state.jobs
+
+    @property
+    def derivatives(self) -> dict[str, list[DerivativeRecord]]:
+        return self.state.derivatives
+
+    async def claim_next(self, *, worker_id: str, lease_seconds: int):
+        return await self.state.claim_next(
+            worker_id=worker_id,
+            lease_seconds=lease_seconds,
+        )
+
+    async def heartbeat(self, **values: object) -> bool:
+        return await self.state.heartbeat(**values)
+
+    async def set_detected_type(self, **values: object) -> bool:
+        return await self.state.set_detected_type(**values)
+
+    async def update_progress(self, **values: object) -> bool:
+        return await self.state.update_progress(**values)
+
+    async def complete_job(self, **values: object) -> bool:
+        return await self.state.complete_job(**values)
+
+    async def fail_job(self, **values: object) -> bool:
+        return await self.state.fail_job(**values)
+
+    async def schedule_retry(self, **values: object) -> bool:
+        return await self.state.schedule_retry(**values)
+
+    async def reconcile_uploaded(self, **values: object) -> int:
+        return await self.state.reconcile_uploaded(**values)

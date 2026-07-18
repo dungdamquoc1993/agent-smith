@@ -19,7 +19,7 @@ from agent_smith.core.agent.persistence import (
     project_message_for_persistence,
 )
 from agent_smith.core.llm.types import ImageContent, Model, TextContent, UserMessage
-from helpers.files import FakeBlobStore, FakeFileCatalog, FakeFileProcessingStore
+from helpers.files import FakeBlobStore, FakeFileCatalog, FakeFileDerivativeReader
 
 
 class _InvocationAuthentication:
@@ -275,7 +275,7 @@ async def test_attachment_validation_maps_duplicate_state_type_owner_model_and_b
 @pytest.mark.asyncio
 async def test_document_attachment_materializes_persisted_text_for_text_only_model() -> None:
     catalog, blobs = FakeFileCatalog(), FakeBlobStore()
-    processing = FakeFileProcessingStore(catalog)
+    processing = FakeFileDerivativeReader(catalog)
     principal_id = str(uuid.uuid4())
     record = _ready(
         catalog,
@@ -296,7 +296,7 @@ async def test_document_attachment_materializes_persisted_text_for_text_only_mod
     processing.add_derivative(
         blobs, record, kind="chunks", data=chunks, mime_type="application/x-ndjson"
     )
-    service = AttachmentService(catalog, blobs, processing_store=processing)
+    service = AttachmentService(catalog, blobs, derivative_reader=processing)
     current = await service.resolve_current(
         principal_id=principal_id,
         raw_attachments=[{"fileId": record.id}],
@@ -319,7 +319,7 @@ async def test_document_attachment_materializes_persisted_text_for_text_only_mod
 @pytest.mark.asyncio
 async def test_long_document_uses_query_relevant_chunk_within_budget() -> None:
     catalog, blobs = FakeFileCatalog(), FakeBlobStore()
-    processing = FakeFileProcessingStore(catalog)
+    processing = FakeFileDerivativeReader(catalog)
     principal_id = str(uuid.uuid4())
     record = _ready(
         catalog,
@@ -345,7 +345,7 @@ async def test_long_document_uses_query_relevant_chunk_within_budget() -> None:
     service = AttachmentService(
         catalog,
         blobs,
-        processing_store=processing,
+        derivative_reader=processing,
         max_document_context_tokens=20,
     )
     current = await service.resolve_current(
@@ -372,7 +372,7 @@ async def test_long_document_uses_query_relevant_chunk_within_budget() -> None:
 @pytest.mark.asyncio
 async def test_only_latest_historical_document_reference_is_rematerialized() -> None:
     catalog, blobs = FakeFileCatalog(), FakeBlobStore()
-    processing = FakeFileProcessingStore(catalog)
+    processing = FakeFileDerivativeReader(catalog)
     principal_id = str(uuid.uuid4())
     record = _ready(
         catalog,
@@ -408,7 +408,7 @@ async def test_only_latest_historical_document_reference_is_rematerialized() -> 
     ]
 
     output = await AttachmentService(
-        catalog, blobs, processing_store=processing
+        catalog, blobs, derivative_reader=processing
     ).materialize(messages, principal_id=principal_id, model=_model(images=False))
 
     assert isinstance(output[0].content[0], TextContent)

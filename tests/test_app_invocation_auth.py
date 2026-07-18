@@ -25,18 +25,19 @@ from agent_smith.app.services.provider_auth import (
 from agent_smith.app.services.sessions import SessionService
 from agent_smith.infra.storage.postgres.database import Base
 from agent_smith.infra.storage.postgres.adapters import (
-    PostgresIdentityStore,
+    PostgresIdentityProviderAuthStore,
+    PostgresPrincipalIdentityStore,
     PostgresPrincipalSessionDirectory,
     PostgresSessionCatalog,
 )
-from agent_smith.infra.storage.postgres.models.principal import (
-    AppAssertionNonce,
+from agent_smith.infra.storage.postgres.models.app_assertions import AppAssertionNonce
+from agent_smith.infra.storage.postgres.models.identity_providers import (
     ExternalIdentity,
     IdentityProvider,
     IdentityProviderApiKey,
     IdentityProviderAssertionKey,
-    Principal,
 )
+from agent_smith.infra.storage.postgres.models.principals import Principal
 
 PROVIDER_ID = "00000000-0000-0000-0000-0000000000ad"
 
@@ -138,7 +139,7 @@ async def test_identity_resolution_creates_app_scoped_identity_only_when_databas
     subject = f"adw-user-{uuid.uuid4().hex}"
     provider_id = uuid.uuid4()
     actor = _verified_actor(subject=subject, provider_id=str(provider_id))
-    service = PrincipalIdentityService(PostgresIdentityStore(factory))
+    service = PrincipalIdentityService(PostgresPrincipalIdentityStore(factory))
     try:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
@@ -193,7 +194,7 @@ async def test_provider_auth_requires_api_key_and_prevents_provider_spoofing_whe
     raw_api_key = f"ask_{uuid.uuid4().hex}"
     codec = IdentityProviderSecretCodec(_fernet_key())
     service = IdentityProviderAuthService(
-        PostgresIdentityStore(factory),
+        PostgresIdentityProviderAuthStore(factory),
         assertion_verifier=_verifier(),
         secret_codec=codec,
     )

@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from agent_smith.app.ports.files import PendingFileRecord
 from agent_smith.infra.storage.postgres.adapters import PostgresFileCatalog
 from agent_smith.infra.storage.postgres.database import Base
-from agent_smith.infra.storage.postgres.models.file import File
-from agent_smith.infra.storage.postgres.models.principal import Principal
+from agent_smith.infra.storage.postgres.models.files import File
+from agent_smith.infra.storage.postgres.models.principals import Principal
 
 
 @pytest.mark.asyncio
