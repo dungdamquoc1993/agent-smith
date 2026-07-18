@@ -1,0 +1,1 @@
+"""Standalone admin process package."""

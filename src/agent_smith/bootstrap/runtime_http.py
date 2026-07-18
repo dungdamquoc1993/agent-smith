@@ -1,4 +1,4 @@
-"""HTTP-process composition root."""
+"""Runtime HTTP process composition root."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from agent_smith.app.services.attachments import AttachmentService
 from agent_smith.app.services.authentication import PrincipalAuthenticationService
 from agent_smith.app.services.files import FileService
 from agent_smith.app.services.identity import PrincipalIdentityService
-from agent_smith.app.services.identity_providers import IdentityProviderManagementService
 from agent_smith.app.services.provider_auth import (
     IdentityProviderAuthService,
     IdentityProviderSecretCodec,
@@ -20,7 +19,7 @@ from agent_smith.app.services.runtime import RuntimeService
 from agent_smith.app.services.sessions import SessionService
 from agent_smith.bootstrap.common import create_blob_store, create_postgres_runtime
 from agent_smith.core.llm import bootstrap_providers
-from agent_smith.infra.config import Settings
+from agent_smith.infra.config import RuntimeSettings
 from agent_smith.infra.document_processing import inspect_image
 from agent_smith.infra.storage.postgres import PostgresRuntime
 from agent_smith.infra.storage.postgres.adapters import (
@@ -28,7 +27,6 @@ from agent_smith.infra.storage.postgres.adapters import (
     PostgresFileCatalog,
     PostgresFileDerivativeReader,
     PostgresFileProcessingRepository,
-    PostgresIdentityProviderAdminStore,
     PostgresIdentityProviderAuthStore,
     PostgresPrincipalIdentityStore,
     PostgresPrincipalSessionDirectory,
@@ -41,15 +39,14 @@ DEFAULT_PRINCIPAL_DISPLAY_NAME = "Test Principal"
 DEFAULT_AGENT_NAME = "test_assistant"
 
 
-class HttpContainer:
+class RuntimeHttpContainer:
     def __init__(
         self,
         *,
-        settings: Settings,
+        settings: RuntimeSettings,
         runtime: RuntimeService,
         sessions: SessionService,
         authentication: PrincipalAuthenticationService,
-        identity_providers: IdentityProviderManagementService,
         resources: ResourceService,
         files: FileService,
         agent_runs: AgentRunService,
@@ -59,7 +56,6 @@ class HttpContainer:
         self.runtime = runtime
         self.sessions = sessions
         self.authentication = authentication
-        self.identity_providers = identity_providers
         self.resources = resources
         self.files = files
         self.agent_runs = agent_runs
@@ -73,7 +69,7 @@ class HttpContainer:
         await self._postgres_runtime.close()
 
 
-def build_http_container(settings: Settings) -> HttpContainer:
+def build_runtime_http_container(settings: RuntimeSettings) -> RuntimeHttpContainer:
     bootstrap_providers()
     postgres = create_postgres_runtime(settings)
     session_factory = postgres.session_factory
@@ -110,11 +106,6 @@ def build_http_container(settings: Settings) -> HttpContainer:
         secret_codec=secret_codec,
     )
     authentication = PrincipalAuthenticationService(provider_auth, principal_identities)
-    identity_providers = IdentityProviderManagementService(
-        PostgresIdentityProviderAdminStore(session_factory),
-        secret_codec=secret_codec,
-    )
-
     catalog = PostgresFileCatalog(session_factory)
     audit_store = PostgresFileAuditStore(session_factory)
     processing_repository = PostgresFileProcessingRepository(session_factory)
@@ -161,12 +152,11 @@ def build_http_container(settings: Settings) -> HttpContainer:
         agent_runs,
         postgres_url=settings.postgres_url,
     )
-    return HttpContainer(
+    return RuntimeHttpContainer(
         settings=settings,
         runtime=runtime,
         sessions=sessions,
         authentication=authentication,
-        identity_providers=identity_providers,
         resources=resources,
         files=files,
         agent_runs=agent_runs,

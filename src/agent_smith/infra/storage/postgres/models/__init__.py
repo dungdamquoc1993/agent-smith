@@ -1,5 +1,11 @@
 """SQLAlchemy models owned by the Postgres backend."""
 
+from agent_smith.infra.storage.postgres.models.admin import (
+    AdminAuditEvent,
+    AdminOperator,
+    AdminOperatorStatus,
+    AdminSession,
+)
 from agent_smith.infra.storage.postgres.models.app_assertions import AppAssertionNonce
 from agent_smith.infra.storage.postgres.models.file_audit import FileAuditEvent
 from agent_smith.infra.storage.postgres.models.file_processing import (
@@ -28,6 +34,10 @@ from agent_smith.infra.storage.postgres.models.sessions import (
 )
 
 __all__ = [
+    "AdminAuditEvent",
+    "AdminOperator",
+    "AdminOperatorStatus",
+    "AdminSession",
     "File",
     "FileStatus",
     "FileAuditEvent",

@@ -56,7 +56,8 @@ After starting dependencies and applying migrations, run the HTTP service and
 document worker as separate processes:
 
 ```bash
-poetry run python -m agent_smith.transports.http.main
+poetry run python -m agent_smith.transports.runtime_http.main
+poetry run python -m agent_smith.transports.admin_http.main
 poetry run python -m agent_smith.workers.document_processing.main
 ```
 

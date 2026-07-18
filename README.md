@@ -53,7 +53,7 @@ core/resources/         ← skill, prompt_template, agent_definition, mcp_server
 - Embed loop tối thiểu, tự quản context → `agent_smith.core.agent.agent_loop`
 - Production multi-turn, persist session → `agent_smith.core.agent.harness`
 - Load skill/template/agent config từ catalog → `agent_smith.core.resources` → `agent_smith.core.runtime`
-- Expose runtime to callers → `agent_smith.app` service + `agent_smith.transports.http` (SSE on the same request)
+- Expose runtime to callers → `agent_smith.app` service + `agent_smith.transports.runtime_http` (SSE on the same request)
 
 ## Prerequisites
 
@@ -109,6 +109,33 @@ poetry run pytest
 poetry run ruff check src tests
 ```
 
+## Admin control plane
+
+Apply migrations, bootstrap the first operator, then run the standalone Admin HTTP
+service on `127.0.0.1:8766` and the independent React UI on `127.0.0.1:5174`:
+
+```bash
+poetry run alembic upgrade head
+poetry run python -m agent_smith.admin.cli bootstrap-admin
+poetry run python -m agent_smith.transports.admin_http.main
+cd admin-ui && npm ci && npm run dev
+```
+
+Admin operator lifecycle remains CLI-only:
+
+```bash
+poetry run python -m agent_smith.admin.cli add-admin
+poetry run python -m agent_smith.admin.cli reset-password
+poetry run python -m agent_smith.admin.cli disable-admin
+```
+
+Set `AGENT_SMITH_IDENTITY_SECRETS_KEY` before creating assertion keys. For same-origin
+production delivery, build `admin-ui/` and set
+`AGENT_SMITH_ADMIN_UI_DIST=admin-ui/dist` on the Admin HTTP process. Full frontend
+development, verification, and deployment commands are in
+[`admin-ui/README.md`](admin-ui/README.md). Provider credential behavior is documented
+in [Identity And Trusted App Assertions](docs/IDENTITY_TRUSTED_ASSERTIONS.md).
+
 ## Cấu trúc repo
 
 ```
@@ -120,6 +147,7 @@ src/agent_smith/
 └── workers/            # durable document-processing worker entrypoint
 
 clients/web/            # future React/Vite test client
+admin-ui/               # standalone React/Vite admin console
 tests/                  # unit tests
 docs/                   # changelog, design notes
 migrations/             # Alembic migrations

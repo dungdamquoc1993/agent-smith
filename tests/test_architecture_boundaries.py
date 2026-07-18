@@ -40,10 +40,62 @@ def test_application_layer_uses_ports_not_infrastructure() -> None:
     assert violations == {}
 
 
+def test_admin_cli_does_not_import_runtime_composition_or_heavy_runtime_dependencies() -> None:
+    forbidden = (
+        "agent_smith.bootstrap.runtime_http",
+        "agent_smith.core.llm",
+        "agent_smith.infra.storage.s3",
+        "agent_smith.transports.runtime_http",
+        "agent_smith.workers",
+    )
+    violations = {
+        str(path.relative_to(SRC)): module
+        for path in (SRC / "admin").rglob("*.py")
+        for module in _imported_modules(path)
+        if any(module == prefix or module.startswith(f"{prefix}.") for prefix in forbidden)
+    }
+    assert violations == {}
+
+
+def test_runtime_composition_does_not_construct_control_plane_capabilities() -> None:
+    source = (SRC / "bootstrap" / "runtime_http.py").read_text(encoding="utf-8")
+    modules = _imported_modules(SRC / "bootstrap" / "runtime_http.py")
+    assert "agent_smith.app.services.admin" not in modules
+    assert not any(module.startswith("agent_smith.admin") for module in modules)
+    assert "IdentityProviderControl" not in source
+
+
+def test_admin_http_does_not_import_runtime_llm_s3_or_workers() -> None:
+    forbidden = (
+        "agent_smith.bootstrap.runtime_http",
+        "agent_smith.core.llm",
+        "agent_smith.infra.storage.s3",
+        "agent_smith.workers",
+    )
+    roots = [SRC / "bootstrap" / "admin_http.py", *(SRC / "transports" / "admin_http").glob("*.py")]
+    violations = {
+        str(path.relative_to(SRC)): module
+        for path in roots
+        for module in _imported_modules(path)
+        if any(module == prefix or module.startswith(f"{prefix}.") for prefix in forbidden)
+    }
+    assert violations == {}
+
+
+def test_legacy_runtime_admin_surface_is_absent() -> None:
+    sources = "\n".join(
+        path.read_text(encoding="utf-8") for path in SRC.rglob("*.py")
+    )
+    assert "AGENT_SMITH_ADMIN_" + "TOKEN" not in sources
+    assert "/api/" + "admin" not in sources
+    assert "IdentityProvider" + "ManagementService" not in sources
+    assert "PostgresIdentityProvider" + "AdminStore" not in sources
+
+
 def test_document_worker_logic_does_not_import_composition_or_concrete_storage() -> None:
     forbidden = (
         "agent_smith.bootstrap",
-        "agent_smith.transports.http",
+        "agent_smith.transports.runtime_http",
         "agent_smith.infra.storage.postgres",
         "agent_smith.infra.storage.s3",
     )

@@ -11,7 +11,7 @@ from sqlalchemy import Column, MetaData, PrimaryKeyConstraint, String, Table, in
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from agent_smith.infra.config import get_settings
+from agent_smith.infra.config import get_runtime_settings
 from agent_smith.infra.storage.postgres.database import Base
 
 # Import the package so every model module registers with Base.metadata.
@@ -51,7 +51,7 @@ DefaultImpl.version_table_impl = _wide_version_table_impl
 
 
 def get_url() -> str:
-    return get_settings().postgres_url
+    return get_runtime_settings().postgres_url
 
 
 def run_migrations_offline() -> None:

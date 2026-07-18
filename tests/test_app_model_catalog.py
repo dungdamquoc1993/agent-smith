@@ -16,7 +16,7 @@ from agent_smith.core.llm import (
     register_model,
     register_models,
 )
-from agent_smith.infra.config import Settings
+from agent_smith.infra.config import RuntimeSettings
 
 PROVIDER_ENV_KEYS = ("OPENROUTER_API_KEY",)
 
@@ -51,7 +51,7 @@ def test_model_and_postgres_defaults_are_deployment_config(monkeypatch) -> None:
     monkeypatch.setenv("AGENT_SMITH_DEFAULT_MODEL", "gpt-5.4-mini")
     monkeypatch.setenv("AGENT_SMITH_POSTGRES_URL", "postgresql+asyncpg://example.test/smith")
 
-    settings = Settings(_env_file=None)
+    settings = RuntimeSettings(_env_file=None)
 
     assert settings.default_model == "gpt-5.4-mini"
     assert settings.postgres_url == "postgresql+asyncpg://example.test/smith"

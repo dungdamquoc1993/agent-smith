@@ -9,7 +9,7 @@ _EXPORTS = {
     "FileMaintenanceService": "agent_smith.app.services.file_maintenance",
     "FileService": "agent_smith.app.services.files",
     "IdentityProviderAuthService": "agent_smith.app.services.provider_auth",
-    "IdentityProviderManagementService": "agent_smith.app.services.identity_providers",
+    "IdentityProviderControlService": "agent_smith.app.services.identity_providers",
     "PrincipalAuthenticationService": "agent_smith.app.services.authentication",
     "PrincipalIdentityService": "agent_smith.app.services.identity",
     "ResourceService": "agent_smith.app.services.resources",

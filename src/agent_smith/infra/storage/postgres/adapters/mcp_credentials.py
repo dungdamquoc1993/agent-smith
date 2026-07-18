@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from agent_smith.infra.config import get_settings
+from agent_smith.infra.config import get_runtime_settings
 from agent_smith.infra.mcp.credentials import (
     MCP_CREDENTIAL_ENCRYPTION_SCHEME,
     FernetMcpCredentialCodec,
@@ -184,7 +184,7 @@ def _as_aware(value: datetime) -> datetime:
 
 
 def _required_settings_key() -> str:
-    key = get_settings().mcp_credentials_key
+    key = get_runtime_settings().mcp_credentials_key
     if not key:
         raise McpCredentialError("mcp_credentials_key is required for PostgresMcpCredentialStore")
     return key

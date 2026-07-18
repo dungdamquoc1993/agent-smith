@@ -4,6 +4,15 @@ from importlib import import_module
 from typing import Any
 
 _EXPORTS = {
+    "PostgresAdminAuditReader": (
+        "agent_smith.infra.storage.postgres.adapters.admin.audit"
+    ),
+    "PostgresAdminAuthenticationStore": (
+        "agent_smith.infra.storage.postgres.adapters.admin.authentication"
+    ),
+    "PostgresAdminOperatorStore": (
+        "agent_smith.infra.storage.postgres.adapters.admin.operators"
+    ),
     "PostgresDocumentJobQueue": (
         "agent_smith.infra.storage.postgres.adapters.files.document_jobs"
     ),
@@ -18,8 +27,8 @@ _EXPORTS = {
     "PostgresFileProcessingRepository": (
         "agent_smith.infra.storage.postgres.adapters.files.processing"
     ),
-    "PostgresIdentityProviderAdminStore": (
-        "agent_smith.infra.storage.postgres.adapters.identity.provider_admin"
+    "PostgresIdentityProviderControlStore": (
+        "agent_smith.infra.storage.postgres.adapters.identity.provider_control"
     ),
     "PostgresIdentityProviderAuthStore": (
         "agent_smith.infra.storage.postgres.adapters.identity.provider_auth"

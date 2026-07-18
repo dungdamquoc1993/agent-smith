@@ -6,7 +6,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class Settings(BaseSettings):
+class RuntimeSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -23,10 +23,6 @@ class Settings(BaseSettings):
     )
     openrouter_api_key: str | None = None
     mcp_credentials_key: str | None = None
-    admin_token: str | None = Field(
-        default=None,
-        validation_alias="AGENT_SMITH_ADMIN_TOKEN",
-    )
     identity_secrets_key: str | None = Field(
         default=None,
         validation_alias="AGENT_SMITH_IDENTITY_SECRETS_KEY",
@@ -175,8 +171,8 @@ class Settings(BaseSettings):
 
 
 @lru_cache
-def get_settings() -> Settings:
-    return Settings()
+def get_runtime_settings() -> RuntimeSettings:
+    return RuntimeSettings()
 
 
 def load_environment(path: Path) -> None:

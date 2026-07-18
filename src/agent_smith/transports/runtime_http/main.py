@@ -14,16 +14,11 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
-from agent_smith.app.services.identity_providers import IdentityProviderManagementError
-from agent_smith.bootstrap.http import build_http_container
-from agent_smith.infra.config import get_settings, load_environment
-from agent_smith.transports.http.admin_identity_provider_routes import (
-    ADMIN_IDENTITY_PROVIDER_ROUTES,
-    router as admin_identity_provider_router,
-)
-from agent_smith.transports.http.common import AgentSmithHttpError, error_response, json_response
-from agent_smith.transports.http.file_routes import FILE_ROUTES, router as file_router
-from agent_smith.transports.http.runtime_routes import RUNTIME_ROUTES, router as runtime_router
+from agent_smith.bootstrap.runtime_http import build_runtime_http_container
+from agent_smith.infra.config import get_runtime_settings, load_environment
+from agent_smith.transports.runtime_http.file_routes import FILE_ROUTES, router as file_router
+from agent_smith.transports.runtime_http.runtime_routes import RUNTIME_ROUTES, router as runtime_router
+from agent_smith.transports.shared_http import AgentSmithHttpError, error_response, json_response
 
 warnings.filterwarnings(
     "ignore",
@@ -42,7 +37,7 @@ def create_app(
     static_dir: Path | None = None,
 ) -> FastAPI:
     load_environment(REPO_ROOT / ".env")
-    settings = container.settings if container is not None else get_settings()
+    settings = container.settings if container is not None else get_runtime_settings()
     docs_enabled = bool(getattr(settings, "http_docs_enabled", True))
 
     @asynccontextmanager
@@ -52,7 +47,7 @@ def create_app(
             yield
             return
 
-        app_container = build_http_container(settings)
+        app_container = build_runtime_http_container(settings)
         app.state.container = app_container
         try:
             yield
@@ -67,16 +62,11 @@ def create_app(
         openapi_url="/openapi.json" if docs_enabled else None,
     )
     app.include_router(runtime_router)
-    app.include_router(admin_identity_provider_router)
     app.include_router(file_router)
 
     @app.exception_handler(AgentSmithHttpError)
     async def handle_http_error(_request: Any, exc: AgentSmithHttpError):
         return error_response(exc.status_code, exc.code, exc.message, headers=exc.headers)
-
-    @app.exception_handler(IdentityProviderManagementError)
-    async def handle_management_error(_request: Any, exc: IdentityProviderManagementError):
-        return error_response(exc.status, exc.code, exc.message)
 
     @app.get("/")
     @app.get("/index.html")
@@ -91,7 +81,6 @@ def create_app(
                 "service": "agent_smith_http",
                 "routes": [
                     *RUNTIME_ROUTES,
-                    *ADMIN_IDENTITY_PROVIDER_ROUTES,
                     *FILE_ROUTES,
                 ],
             }

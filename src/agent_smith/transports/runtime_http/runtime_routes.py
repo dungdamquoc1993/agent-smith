@@ -12,14 +12,12 @@ from agent_smith.app.auth import AppAssertionError
 from agent_smith.app.context import ContextResolutionError
 from agent_smith.app.services.attachments import AttachmentError
 from agent_smith.app.ports.files import FileAuditUnavailable
-from agent_smith.bootstrap.http import HttpContainer
-from agent_smith.transports.http.common import (
-    AgentSmithHttpError,
+from agent_smith.bootstrap.runtime_http import RuntimeHttpContainer
+from agent_smith.transports.runtime_http.common import (
     get_container,
-    json_response,
-    read_json_object,
     sse_response,
 )
+from agent_smith.transports.shared_http import AgentSmithHttpError, json_response, read_json_object
 
 RUNTIME_ROUTES = [
     "/api/bootstrap",
@@ -35,24 +33,24 @@ router = APIRouter()
 
 
 @router.get("/api/bootstrap")
-async def bootstrap(container: HttpContainer = Depends(get_container)):
+async def bootstrap(container: RuntimeHttpContainer = Depends(get_container)):
     return json_response(await container.runtime.bootstrap())
 
 
 @router.get("/api/models")
-async def models(container: HttpContainer = Depends(get_container)):
+async def models(container: RuntimeHttpContainer = Depends(get_container)):
     return json_response(container.runtime.model_catalog())
 
 
 @router.get("/api/sessions")
-async def list_sessions(container: HttpContainer = Depends(get_container)):
+async def list_sessions(container: RuntimeHttpContainer = Depends(get_container)):
     return json_response({"sessions": await container.sessions.list_sessions()})
 
 
 @router.post("/api/sessions", status_code=int(HTTPStatus.CREATED))
 async def create_session(
     request: Request,
-    container: HttpContainer = Depends(get_container),
+    container: RuntimeHttpContainer = Depends(get_container),
 ):
     body = await read_json_object(request)
     return json_response(
@@ -64,7 +62,7 @@ async def create_session(
 @router.get("/api/sessions/{session_id}/entries")
 async def get_session_entries(
     session_id: str,
-    container: HttpContainer = Depends(get_container),
+    container: RuntimeHttpContainer = Depends(get_container),
 ):
     try:
         return json_response(await container.sessions.get_session_entries(session_id))
@@ -73,19 +71,19 @@ async def get_session_entries(
 
 
 @router.get("/api/resources")
-async def list_resources(container: HttpContainer = Depends(get_container)):
+async def list_resources(container: RuntimeHttpContainer = Depends(get_container)):
     return json_response(await container.resources.list_resources())
 
 
 @router.post("/api/resources/seed")
-async def seed_default_resource(container: HttpContainer = Depends(get_container)):
+async def seed_default_resource(container: RuntimeHttpContainer = Depends(get_container)):
     return json_response(await container.resources.seed_default_agent())
 
 
 @router.post("/api/prompt/stream")
 async def prompt_stream(
     request: Request,
-    container: HttpContainer = Depends(get_container),
+    container: RuntimeHttpContainer = Depends(get_container),
 ):
     body = await read_json_object(request)
     try:
@@ -108,7 +106,7 @@ async def agent_invoke_stream(
     request: Request,
     provider_api_key: str | None = Header(default=None, alias="X-Agent-Smith-Provider-Key"),
     authorization: str | None = Header(default=None, alias="Authorization"),
-    container: HttpContainer = Depends(get_container),
+    container: RuntimeHttpContainer = Depends(get_container),
 ):
     body = await read_json_object(request)
     try:

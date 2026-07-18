@@ -8,6 +8,29 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 
 ## [Unreleased]
 
+### Added - Standalone admin control plane and Admin UI
+
+- Thêm migration `014_admin_control_plane_foundation` cho admin operators, server-side
+  sessions và immutable audit events; password dùng Argon2id, session/CSRF token chỉ lưu
+  hash và mọi mutation control-plane ghi audit cùng transaction.
+- Thêm CLI-only operator lifecycle: `bootstrap-admin`, `add-admin`, `reset-password` và
+  `disable-admin`; không mở operator-management HTTP API, self-registration, RBAC hay SSO.
+- Tách Runtime HTTP và Admin HTTP thành hai composition root/process độc lập. Admin HTTP
+  cung cấp sign-in/session/sign-out, identity-provider CRUD, API/assertion credential
+  create/list/revoke và filtered cursor-paginated audit log.
+- Thêm React/TypeScript/Vite Admin UI độc lập tại `admin-ui/`, chạy development port
+  `5174`; fake HRIS client tiếp tục độc lập tại `clients/web` port `5173`.
+- Thêm one-time credential reveal không persist secret, CSRF-aware API client, auth
+  bootstrap/redirect, provider/credential workflows, audit filters/load-more, responsive
+  navigation và keyboard-accessible forms/dialogs.
+- Admin HTTP có thể phục vụ production build cùng origin qua
+  `AGENT_SMITH_ADMIN_UI_DIST`, validate `index.html` lúc startup, giữ API/auth 404 tách
+  khỏi SPA fallback, dùng `no-store` cho HTML, immutable cache cho hashed assets và CSP /
+  frame / content-type / referrer / permissions security headers.
+- Verification hiện tại: Ruff pass; Python suite `239 passed, 21 skipped`; frontend có
+  `5` Vitest tests và `3` Playwright smoke tests pass; lint, typecheck và production build
+  đều pass.
+
 ### Added - Durable document processing
 
 - Thêm `FileProcessor`/normalized-document contracts, MIME content sniffing và

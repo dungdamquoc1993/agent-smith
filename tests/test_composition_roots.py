@@ -7,13 +7,16 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-import agent_smith.bootstrap.http as http_bootstrap
-import agent_smith.transports.http.main as http_main
+import agent_smith.bootstrap.runtime_http as http_bootstrap
+import agent_smith.transports.runtime_http.main as http_main
 from agent_smith.app.services.runtime import RuntimeService
+from agent_smith.admin.config import AdminHttpSettings
+from agent_smith.bootstrap.admin_http import AdminHttpContainer
+from agent_smith.bootstrap.runtime_http import RuntimeHttpContainer
 from agent_smith.bootstrap.document_worker import build_document_worker_container
-from agent_smith.infra.config import Settings
+from agent_smith.infra.config import RuntimeSettings
 from agent_smith.infra.storage.postgres.database import Base
-from agent_smith.transports.http.main import create_app
+from agent_smith.transports.runtime_http.main import create_app
 from agent_smith.workers.document_processing.application import DocumentWorkerApplication
 from agent_smith.workers.document_processing.maintenance import FileMaintenanceRunner
 
@@ -24,9 +27,9 @@ async def test_http_builder_bootstraps_llm_while_worker_builder_stays_independen
 ) -> None:
     calls: list[str] = []
     monkeypatch.setattr(http_bootstrap, "bootstrap_providers", lambda: calls.append("http"))
-    settings = Settings(_env_file=None)
+    settings = RuntimeSettings(_env_file=None)
 
-    http = http_bootstrap.build_http_container(settings)
+    http = http_bootstrap.build_runtime_http_container(settings)
     worker = build_document_worker_container(settings)
     try:
         assert calls == ["http"]
@@ -42,7 +45,7 @@ async def test_http_builder_bootstraps_llm_while_worker_builder_stays_independen
 
 def test_injected_http_container_remains_caller_owned() -> None:
     container = SimpleNamespace(
-        settings=SimpleNamespace(http_docs_enabled=True, admin_token=None),
+        settings=SimpleNamespace(http_docs_enabled=True),
         close=AsyncMock(),
     )
 
@@ -57,13 +60,44 @@ def test_app_owned_http_container_is_closed_on_shutdown(
 ) -> None:
     settings = SimpleNamespace(http_docs_enabled=True)
     container = SimpleNamespace(settings=settings, close=AsyncMock())
-    monkeypatch.setattr(http_main, "get_settings", lambda: settings)
-    monkeypatch.setattr(http_main, "build_http_container", lambda _settings: container)
+    monkeypatch.setattr(http_main, "get_runtime_settings", lambda: settings)
+    monkeypatch.setattr(http_main, "build_runtime_http_container", lambda _settings: container)
 
     with TestClient(http_main.create_app()):
         pass
 
     container.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_runtime_and_admin_http_containers_dispose_postgres_once() -> None:
+    runtime_postgres = SimpleNamespace(close=AsyncMock())
+    admin_postgres = SimpleNamespace(close=AsyncMock())
+    runtime = RuntimeHttpContainer(
+        settings=RuntimeSettings(_env_file=None),
+        runtime=MagicMock(),
+        sessions=MagicMock(),
+        authentication=MagicMock(),
+        resources=MagicMock(),
+        files=MagicMock(),
+        agent_runs=MagicMock(),
+        postgres_runtime=runtime_postgres,  # type: ignore[arg-type]
+    )
+    admin = AdminHttpContainer(
+        settings=AdminHttpSettings(_env_file=None),
+        authentication=MagicMock(),
+        identity_provider_control=MagicMock(),
+        audit_reader=MagicMock(),
+        postgres_runtime=admin_postgres,  # type: ignore[arg-type]
+    )
+
+    await runtime.close()
+    await runtime.close()
+    await admin.close()
+    await admin.close()
+
+    runtime_postgres.close.assert_awaited_once()
+    admin_postgres.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -151,6 +185,9 @@ def test_importing_postgres_models_populates_the_complete_schema() -> None:
     import agent_smith.infra.storage.postgres.models  # noqa: F401
 
     assert set(Base.metadata.tables) == {
+        "admin_audit_events",
+        "admin_operators",
+        "admin_sessions",
         "app_assertion_nonces",
         "external_identities",
         "file_audit_events",

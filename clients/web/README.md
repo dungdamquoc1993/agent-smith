@@ -26,7 +26,7 @@ From the repo root:
 ```bash
 docker compose -f docker/compose.yml up -d
 poetry run alembic upgrade head
-poetry run python -m agent_smith.transports.http.main
+poetry run python -m agent_smith.transports.runtime_http.main
 ```
 
 In another terminal:

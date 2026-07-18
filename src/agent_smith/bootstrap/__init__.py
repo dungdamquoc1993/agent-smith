@@ -8,10 +8,12 @@ from importlib import import_module
 from typing import Any
 
 _EXPORTS = {
+    "AdminHttpContainer": "agent_smith.bootstrap.admin_http",
     "DocumentWorkerContainer": "agent_smith.bootstrap.document_worker",
-    "HttpContainer": "agent_smith.bootstrap.http",
+    "RuntimeHttpContainer": "agent_smith.bootstrap.runtime_http",
+    "build_admin_http_container": "agent_smith.bootstrap.admin_http",
     "build_document_worker_container": "agent_smith.bootstrap.document_worker",
-    "build_http_container": "agent_smith.bootstrap.http",
+    "build_runtime_http_container": "agent_smith.bootstrap.runtime_http",
 }
 
 __all__ = list(_EXPORTS)

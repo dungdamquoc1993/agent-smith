@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, Protocol
 
+from agent_smith.app.ports.admin import AdminAuditEvent
+
 IdentityProviderStatus = Literal["active", "inactive", "pending"]
 IdentityKeyStatus = Literal["active", "revoked", "expired"]
 
@@ -96,7 +98,7 @@ class IdentityProviderAuthStore(Protocol):
     async def mark_api_key_used(self, api_key_id: str, used_at: datetime) -> None: ...
 
 
-class IdentityProviderAdminStore(Protocol):
+class IdentityProviderControlStore(Protocol):
     async def create_provider(
         self,
         *,
@@ -105,9 +107,12 @@ class IdentityProviderAdminStore(Protocol):
         display_name: str,
         status: str,
         metadata: dict[str, Any],
+        audit: AdminAuditEvent,
     ) -> IdentityProviderRecord: ...
 
-    async def list_providers(self) -> list[IdentityProviderRecord]: ...
+    async def list_providers(
+        self, *, limit: int, before_created_at: datetime | None, before_id: str | None
+    ) -> list[IdentityProviderRecord]: ...
 
     async def get_provider(self, provider_id: str) -> IdentityProviderRecord | None: ...
 
@@ -115,6 +120,7 @@ class IdentityProviderAdminStore(Protocol):
         self,
         provider_id: str,
         changes: dict[str, Any],
+        audit: AdminAuditEvent,
     ) -> IdentityProviderRecord | None: ...
 
     async def create_api_key(
@@ -125,14 +131,19 @@ class IdentityProviderAdminStore(Protocol):
         key_hash: str,
         key_prefix: str,
         expires_at: datetime | None,
+        audit: AdminAuditEvent,
     ) -> ProviderApiKeyRecord | None: ...
 
-    async def list_api_keys(self, provider_id: str) -> list[ProviderApiKeyRecord] | None: ...
+    async def list_api_keys(
+        self, provider_id: str, *, limit: int, before_created_at: datetime | None,
+        before_id: str | None
+    ) -> list[ProviderApiKeyRecord] | None: ...
 
     async def revoke_api_key(
         self,
         key_id: str,
         revoked_at: datetime,
+        audit: AdminAuditEvent,
     ) -> ProviderApiKeyRecord | None: ...
 
     async def create_assertion_key(
@@ -144,15 +155,21 @@ class IdentityProviderAdminStore(Protocol):
         encrypted_secret: str,
         encryption_scheme: str,
         expires_at: datetime | None,
+        audit: AdminAuditEvent,
     ) -> ProviderAssertionKeyRecord | None: ...
 
     async def list_provider_assertion_keys(
         self,
         provider_id: str,
+        *,
+        limit: int,
+        before_created_at: datetime | None,
+        before_id: str | None,
     ) -> list[ProviderAssertionKeyRecord] | None: ...
 
     async def revoke_assertion_key(
         self,
         key_id: str,
         revoked_at: datetime,
+        audit: AdminAuditEvent,
     ) -> ProviderAssertionKeyRecord | None: ...

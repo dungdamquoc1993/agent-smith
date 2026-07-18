@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 214 32% 91%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214 32% 88%;
+    --input: 214 32% 88%;
+    --ring: 221 83% 53%;
+    --radius: 0.625rem;
+  }
+
+  * { @apply border-border; }
+  body { @apply min-h-screen bg-background text-foreground antialiased; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  button, input, select, textarea { font: inherit; }
+  :focus-visible { @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background; }
+}
+
+@layer components {
+  .field-label { @apply mb-1.5 block text-sm font-medium text-slate-700; }
+  .field-help { @apply mt-1.5 text-xs leading-5 text-muted-foreground; }
+  .field-error { @apply mt-1.5 text-sm text-red-600; }
+  .page-title { @apply text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl; }
+  .page-subtitle { @apply mt-1 text-sm leading-6 text-muted-foreground; }
+}

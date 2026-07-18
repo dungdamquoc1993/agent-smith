@@ -12,9 +12,10 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from agent_smith.app.auth import AppAssertionError, AppAssertionVerifier, parse_trusted_apps
+from agent_smith.app.ports.admin import AdminActorContext
 from agent_smith.app.services.identity_providers import (
-    IdentityProviderManagementError,
-    IdentityProviderManagementService,
+    IdentityProviderControlError,
+    IdentityProviderControlService,
 )
 from agent_smith.app.services.provider_auth import (
     IdentityProviderAuthService,
@@ -22,7 +23,7 @@ from agent_smith.app.services.provider_auth import (
 )
 from agent_smith.infra.storage.postgres.database import Base
 from agent_smith.infra.storage.postgres.adapters import (
-    PostgresIdentityProviderAdminStore,
+    PostgresIdentityProviderControlStore,
     PostgresIdentityProviderAuthStore,
 )
 from agent_smith.infra.storage.postgres.models.identity_providers import (
@@ -30,7 +31,9 @@ from agent_smith.infra.storage.postgres.models.identity_providers import (
     IdentityProviderApiKey,
     IdentityProviderAssertionKey,
 )
-from agent_smith.transports.http.main import create_app
+from agent_smith.transports.runtime_http.main import create_app
+
+CONTROL_ACTOR = AdminActorContext(kind="admin_cli", identifier="integration-test")
 
 
 @pytest.mark.asyncio
@@ -42,8 +45,8 @@ async def test_identity_provider_management_lifecycle_when_database_is_configure
     engine = create_async_engine(postgres_url)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     codec = IdentityProviderSecretCodec(_fernet_key())
-    management = IdentityProviderManagementService(
-        PostgresIdentityProviderAdminStore(factory), secret_codec=codec
+    management = IdentityProviderControlService(
+        PostgresIdentityProviderControlStore(factory), secret_codec=codec
     )
     auth = IdentityProviderAuthService(
         PostgresIdentityProviderAuthStore(factory),
@@ -65,23 +68,29 @@ async def test_identity_provider_management_lifecycle_when_database_is_configure
                 "issuer": issuer,
                 "displayName": "Acme HR",
                 "metadata": {"tier": "dev"},
-            }
+            },
+            actor=CONTROL_ACTOR,
         )
         provider = created["identityProvider"]
         provider_id = provider["id"]
         assert provider["slug"] == slug
 
-        with pytest.raises(IdentityProviderManagementError) as duplicate:
+        with pytest.raises(IdentityProviderControlError) as duplicate:
             await management.create_provider(
-                {"slug": slug, "issuer": f"{issuer}-2", "displayName": "Duplicate"}
+                {"slug": slug, "issuer": f"{issuer}-2", "displayName": "Duplicate"},
+                actor=CONTROL_ACTOR,
             )
         assert duplicate.value.code == "identity_provider_conflict"
 
-        updated = await management.update_provider(provider_id, {"displayName": "Acme"})
+        updated = await management.update_provider(
+            provider_id, {"displayName": "Acme"}, actor=CONTROL_ACTOR
+        )
         assert updated["identityProvider"]["displayName"] == "Acme"
 
         api_key = (
-            await management.create_api_key(provider_id, {"name": "runtime v1"})
+            await management.create_api_key(
+                provider_id, {"name": "runtime v1"}, actor=CONTROL_ACTOR
+            )
         )["apiKey"]
         raw_api_key = api_key["rawKey"]
         assert raw_api_key.startswith("ask_")
@@ -89,7 +98,9 @@ async def test_identity_provider_management_lifecycle_when_database_is_configure
         assert "encryptedSecret" not in api_key
 
         assertion_key = (
-            await management.create_assertion_key(provider_id, {"kid": "v1"})
+            await management.create_assertion_key(
+                provider_id, {"kid": "v1"}, actor=CONTROL_ACTOR
+            )
         )["assertionKey"]
         raw_secret = assertion_key["rawSecret"]
         assert raw_secret
@@ -123,7 +134,9 @@ async def test_identity_provider_management_lifecycle_when_database_is_configure
         assert actor.provider_slug == slug
         assert actor.subject == "external-user-1"
 
-        revoked_api_key = (await management.revoke_api_key(api_key["id"]))["apiKey"]
+        revoked_api_key = (
+            await management.revoke_api_key(api_key["id"], actor=CONTROL_ACTOR)
+        )["apiKey"]
         assert revoked_api_key["status"] == "revoked"
         assert revoked_api_key["revokedAt"]
 
@@ -135,7 +148,9 @@ async def test_identity_provider_management_lifecycle_when_database_is_configure
         assert revoked.value.code == "provider_api_key_revoked"
 
         revoked_assertion_key = (
-            await management.revoke_assertion_key(assertion_key["id"])
+            await management.revoke_assertion_key(
+                assertion_key["id"], actor=CONTROL_ACTOR
+            )
         )["assertionKey"]
         assert revoked_assertion_key["status"] == "revoked"
         assert revoked_assertion_key["revokedAt"]
@@ -146,88 +161,8 @@ async def test_identity_provider_management_lifecycle_when_database_is_configure
         await engine.dispose()
 
 
-def test_admin_identity_provider_routes_require_configured_admin_token() -> None:
-    container = _fake_container(admin_token=None)
-    with TestClient(create_app(container=container)) as client:
-        status, payload = _request(client, "GET", "/api/admin/identity-providers")
-
-    assert status == 500
-    assert payload["error"]["code"] == "admin_auth_not_configured"
-
-
-def test_admin_identity_provider_routes_reject_missing_or_wrong_admin_token() -> None:
-    container = _fake_container(admin_token="secret-admin")
-    with TestClient(create_app(container=container)) as client:
-        status, payload = _request(client, "GET", "/api/admin/identity-providers")
-        wrong_status, wrong_payload = _request(
-            client,
-            "GET",
-            "/api/admin/identity-providers",
-            token="wrong",
-        )
-
-    assert status == 401
-    assert payload["error"]["code"] == "admin_unauthorized"
-    assert wrong_status == 401
-    assert wrong_payload["error"]["code"] == "admin_unauthorized"
-
-
-def test_admin_identity_provider_routes_dispatch_provider_management() -> None:
-    service = _FakeIdentityProviderService()
-    container = _fake_container(admin_token="secret-admin", service=service)
-    with TestClient(create_app(container=container)) as client:
-        create_status, created = _request(
-            client,
-            "POST",
-            "/api/admin/identity-providers",
-            token="secret-admin",
-            body={"slug": "acme", "issuer": "acme", "displayName": "Acme"},
-        )
-        list_status, listed = _request(
-            client,
-            "GET",
-            "/api/admin/identity-providers",
-            token="secret-admin",
-        )
-        update_status, updated = _request(
-            client,
-            "PATCH",
-            "/api/admin/identity-providers/provider-1",
-            token="secret-admin",
-            body={"displayName": "Acme Updated"},
-        )
-        api_key_status, api_key = _request(
-            client,
-            "POST",
-            "/api/admin/identity-providers/provider-1/api-keys",
-            token="secret-admin",
-            body={"name": "runtime"},
-        )
-        assertion_key_status, assertion_key = _request(
-            client,
-            "POST",
-            "/api/admin/identity-providers/provider-1/assertion-keys",
-            token="secret-admin",
-            body={"kid": "v1"},
-        )
-
-    assert create_status == 201
-    assert created["identityProvider"]["slug"] == "acme"
-    assert list_status == 200
-    assert listed["identityProviders"]
-    assert update_status == 200
-    assert updated["identityProvider"]["displayName"] == "Acme Updated"
-    assert api_key_status == 201
-    assert api_key["apiKey"]["rawKey"] == "ask_raw"
-    assert "keyHash" not in api_key["apiKey"]
-    assert assertion_key_status == 201
-    assert assertion_key["assertionKey"]["rawSecret"] == "raw-secret"
-    assert "encryptedSecret" not in assertion_key["assertionKey"]
-    assert service.created_provider == {"slug": "acme", "issuer": "acme", "displayName": "Acme"}
-
-
 def test_fastapi_root_route_listing() -> None:
-    container = _fake_container(admin_token="secret-admin")
+    container = _fake_container()
     with TestClient(create_app(container=container)) as client:
         response = client.get("/")
 
@@ -235,12 +170,12 @@ def test_fastapi_root_route_listing() -> None:
     payload = response.json()
     assert payload["service"] == "agent_smith_http"
     assert "/api/agent/invoke/stream" in payload["routes"]
-    assert "/api/admin/identity-providers" in payload["routes"]
+    assert not any("identity-providers" in route for route in payload["routes"])
 
 
 def test_agent_invoke_stream_reads_provider_headers() -> None:
     agent_runs = _FakeAgentRunService()
-    container = _fake_container(admin_token="secret-admin", agent_runs=agent_runs)
+    container = _fake_container(agent_runs=agent_runs)
     with TestClient(create_app(container=container)) as client:
         response = client.post(
             "/api/agent/invoke/stream",
@@ -257,58 +192,6 @@ def test_agent_invoke_stream_reads_provider_headers() -> None:
     assert agent_runs.prepared_body == {"payload": {"prompt": "hi"}}
     assert agent_runs.provider_api_key == "ask_raw"
     assert agent_runs.authorization == "Bearer signed-assertion"
-
-
-class _FakeIdentityProviderService:
-    def __init__(self) -> None:
-        self.created_provider: dict[str, Any] | None = None
-
-    async def list_providers(self) -> dict[str, Any]:
-        return {"identityProviders": [{"id": "provider-1", "slug": "acme"}]}
-
-    async def get_provider(self, provider_id: str) -> dict[str, Any]:
-        return {"identityProvider": {"id": provider_id, "slug": "acme"}}
-
-    async def create_provider(self, payload: dict[str, Any]) -> dict[str, Any]:
-        self.created_provider = payload
-        return {"identityProvider": {"id": "provider-1", **payload}}
-
-    async def update_provider(self, provider_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return {"identityProvider": {"id": provider_id, **payload}}
-
-    async def create_api_key(self, provider_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "apiKey": {
-                "id": "api-key-1",
-                "providerId": provider_id,
-                "name": payload["name"],
-                "keyPrefix": "ask_raw",
-                "rawKey": "ask_raw",
-            }
-        }
-
-    async def list_api_keys(self, provider_id: str) -> dict[str, Any]:
-        return {"apiKeys": [{"id": "api-key-1", "providerId": provider_id}]}
-
-    async def revoke_api_key(self, key_id: str) -> dict[str, Any]:
-        return {"apiKey": {"id": key_id, "status": "revoked"}}
-
-    async def create_assertion_key(self, provider_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "assertionKey": {
-                "id": "assertion-key-1",
-                "providerId": provider_id,
-                "kid": payload["kid"],
-                "alg": "HS256",
-                "rawSecret": "raw-secret",
-            }
-        }
-
-    async def list_assertion_keys(self, provider_id: str) -> dict[str, Any]:
-        return {"assertionKeys": [{"id": "assertion-key-1", "providerId": provider_id}]}
-
-    async def revoke_assertion_key(self, key_id: str) -> dict[str, Any]:
-        return {"assertionKey": {"id": key_id, "status": "revoked"}}
 
 
 class _FakeAgentRunService:
@@ -335,30 +218,12 @@ class _FakeAgentRunService:
 
 def _fake_container(
     *,
-    admin_token: str | None,
-    service: _FakeIdentityProviderService | None = None,
     agent_runs: _FakeAgentRunService | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
-        settings=SimpleNamespace(admin_token=admin_token),
-        identity_providers=service or _FakeIdentityProviderService(),
+        settings=SimpleNamespace(http_docs_enabled=True),
         agent_runs=agent_runs or _FakeAgentRunService(),
     )
-
-
-def _request(
-    client: TestClient,
-    method: str,
-    path: str,
-    *,
-    token: str | None = None,
-    body: dict[str, Any] | None = None,
-) -> tuple[int, dict[str, Any]]:
-    headers = {"content-type": "application/json"}
-    if token is not None:
-        headers["authorization"] = f"Bearer {token}"
-    response = client.request(method, path, content=json.dumps(body) if body is not None else None, headers=headers)
-    return response.status_code, response.json()
 
 
 def _fernet_key() -> str:

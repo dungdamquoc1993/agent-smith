@@ -11,13 +11,13 @@ Design background: [Identity And Trusted App Assertions](IDENTITY_TRUSTED_ASSERT
 The HTTP transport is a FastAPI app served by uvicorn:
 
 ```bash
-poetry run python -m agent_smith.transports.http.main
+poetry run python -m agent_smith.transports.runtime_http.main
 ```
 
 or:
 
 ```bash
-poetry run uvicorn agent_smith.transports.http.main:app --host 127.0.0.1 --port 8765
+poetry run uvicorn agent_smith.transports.runtime_http.main:app --host 127.0.0.1 --port 8765
 ```
 
 FastAPI docs are enabled by default at `/docs` and `/openapi.json`. Set
@@ -25,18 +25,27 @@ FastAPI docs are enabled by default at `/docs` and `/openapi.json`. Set
 
 ## Admin Setup
 
-Provider onboarding is an admin-only control-plane flow. Configure:
+Provider onboarding is handled by the standalone Admin HTTP process. Bootstrap the
+first operator and start the process after configuring the assertion-secret encryption
+key:
 
 ```bash
-AGENT_SMITH_ADMIN_TOKEN=<admin-token>
-AGENT_SMITH_IDENTITY_SECRETS_KEY=<fernet-key>
+poetry run alembic upgrade head
+poetry run python -m agent_smith.admin.cli bootstrap-admin
+AGENT_SMITH_IDENTITY_SECRETS_KEY=<fernet-key> \
+  poetry run python -m agent_smith.transports.admin_http.main
 ```
+
+For interactive onboarding, run the standalone UI from `admin-ui/` on port `5174`.
+The HTTP examples below describe the same contract used by that UI.
 
 Create the provider:
 
 ```http
-POST /api/admin/identity-providers
-Authorization: Bearer <admin-token>
+POST /api/identity-providers
+Cookie: <admin-session-cookie>
+Origin: <configured-admin-public-origin>
+X-CSRF-Token: <csrf-cookie-value>
 Content-Type: application/json
 ```
 
@@ -51,8 +60,7 @@ Content-Type: application/json
 Create a Provider API key:
 
 ```http
-POST /api/admin/identity-providers/{providerId}/api-keys
-Authorization: Bearer <admin-token>
+POST /api/identity-providers/{providerId}/api-keys
 Content-Type: application/json
 ```
 
@@ -66,8 +74,7 @@ prefix after that.
 Create an assertion signing key:
 
 ```http
-POST /api/admin/identity-providers/{providerId}/assertion-keys
-Authorization: Bearer <admin-token>
+POST /api/identity-providers/{providerId}/assertion-keys
 Content-Type: application/json
 ```
 

@@ -19,7 +19,7 @@ from agent_smith.infra.storage.postgres.adapters import (
 )
 from agent_smith.infra.storage.postgres.database import Base
 from agent_smith.infra.storage.postgres.models.principals import Principal
-from agent_smith.transports.http.sse import json_dumps
+from agent_smith.transports.runtime_http.sse import json_dumps
 
 
 @pytest.mark.asyncio

@@ -2,7 +2,7 @@
 
 from agent_smith.app.services.file_maintenance import FileMaintenanceService
 from agent_smith.bootstrap.common import create_blob_store, create_postgres_runtime
-from agent_smith.infra.config import Settings
+from agent_smith.infra.config import RuntimeSettings
 from agent_smith.infra.document_processing import (
     SupportedFileTypeDetector,
     create_processor_registry,
@@ -24,7 +24,7 @@ class DocumentWorkerContainer:
     def __init__(
         self,
         *,
-        settings: Settings,
+        settings: RuntimeSettings,
         worker: DocumentProcessingWorker,
         maintenance: FileMaintenanceRunner,
         application: DocumentWorkerApplication,
@@ -40,7 +40,7 @@ class DocumentWorkerContainer:
         await self.application.close()
 
 
-def build_document_worker_container(settings: Settings) -> DocumentWorkerContainer:
+def build_document_worker_container(settings: RuntimeSettings) -> DocumentWorkerContainer:
     postgres = create_postgres_runtime(settings)
     blobs = create_blob_store(settings)
     worker = DocumentProcessingWorker(
