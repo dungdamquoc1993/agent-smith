@@ -22,6 +22,13 @@ from agent_smith.infra.storage.postgres.models.identity_providers import (
     IdentityProviderKeyStatus,
     IdentityProviderStatus,
 )
+from agent_smith.infra.storage.postgres.models.llm_calls import (
+    AgentRun,
+    AgentRunRecordingStatus,
+    AgentRunStatus,
+    LlmCall,
+    LlmCallStatus,
+)
 from agent_smith.infra.storage.postgres.models.mcp_credentials import McpCredentialRecord
 from agent_smith.infra.storage.postgres.models.principals import Principal, PrincipalStatus
 from agent_smith.infra.storage.postgres.models.resources import Resource, ResourceVersion
@@ -54,6 +61,11 @@ __all__ = [
     "IdentityProviderStatus",
     "ExternalIdentity",
     "AppAssertionNonce",
+    "AgentRun",
+    "AgentRunRecordingStatus",
+    "AgentRunStatus",
+    "LlmCall",
+    "LlmCallStatus",
     "Resource",
     "ResourceVersion",
     "Session",

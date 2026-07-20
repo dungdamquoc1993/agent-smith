@@ -3,7 +3,7 @@
 Built-in `AgentTool` factories for Agent Smith agents.
 
 This package contains concrete tools that can be registered with
-`runtime.ToolRegistry` and then selected by `AgentFactory` through
+`runtime.ToolRegistry` and then selected by `AgentRuntime` through
 `toolsAllow` / `toolsDeny`.
 
 ## Layout

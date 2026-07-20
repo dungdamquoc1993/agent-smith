@@ -18,7 +18,7 @@ from agent_smith.core.resources import (
     ResourceResolver,
 )
 from agent_smith.infra.storage.postgres.adapters.resources import PostgresResourceStore
-from agent_smith.core.runtime import AgentFactory, AgentFactoryError, ToolRegistry
+from agent_smith.core.runtime import AgentRuntime, AgentRuntimeError, ToolRegistry
 from helpers.resource_stores import MemoryResourceStore
 from helpers.sessions import MemorySessionRepo
 
@@ -191,7 +191,7 @@ async def test_resource_resolver_skips_disabled_user_memory() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_factory_compiles_definition_into_harness_options() -> None:
+async def test_agent_runtime_compiles_definition_into_harness_options() -> None:
     store = MemoryResourceStore(
         [
             {
@@ -211,14 +211,14 @@ async def test_agent_factory_compiles_definition_into_harness_options() -> None:
             },
         ]
     )
-    factory = AgentFactory(
+    runtime = AgentRuntime(
         resource_resolver=ResourceResolver([store]),
         tool_registry=ToolRegistry([_tool("read_file"), _tool("write_file")]),
         default_model=make_litellm_model(provider="openai", model_id="gpt-test"),
     )
     session = await MemorySessionRepo().create(principal_id="principal-1")
 
-    options = await factory.create_options("reviewer", session=session)
+    options = await runtime.create_options("reviewer", session=session)
 
     assert options.system_prompt == "Review carefully."
     assert options.active_tool_names == ["read_file"]
@@ -230,7 +230,7 @@ async def test_agent_factory_compiles_definition_into_harness_options() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_factory_validates_missing_tool_and_skill() -> None:
+async def test_agent_runtime_validates_missing_tool_and_skill() -> None:
     store = MemoryResourceStore(
         [
             {
@@ -240,14 +240,14 @@ async def test_agent_factory_validates_missing_tool_and_skill() -> None:
             }
         ]
     )
-    factory = AgentFactory(
+    runtime = AgentRuntime(
         resource_resolver=ResourceResolver([store]),
         tool_registry=ToolRegistry([_tool("read_file")]),
         default_model=make_litellm_model(provider="openai", model_id="gpt-test"),
     )
 
-    with pytest.raises(AgentFactoryError, match="Unknown tool"):
-        await factory.build_runtime_spec(
+    with pytest.raises(AgentRuntimeError, match="Unknown tool"):
+        await runtime.build_spec(
             AgentDefinition(
                 name="bad-tools",
                 description="bad",
@@ -256,8 +256,8 @@ async def test_agent_factory_validates_missing_tool_and_skill() -> None:
             )
         )
 
-    with pytest.raises(AgentFactoryError, match="Unknown skill"):
-        await factory.build_runtime_spec(
+    with pytest.raises(AgentRuntimeError, match="Unknown skill"):
+        await runtime.build_spec(
             AgentDefinition(
                 name="bad-skill",
                 description="bad",

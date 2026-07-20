@@ -22,7 +22,7 @@ from agent_smith.core.llm.types import (
     TextContent,
 )
 from agent_smith.core.resources import ResourceResolver
-from agent_smith.core.runtime import AgentFactory, ToolRegistry
+from agent_smith.core.runtime import AgentRuntime, ToolRegistry
 from agent_smith.core.tasks import (
     AgentChildSessionRequest,
     AgentTaskResult,
@@ -30,6 +30,7 @@ from agent_smith.core.tasks import (
     MemoryTaskRuntime,
 )
 from helpers.resource_stores import MemoryResourceStore
+from helpers.run_stores import MemoryAgentRunStore
 from helpers.sessions import MemorySessionRepo
 
 
@@ -120,17 +121,19 @@ def _tool(name: str) -> AgentTool:
     )
 
 
-def _factory(
+def _runtime(
     store: MemoryResourceStore,
     *,
     tool_registry: ToolRegistry | None = None,
     stream_fn=None,
-) -> AgentFactory:
-    return AgentFactory(
+    run_store: MemoryAgentRunStore | None = None,
+) -> AgentRuntime:
+    return AgentRuntime(
         resource_resolver=ResourceResolver([store]),
         tool_registry=tool_registry or ToolRegistry(),
         default_model=_model(),
         stream_fn=stream_fn,
+        run_store=run_store or MemoryAgentRunStore(),
     )
 
 
@@ -156,6 +159,7 @@ async def test_agent_task_runner_success_uses_child_session_and_records_result()
     session_repo = MemorySessionRepo()
     sessions = {}
     requests: dict[str, AgentChildSessionRequest] = {}
+    run_store = MemoryAgentRunStore()
 
     async def session_factory(request: AgentChildSessionRequest):
         session = await session_repo.create(**_child_session_options(request))
@@ -170,7 +174,7 @@ async def test_agent_task_runner_success_uses_child_session_and_records_result()
         return _stream_for(_assistant("Looks good."))
 
     runner = AgentTaskRunner(
-        agent_factory=_factory(store, stream_fn=stream_fn),
+        agent_runtime=_runtime(store, stream_fn=stream_fn, run_store=run_store),
         session_factory=session_factory,
     )
     runtime = MemoryTaskRuntime()
@@ -179,6 +183,8 @@ async def test_agent_task_runner_success_uses_child_session_and_records_result()
         "principalId": "principal-1",
         "parentSessionId": "parent-session-1",
         "parentToolCallId": "tool-1",
+        "parentRunId": "parent-run-1",
+        "traceId": "trace-1",
         "description": "Review change",
         "mode": "sync",
         "provenance": {"source": "test"},
@@ -203,12 +209,17 @@ async def test_agent_task_runner_success_uses_child_session_and_records_result()
     assert completed.result.agent_name == "reviewer"
     assert completed.result.final_text == "Looks good."
     assert completed.result.status == "completed"
+    assert completed.result.run_id
+    assert completed.result.recording_status == "complete"
+    assert completed.result.usage is not None
     assert completed.result.turns == 1
     assert completed.result.session_id == f"child-{spawned.id}"
     assert completed.result_metadata["agentName"] == "reviewer"
     assert completed.result_metadata["agentDepth"] == 1
     assert completed.result_metadata["sessionId"] == f"child-{spawned.id}"
     assert completed.result_metadata["stopReason"] == "stop"
+    assert completed.result_metadata["runId"] == completed.result.run_id
+    assert completed.result_metadata["recordingStatus"] == "complete"
     assert "Started agent reviewer." in output.text
     assert "Completed agent reviewer." in output.text
     assert "Looks good." in output.text
@@ -220,6 +231,8 @@ async def test_agent_task_runner_success_uses_child_session_and_records_result()
     assert request.principal_id == "principal-1"
     assert request.parent_session_id == "parent-session-1"
     assert request.parent_tool_call_id == "tool-1"
+    assert request.parent_run_id == "parent-run-1"
+    assert request.trace_id == "trace-1"
     assert request.description == "Review change"
     assert request.mode == "sync"
     assert request.provenance == {"source": "test"}
@@ -236,13 +249,18 @@ async def test_agent_task_runner_success_uses_child_session_and_records_result()
         "mode": "sync",
     }
 
+    recorded_run = run_store.runs[completed.result.run_id]
+    assert recorded_run["parent_run_id"] == "parent-run-1"
+    assert recorded_run["correlation_id"] == spawned.id
+    assert recorded_run["trace_id"] == "trace-1"
+
     entries = await sessions[spawned.id].get_entries()
     messages = [entry.message for entry in entries if entry.type == "message"]
     assert [message.role for message in messages if message is not None] == ["user", "assistant"]
 
 
 @pytest.mark.asyncio
-async def test_agent_task_runner_applies_agent_factory_tool_selection() -> None:
+async def test_agent_task_runner_applies_agent_runtime_tool_selection() -> None:
     store = MemoryResourceStore(
         [
             _agent_resource(
@@ -259,7 +277,7 @@ async def test_agent_task_runner_applies_agent_factory_tool_selection() -> None:
         return _stream_for(_assistant("Read-only review done."))
 
     runner = AgentTaskRunner(
-        agent_factory=_factory(
+        agent_runtime=_runtime(
             store,
             tool_registry=ToolRegistry([_tool("read_file"), _tool("write_file")]),
             stream_fn=stream_fn,
@@ -287,7 +305,7 @@ async def test_agent_task_runner_applies_agent_factory_tool_selection() -> None:
 async def test_agent_task_runner_factory_validation_failure_marks_task_failed() -> None:
     store = MemoryResourceStore([_agent_resource(tools_allow=["missing_tool"])])
     runner = AgentTaskRunner(
-        agent_factory=_factory(store),
+        agent_runtime=_runtime(store),
         session_factory=lambda request: MemorySessionRepo().create(**_child_session_options(request)),
     )
     runtime = MemoryTaskRuntime()
@@ -305,7 +323,7 @@ async def test_agent_task_runner_factory_validation_failure_marks_task_failed() 
 
     assert failed.status == "failed"
     assert failed.error is not None
-    assert failed.error.type == "AgentFactoryError"
+    assert failed.error.type == "AgentRuntimeError"
     assert "Unknown tool" in failed.error.message
 
 
@@ -329,7 +347,7 @@ async def test_agent_task_runner_stop_aborts_child_harness_and_cancels_task() ->
         return stream
 
     runner = AgentTaskRunner(
-        agent_factory=_factory(store, stream_fn=stream_fn),
+        agent_runtime=_runtime(store, stream_fn=stream_fn),
         session_factory=lambda request: MemorySessionRepo().create(**_child_session_options(request)),
         abort_poll_seconds=0.01,
     )
@@ -365,7 +383,7 @@ async def test_agent_task_runner_recursion_guard_fails_before_creating_session()
         return await MemorySessionRepo().create(**_child_session_options(request))
 
     runner = AgentTaskRunner(
-        agent_factory=_factory(store),
+        agent_runtime=_runtime(store),
         session_factory=session_factory,
         max_depth=2,
     )

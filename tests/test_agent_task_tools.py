@@ -24,7 +24,7 @@ from agent_smith.core.llm.types import (
     ToolCall,
 )
 from agent_smith.core.resources import ResourceResolver
-from agent_smith.core.runtime import AgentFactory, ToolRegistry
+from agent_smith.core.runtime import AgentRuntime, ToolRegistry
 from agent_smith.core.tasks import (
     AgentChildSessionRequest,
     AgentTaskRunner,
@@ -42,6 +42,7 @@ from agent_smith.core.tools import (
     create_task_stop_tool,
 )
 from helpers.resource_stores import MemoryResourceStore
+from helpers.run_stores import MemoryAgentRunStore
 from helpers.sessions import MemorySessionRepo
 
 
@@ -118,12 +119,13 @@ def _noop_tool(name: str) -> AgentTool:
     )
 
 
-def _factory(store: MemoryResourceStore, *, stream_fn=None) -> AgentFactory:
-    return AgentFactory(
+def _runtime(store: MemoryResourceStore, *, stream_fn=None) -> AgentRuntime:
+    return AgentRuntime(
         resource_resolver=ResourceResolver([store]),
         tool_registry=ToolRegistry([_noop_tool("read_file")]),
         default_model=_model(),
         stream_fn=stream_fn,
+        run_store=MemoryAgentRunStore(),
     )
 
 
@@ -145,7 +147,7 @@ def _child_session_options(request: AgentChildSessionRequest) -> dict[str, Any]:
 
 def _runner(runtime_store: MemoryResourceStore, *, stream_fn=None) -> AgentTaskRunner:
     return AgentTaskRunner(
-        agent_factory=_factory(runtime_store, stream_fn=stream_fn),
+        agent_runtime=_runtime(runtime_store, stream_fn=stream_fn),
         session_factory=lambda request: MemorySessionRepo().create(**_child_session_options(request)),
         abort_poll_seconds=0.01,
     )
@@ -202,7 +204,7 @@ async def test_agent_tool_merges_parent_metadata_into_task_and_session_request()
         return await MemorySessionRepo().create(**_child_session_options(request))
 
     runner = AgentTaskRunner(
-        agent_factory=_factory(store, stream_fn=stream_fn),
+        agent_runtime=_runtime(store, stream_fn=stream_fn),
         session_factory=session_factory,
         abort_poll_seconds=0.01,
     )
@@ -213,6 +215,8 @@ async def test_agent_tool_merges_parent_metadata_into_task_and_session_request()
             "agentDepth": 1,
             "principalId": "principal-1",
             "parentSessionId": "chat-session-1",
+            "parentRunId": "parent-run-1",
+            "traceId": "trace-1",
             "provenance": {"scope": "chat"},
         },
     )
@@ -234,6 +238,8 @@ async def test_agent_tool_merges_parent_metadata_into_task_and_session_request()
     assert metadata["parentToolCallId"] == "agent-call-1"
     assert metadata["principalId"] == "principal-1"
     assert metadata["parentSessionId"] == "chat-session-1"
+    assert metadata["parentRunId"] == "parent-run-1"
+    assert metadata["traceId"] == "trace-1"
     assert metadata["provenance"] == {
         "scope": "chat",
         "trigger": "task_tool",
@@ -245,6 +251,8 @@ async def test_agent_tool_merges_parent_metadata_into_task_and_session_request()
     assert request.principal_id == "principal-1"
     assert request.parent_session_id == "chat-session-1"
     assert request.parent_tool_call_id == "agent-call-1"
+    assert request.parent_run_id == "parent-run-1"
+    assert request.trace_id == "trace-1"
     assert request.description == "Review change"
     assert request.mode == "sync"
     assert request.provenance == {

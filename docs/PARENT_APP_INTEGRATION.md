@@ -248,25 +248,56 @@ Each SSE event name matches `data.event`. Event data:
 
 ```json
 {
-  "version": "2026-07-07",
+  "version": "2026-07-20",
   "event": "message.delta",
   "runId": "run_uuid",
   "sessionId": "smith_session_uuid",
   "sequence": 12,
-  "createdAt": "2026-07-07T10:00:00Z",
+  "createdAt": "2026-07-20T10:00:00Z",
   "data": {}
 }
 ```
 
 Parent backends should handle at least:
 
+- `run.started`
 - `session.resolved`
 - `message.delta`
+- `usage.updated`
 - `run.completed`
 - `run.failed`
 
-Unknown events should be ignored unless the parent app explicitly opts into
-passing them through to its frontend.
+Version `2026-07-20` changes `usage` from the final provider call to the aggregate
+usage and cost of every normal turn, tool-loop turn, and compaction call in the
+run. `usage.updated` has this terminal shape:
+
+```json
+{
+  "usage": {"input": 120, "output": 24, "totalTokens": 144, "cost": {"total": 0.01}},
+  "callCount": 3,
+  "recording": {"status": "complete"}
+}
+```
+
+`run.completed.data` repeats the aggregate `usage`, `callCount`, and `recording`.
+`run.failed.data` includes the same partial aggregates plus `code`, a public-safe
+`message`, `retryable`, and `stage`. Exactly one `run.completed` or `run.failed`
+terminates a connected stream. `run.started` is emitted only after the run record
+has been persisted.
+
+Execution status and recording status are independent: a successful response may
+have `recording.status = "degraded"` when a non-critical finalize/link write failed.
+The parent should return the successful answer and separately surface or monitor
+the telemetry degradation; it must not retry the provider request solely because
+recording is degraded.
+
+Parent clients must ignore unknown fields and events unless they explicitly opt
+into passing them through to the frontend. This keeps clients forward-compatible
+with later stream versions.
+
+The legacy `/api/prompt/stream` route keeps `session`, `done`, and `error` event
+names. Its `done` payload now also contains `runId`, aggregate `usage`, `callCount`,
+and `recording.status`.
 
 ## Express Relay Sketch
 

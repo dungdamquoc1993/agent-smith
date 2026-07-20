@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -23,13 +24,19 @@ from agent_smith.core.agent.harness.context_types import RecentConversationProvi
 from agent_smith.core.agent.harness.session.session import Session
 from agent_smith.core.llm import get_models, get_providers
 from agent_smith.core.llm.env_keys import is_provider_configured
-from agent_smith.core.llm.types import AssistantMessage, JsonObject, Model, TextContent
+from agent_smith.core.llm.types import AssistantMessage, JsonObject, Model, TextContent, Usage
 from agent_smith.core.resources import ResourceResolver
-from agent_smith.core.runtime import AgentFactory
+from agent_smith.core.runtime import (
+    AgentExecutionRequest,
+    AgentRunStore,
+    AgentRuntime,
+    AgentRuntimeError,
+)
 from agent_smith.core.tools.registry import create_base_tool_registry
 
 AgentRunEventSink: TypeAlias = Callable[[str, Any], Awaitable[None] | None]
-SMITH_STREAM_VERSION = "2026-07-07"
+SMITH_STREAM_VERSION = "2026-07-20"
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -69,6 +76,7 @@ class AgentRunService:
         recent_conversation_provider: RecentConversationProvider | None = None,
         attachment_service: AttachmentService | None = None,
         file_audit_store: FileAuditStore | None = None,
+        run_store: AgentRunStore | None = None,
     ) -> None:
         self._session_service = session_service
         self._resource_service = resource_service
@@ -77,6 +85,7 @@ class AgentRunService:
         self._recent_conversation_provider = recent_conversation_provider
         self._attachment_service = attachment_service
         self._file_audit_store = file_audit_store
+        self._run_store = run_store
         self.default_permission_mode = default_permission_mode
         self.default_model_key = default_model_key
 
@@ -158,73 +167,78 @@ class AgentRunService:
     async def run_prepared_prompt_stream(
         self, prepared: PreparedPrompt, emit: AgentRunEventSink
     ) -> None:
+        run_id = str(uuid.uuid4())
+        terminal_started = False
+        session = prepared.session
+        metadata = await session.get_metadata()
+        trace = create_agent_run_trace(
+            flow="prompt_stream",
+            run_id=run_id,
+            session_id=metadata.id,
+        )
         try:
-            store = self._resource_service.store()
-            resolver = ResourceResolver([store])
-            tool_registry = create_base_tool_registry(
-                resources_store=store,
-                resources_resolver=resolver,
-                sleep_max_seconds=5,
-            )
-            factory = AgentFactory(
-                resource_resolver=resolver,
-                tool_registry=tool_registry,
-                default_model=prepared.model,
-                model_resolver=lambda _definition: prepared.model,
-                convert_to_llm=self._attachment_converter(
-                    principal_id=prepared.principal_id,
-                    model=prepared.model,
-                    attachments=prepared.attachments,
-                ),
-                default_permission_mode=self.default_permission_mode,
-                context_metadata=prepared.context_metadata,
-                recent_conversation_provider=self._recent_conversation_provider,
-            )
-            session = prepared.session
-            metadata = await session.get_metadata()
             await _emit(emit, "session", metadata)
-
-            harness = await factory.create_harness(prepared.agent_name, session=session)
-            trace = create_agent_run_trace(
-                flow="prompt_stream",
-                run_id=str(uuid.uuid4()),
-                session_id=metadata.id,
-            )
-            install_trace_hooks(harness, trace)
 
             async def emit_harness(event: Any) -> None:
                 await _emit(emit, "harness", event)
 
-            unsubscribe = harness.subscribe(emit_harness)
-            try:
-                response = await harness.prompt(
-                    prepared.prompt,
-                    {"attachments": prepared.attachments.references},
+            result = await self._create_runtime(
+                model=prepared.model,
+                principal_id=prepared.principal_id,
+                attachments=prepared.attachments,
+                context_metadata=prepared.context_metadata,
+            ).execute(
+                AgentExecutionRequest(
+                    run_id=run_id,
+                    session=session,
+                    principal_id=prepared.principal_id,
+                    agent_name=prepared.agent_name,
+                    prompt=prepared.prompt,
+                    flow="prompt_stream",
+                    prompt_options={"attachments": prepared.attachments.references},
+                    event_sink=emit_harness,
+                    harness_setup=lambda harness: install_trace_hooks(harness, trace),
                 )
-            finally:
-                unsubscribe()
-
-            await _emit(
-                emit,
-                "done",
-                {
-                    "message": response,
-                    "text": assistant_text(response),
-                    "session": await session.get_metadata(),
-                    "entries": await session.get_entries(),
-                },
             )
-            await trace.write_session_entries(session)
-        except AgentHarnessError as exc:
+            response = result.message
+
+            done_data = {
+                "message": response,
+                "text": assistant_text(response),
+                "session": await session.get_metadata(),
+                "entries": await session.get_entries(),
+                "runId": result.run_id,
+                "usage": result.usage.model_dump(
+                    mode="json", by_alias=True, exclude_none=True
+                ),
+                "callCount": result.call_count,
+                "recording": {"status": result.recording_status},
+            }
+            terminal_started = True
+            await _emit(emit, "done", done_data)
+            await _write_trace_entries_safely(trace, session)
+        except AgentRuntimeError as exc:
+            if terminal_started:
+                raise
+            terminal_started = True
             await _emit(
                 emit,
                 "error",
                 {
                     "code": exc.code,
-                    "message": "Prompt failed. Check the server log for details.",
+                    "message": exc.public_message,
+                    "retryable": exc.retryable,
+                    "stage": exc.stage,
+                    "runId": exc.run_id or run_id,
+                    "usage": exc.usage.model_dump(mode="json", by_alias=True),
+                    "callCount": exc.call_count,
+                    "recording": {"status": exc.recording_status},
                 },
             )
         except Exception as exc:  # pragma: no cover - surfaced through transport smoke tests/logs
+            if terminal_started:
+                raise
+            terminal_started = True
             await _emit(
                 emit,
                 "error",
@@ -313,6 +327,10 @@ class AgentRunService:
     ) -> None:
         run_id = str(uuid.uuid4())
         sequence = 0
+        terminal_started = False
+        failure_usage = Usage()
+        failure_call_count = 0
+        failure_recording_status = "degraded"
 
         async def emit_smith(event: str, data: JsonObject | dict[str, Any]) -> None:
             nonlocal sequence
@@ -337,46 +355,6 @@ class AgentRunService:
             prompt = payload.prompt.strip()
             agent_name = (payload.agent_name or self._resource_service.default_agent_name).strip()
             selected_model = prepared.model
-
-            await emit_smith(
-                "run.started",
-                {
-                    "principalId": prepared.principal_id,
-                    "issuer": prepared.actor.issuer,
-                    "identityProviderId": prepared.actor.provider_id,
-                    "identityProviderSlug": prepared.actor.provider_slug,
-                    "actorSubject": prepared.actor.subject,
-                },
-            )
-            await emit_smith(
-                "session.resolved",
-                (await prepared.session.get_metadata()).model_dump(
-                    mode="json", by_alias=True, exclude_none=True
-                ),
-            )
-
-            store = self._resource_service.store()
-            resolver = ResourceResolver([store])
-            tool_registry = create_base_tool_registry(
-                resources_store=store,
-                resources_resolver=resolver,
-                sleep_max_seconds=5,
-            )
-            factory = AgentFactory(
-                resource_resolver=resolver,
-                tool_registry=tool_registry,
-                default_model=selected_model,
-                model_resolver=lambda _definition: selected_model,
-                convert_to_llm=self._attachment_converter(
-                    principal_id=prepared.principal_id,
-                    model=selected_model,
-                    attachments=prepared.attachments,
-                ),
-                default_permission_mode=self.default_permission_mode,
-                context_metadata=prepared.stable_context,
-                recent_conversation_provider=self._recent_conversation_provider,
-            )
-            harness = await factory.create_harness(agent_name, session=prepared.session)
             trace = create_agent_run_trace(
                 flow="agent_invoke_stream",
                 run_id=run_id,
@@ -388,49 +366,149 @@ class AgentRunService:
                 ),
                 actor=prepared.actor,
             )
-            install_trace_hooks(harness, trace)
+
+            async def emit_started(_started_run_id: str) -> None:
+                await emit_smith(
+                    "run.started",
+                    {
+                        "principalId": prepared.principal_id,
+                        "issuer": prepared.actor.issuer,
+                        "identityProviderId": prepared.actor.provider_id,
+                        "identityProviderSlug": prepared.actor.provider_slug,
+                        "actorSubject": prepared.actor.subject,
+                    },
+                )
+                await emit_smith(
+                    "session.resolved",
+                    (await prepared.session.get_metadata()).model_dump(
+                        mode="json", by_alias=True, exclude_none=True
+                    ),
+                )
 
             async def emit_harness(event: Any) -> None:
                 mapped = _map_harness_event(event)
                 if mapped is not None:
                     await emit_smith(mapped[0], mapped[1])
 
-            unsubscribe = harness.subscribe(emit_harness)
-            try:
-                response = await harness.prompt(
-                    prompt,
-                    {
+            result = await self._create_runtime(
+                model=selected_model,
+                principal_id=prepared.principal_id,
+                attachments=prepared.attachments,
+                context_metadata=prepared.stable_context,
+            ).execute(
+                AgentExecutionRequest(
+                    run_id=run_id,
+                    session=prepared.session,
+                    principal_id=prepared.principal_id,
+                    agent_name=agent_name,
+                    prompt=prompt,
+                    flow="agent_invoke_stream",
+                    correlation_id=prepared.invocation.correlation_id,
+                    trace_id=prepared.invocation.trace_id,
+                    metadata={
+                        "identityProviderId": prepared.actor.provider_id,
+                        "identityProviderSlug": prepared.actor.provider_slug,
+                    },
+                    prompt_options={
                         "turnContextMetadata": prepared.turn_context,
                         "attachments": prepared.attachments.references,
                     },
+                    on_started=emit_started,
+                    event_sink=emit_harness,
+                    harness_setup=lambda harness: install_trace_hooks(harness, trace),
                 )
-            finally:
-                unsubscribe()
+            )
 
+            response = result.message
+            failure_usage = result.usage
+            failure_call_count = result.call_count
+            failure_recording_status = result.recording_status
             text = assistant_text(response)
-            usage = response.usage.model_dump(mode="json", by_alias=True, exclude_none=True)
-            await emit_smith("usage.updated", usage)
-            await trace.write_session_entries(prepared.session)
+            usage = result.usage.model_dump(mode="json", by_alias=True, exclude_none=True)
             await emit_smith(
-                "run.completed",
+                "usage.updated",
                 {
-                    "message": response.model_dump(mode="json", by_alias=True, exclude_none=True),
-                    "finalText": text,
                     "usage": usage,
-                    "session": (await prepared.session.get_metadata()).model_dump(
-                        mode="json", by_alias=True, exclude_none=True
-                    ),
+                    "callCount": result.call_count,
+                    "recording": {"status": result.recording_status},
+                },
+            )
+            await _write_trace_entries_safely(trace, prepared.session)
+            completed_data = {
+                "message": response.model_dump(mode="json", by_alias=True, exclude_none=True),
+                "finalText": text,
+                "usage": usage,
+                "callCount": result.call_count,
+                "recording": {"status": result.recording_status},
+                "session": (await prepared.session.get_metadata()).model_dump(
+                    mode="json", by_alias=True, exclude_none=True
+                ),
+            }
+            terminal_started = True
+            await emit_smith("run.completed", completed_data)
+        except AgentRuntimeError as exc:
+            if terminal_started:
+                raise
+            terminal_started = True
+            await emit_smith(
+                "run.failed",
+                {
+                    "code": exc.code,
+                    "message": exc.public_message,
+                    "retryable": exc.retryable,
+                    "stage": exc.stage,
+                    "usage": exc.usage.model_dump(mode="json", by_alias=True),
+                    "callCount": exc.call_count,
+                    "recording": {"status": exc.recording_status},
                 },
             )
         except Exception as exc:
+            if terminal_started:
+                raise
+            terminal_started = True
             await emit_smith(
                 "run.failed",
                 {
                     "code": exc.__class__.__name__,
                     "message": _public_error_message(exc),
                     "retryable": isinstance(exc, (ContextResolutionError,)),
+                    "stage": "runtime",
+                    "usage": failure_usage.model_dump(mode="json", by_alias=True),
+                    "callCount": failure_call_count,
+                    "recording": {"status": failure_recording_status},
                 },
             )
+
+    def _create_runtime(
+        self,
+        *,
+        model: Model,
+        principal_id: str,
+        attachments: ResolvedAttachments,
+        context_metadata: JsonObject | dict[str, Any] | None,
+    ) -> AgentRuntime:
+        store = self._resource_service.store()
+        resolver = ResourceResolver([store])
+        tool_registry = create_base_tool_registry(
+            resources_store=store,
+            resources_resolver=resolver,
+            sleep_max_seconds=5,
+        )
+        return AgentRuntime(
+            resource_resolver=resolver,
+            tool_registry=tool_registry,
+            default_model=model,
+            model_resolver=lambda _definition: model,
+            convert_to_llm=self._attachment_converter(
+                principal_id=principal_id,
+                model=model,
+                attachments=attachments,
+            ),
+            default_permission_mode=self.default_permission_mode,
+            context_metadata=context_metadata,
+            recent_conversation_provider=self._recent_conversation_provider,
+            run_store=self._run_store,
+        )
 
     def _selected_model(self, model_key: str | None):
         key = (model_key or self.default_model_selection()).strip()
@@ -483,6 +561,13 @@ async def _emit(emit: AgentRunEventSink, event: str, data: Any) -> None:
     result = emit(event, data)
     if inspect.isawaitable(result):
         await result
+
+
+async def _write_trace_entries_safely(trace: Any, session: Session) -> None:
+    try:
+        await trace.write_session_entries(session)
+    except Exception:
+        logger.warning("Unable to write optional agent run trace", exc_info=True)
 
 
 def _map_harness_event(event: Any) -> tuple[str, dict[str, Any]] | None:

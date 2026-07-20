@@ -41,7 +41,7 @@ core/resources/         ← skill, prompt_template, agent_definition, mcp_server
 | `agent_smith.core.llm` | Gọi LLM thống nhất: catalog model, registry provider, stream events | Entry: `stream` / `complete` |
 | `agent_smith.core.agent` | Runtime agent nhiều turn: loop engine + harness shell | Types, events, validation |
 | `agent_smith.core.resources` | Catalog definitions và resolver contract | Resolve → snapshot cho harness |
-| `agent_smith.core.runtime` | Assembly: blueprint → harness instance | `AgentFactory` |
+| `agent_smith.core.runtime` | Resolve, build và execute agent có recording scope | `AgentRuntime` |
 | `agent_smith.app` | Use-case services transport-neutral | session/resource/task/agent-run orchestration |
 | `agent_smith.infra` | Concrete adapters | Postgres, LiteLLM, MCP SDK, settings |
 | `agent_smith.transports` | HTTP adapters | FastAPI + SSE (`/api/agent/invoke/stream`, …) |

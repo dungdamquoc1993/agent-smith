@@ -1,12 +1,18 @@
-"""Compile agent definitions into harness runtime options."""
+"""Resolve, construct, and execute harness-backed agents."""
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from collections.abc import Awaitable, Callable
 from typing import TypeAlias
 
-from agent_smith.core.agent.harness import AgentHarness, AgentHarnessOptions
+from agent_smith.core.agent.harness import (
+    AgentHarness,
+    AgentHarnessError,
+    AgentHarnessOptions,
+    LlmCallObserver,
+)
 from agent_smith.core.agent.harness.compaction import CompactionSettings
 from agent_smith.core.agent.harness.resources import (
     AgentCatalogEntry,
@@ -39,16 +45,20 @@ from agent_smith.core.agent.harness.session.types import SessionMetadata
 from agent_smith.core.resources import AgentDefinition, ResourceResolver
 from agent_smith.core.runtime.tool_registry import ToolRegistry, UnknownToolError
 from agent_smith.core.runtime.types import AgentRuntimeSpec
+from agent_smith.core.runtime.execution import (
+    AgentExecutionRequest,
+    AgentExecutionResult,
+    AgentRuntimeError,
+    call_callback,
+    start_execution_scope,
+)
+from agent_smith.core.runtime.run_store import AgentRunStore
 from agent_smith.infra.mcp import McpConnectionManager
 
 ModelResolver: TypeAlias = Callable[[AgentDefinition], MaybeAwaitable[Model | None]]
 
 
-class AgentFactoryError(Exception):
-    pass
-
-
-class AgentFactory:
+class AgentRuntime:
     def __init__(
         self,
         *,
@@ -69,6 +79,7 @@ class AgentFactory:
         session_metadata_lookup: Callable[[str], Awaitable[SessionMetadata | None]] | None = None,
         context_metadata: JsonObject | None = None,
         recent_conversation_provider: RecentConversationProvider | None = None,
+        run_store: AgentRunStore | None = None,
     ) -> None:
         self.resource_resolver = resource_resolver
         self.tool_registry = tool_registry
@@ -91,8 +102,9 @@ class AgentFactory:
         self.session_metadata_lookup = session_metadata_lookup
         self.context_metadata = dict(context_metadata or {}) or None
         self.recent_conversation_provider = recent_conversation_provider
+        self.run_store = run_store
 
-    async def build_runtime_spec(self, definition: AgentDefinition | str) -> AgentRuntimeSpec:
+    async def build_spec(self, definition: AgentDefinition | str) -> AgentRuntimeSpec:
         resolved_definition = await self._resolve_definition(definition)
         resolved_resources = await self.resource_resolver.resolve()
         resources = self._select_harness_resources(
@@ -105,7 +117,7 @@ class AgentFactory:
                 tools_deny=resolved_definition.tools_deny,
             )
         except UnknownToolError as exc:
-            raise AgentFactoryError(str(exc)) from exc
+            raise AgentRuntimeError(str(exc)) from exc
         tools = self.tool_registry.list_tools(active_tool_names)
         mcp_server_configs = {
             name: resolved_resources.mcp_server_configs[name]
@@ -144,8 +156,9 @@ class AgentFactory:
         permission_rule_store: InMemoryPermissionRuleStore | None = None,
         context_metadata: JsonObject | None = None,
         recent_conversation_provider: RecentConversationProvider | None = None,
+        llm_call_observer: LlmCallObserver | None = None,
     ) -> AgentHarnessOptions:
-        spec = await self.build_runtime_spec(definition)
+        spec = await self.build_spec(definition)
         resolved_resources = await self.resource_resolver.resolve()
         resources = spec.resources or AgentHarnessResources()
         resources = AgentHarnessResources(
@@ -214,6 +227,7 @@ class AgentFactory:
             recent_conversation_provider=(
                 recent_conversation_provider or self.recent_conversation_provider
             ),
+            llm_call_observer=llm_call_observer,
             is_background=is_background,
         )
 
@@ -233,6 +247,7 @@ class AgentFactory:
         permission_rule_store: InMemoryPermissionRuleStore | None = None,
         context_metadata: JsonObject | None = None,
         recent_conversation_provider: RecentConversationProvider | None = None,
+        llm_call_observer: LlmCallObserver | None = None,
     ) -> AgentHarness:
         return AgentHarness(
             await self.create_options(
@@ -249,7 +264,113 @@ class AgentFactory:
                 permission_rule_store=permission_rule_store,
                 context_metadata=context_metadata,
                 recent_conversation_provider=recent_conversation_provider,
+                llm_call_observer=llm_call_observer,
             )
+        )
+
+    async def execute(self, request: AgentExecutionRequest) -> AgentExecutionResult:
+        if self.run_store is None:
+            raise AgentRuntimeError(
+                "AgentRuntime.execute requires an AgentRunStore",
+                code="run_store_not_configured",
+                public_message="Agent execution storage is not configured.",
+                stage="run_start",
+                run_id=request.run_id,
+                recording_status="degraded",
+            )
+        scope = await start_execution_scope(self.run_store, request)
+
+        harness: AgentHarness | None = None
+        unsubscribe: Callable[[], None] | None = None
+        try:
+            await call_callback(request.on_started, scope.run_id)
+            harness = await self.create_harness(
+                request.agent_name,
+                session=request.session,
+                is_background=request.is_background,
+                llm_call_observer=scope,
+            )
+            await call_callback(request.harness_setup, harness)
+            if request.event_sink is not None:
+                async def forward(event) -> None:
+                    await call_callback(request.event_sink, event)
+
+                unsubscribe = harness.subscribe(forward)
+            response = await harness.prompt(request.prompt, request.prompt_options)
+        except asyncio.CancelledError:
+            await scope.finish_run(
+                status="aborted",
+                error_code="aborted",
+                error_message="Agent execution was aborted",
+            )
+            raise
+        except Exception as exc:
+            nested = _find_runtime_error(exc)
+            code = nested.code if nested else getattr(exc, "code", exc.__class__.__name__)
+            stage = (
+                nested.stage
+                if nested
+                else "session_persistence"
+                if code == "session_persistence"
+                else "runtime"
+            )
+            retryable = nested.retryable if nested else False
+            public_message = (
+                nested.public_message if nested else "Agent execution failed."
+            )
+            recording_status = await scope.finish_run(
+                status="failed",
+                error_code=str(code),
+                error_message=public_message,
+            )
+            raise AgentRuntimeError(
+                str(exc),
+                code=str(code),
+                public_message=public_message,
+                retryable=retryable,
+                stage=stage,
+                run_id=scope.run_id,
+                usage=scope.total_usage,
+                call_count=scope.call_count,
+                recording_status=recording_status,
+                cause=exc,
+            ) from exc
+        finally:
+            if unsubscribe is not None:
+                unsubscribe()
+
+        if response.stop_reason in {"error", "aborted"}:
+            aborted = response.stop_reason == "aborted"
+            recording_status = await scope.finish_run(
+                status="aborted" if aborted else "failed",
+                error_code=response.stop_reason,
+                error_message=(
+                    "Agent execution was aborted" if aborted else "Model provider request failed"
+                ),
+            )
+            raise AgentRuntimeError(
+                response.error_message or f"Agent stopped with reason {response.stop_reason}",
+                code="agent_aborted" if aborted else "provider_error",
+                public_message=(
+                    "Agent execution was aborted."
+                    if aborted
+                    else "The model provider request failed."
+                ),
+                retryable=not aborted,
+                stage="provider",
+                run_id=scope.run_id,
+                usage=scope.total_usage,
+                call_count=scope.call_count,
+                recording_status=recording_status,
+            )
+
+        recording_status = await scope.finish_run(status="completed")
+        return AgentExecutionResult(
+            run_id=scope.run_id,
+            message=response,
+            usage=scope.total_usage,
+            call_count=scope.call_count,
+            recording_status=recording_status,
         )
 
     async def _resolve_definition(self, definition: AgentDefinition | str) -> AgentDefinition:
@@ -257,7 +378,7 @@ class AgentFactory:
             return definition
         resolved = await self.resource_resolver.get_agent_definition(definition)
         if resolved is None:
-            raise AgentFactoryError(f"Unknown agent definition: {definition}")
+            raise AgentRuntimeError(f"Unknown agent definition: {definition}")
         return resolved
 
     async def _resolve_model(self, definition: AgentDefinition) -> Model:
@@ -275,7 +396,7 @@ class AgentFactory:
             resolved = get_model(self.default_model.provider, model_ref)
             if resolved:
                 return resolved
-            raise AgentFactoryError(f"Unknown model: {self.default_model.provider}/{model_ref}")
+            raise AgentRuntimeError(f"Unknown model: {self.default_model.provider}/{model_ref}")
 
         provider = model_ref.provider or self.default_model.provider
         if provider == self.default_model.provider and model_ref.model_id in {
@@ -286,7 +407,7 @@ class AgentFactory:
         resolved = get_model(provider, model_ref.model_id)
         if resolved:
             return resolved
-        raise AgentFactoryError(f"Unknown model: {provider}/{model_ref.model_id}")
+        raise AgentRuntimeError(f"Unknown model: {provider}/{model_ref.model_id}")
 
     def _select_harness_resources(
         self,
@@ -333,7 +454,7 @@ class AgentFactory:
         available_names = set(available)
         missing = [name for name in requested if name not in available_names]
         if missing:
-            raise AgentFactoryError(f"Unknown {label}: {', '.join(missing)}")
+            raise AgentRuntimeError(f"Unknown {label}: {', '.join(missing)}")
         return list(requested)
 
 
@@ -354,7 +475,7 @@ def _resolve_permission_mode(
     try:
         return normalize_permission_mode(value, default)
     except ValueError as exc:
-        raise AgentFactoryError(str(exc)) from exc
+        raise AgentRuntimeError(str(exc)) from exc
 
 
 def _build_agent_catalog(definitions: list[AgentDefinition]) -> list[AgentCatalogEntry] | None:
@@ -370,3 +491,17 @@ def _build_agent_catalog(definitions: list[AgentDefinition]) -> list[AgentCatalo
         )
         for definition in definitions
     ]
+
+
+def _find_runtime_error(exc: BaseException) -> AgentRuntimeError | None:
+    current: BaseException | None = exc
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
+        if isinstance(current, AgentRuntimeError):
+            return current
+        if isinstance(current, AgentHarnessError) and current.cause is not None:
+            current = current.cause
+        else:
+            current = current.__cause__ or current.__context__
+    return None

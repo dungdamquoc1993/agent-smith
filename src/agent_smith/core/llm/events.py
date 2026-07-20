@@ -24,6 +24,7 @@ class AssistantMessageEventStream:
         self._complete = asyncio.Event()
         self._producer_coro: Coroutine[Any, Any, None] | None = None
         self._producer_started = False
+        self._producer_task: asyncio.Task[None] | None = None
 
     def set_producer(self, coro: Coroutine[Any, Any, None]) -> None:
         self._producer_coro = coro
@@ -53,7 +54,14 @@ class AssistantMessageEventStream:
         if self._producer_started or self._producer_coro is None:
             return
         self._producer_started = True
-        asyncio.create_task(self._producer_coro)
+        self._producer_task = asyncio.create_task(self._producer_coro)
+
+    async def cancel(self) -> None:
+        task = self._producer_task
+        if task is None or task.done():
+            return
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
     def __aiter__(self) -> AsyncIterator[AssistantMessageEvent]:
         return self._iter_events()

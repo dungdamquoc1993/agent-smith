@@ -8,6 +8,21 @@ Design notes van nam trong [agent-smith-idea/](agent-smith-idea/).
 
 ## [Unreleased]
 
+### Added - Agent runtime and LLM call recording
+
+- Hard-rename `AgentFactory` thành `AgentRuntime`; `AgentRunService` và
+  `AgentTaskRunner` cùng gọi đường chuẩn `execute()` thay vì tự quản lifecycle.
+- Thêm migration `015_agent_runs_and_llm_calls`, parent-run lineage, execution và
+  recording status tách biệt, usage/cost/timing theo từng provider call và liên kết
+  assistant message với session entry.
+- Áp dụng start-strict/finalize-resilient: start write có deadline 250 ms, finalize
+  retry một lần, không retry provider sau khi đã có kết quả và đánh dấu
+  `recording.status = degraded` khi telemetry finalize không hoàn tất. Assistant
+  call finalize một lần kèm session-entry link nên normal telemetry path giữ
+  `2N + 2` writes.
+- Smith stream version `2026-07-20` trả aggregate usage/cost, call count và recording
+  state; lỗi runtime chỉ trả public-safe message cùng stage/retryability.
+
 ### Added - Standalone admin control plane and Admin UI
 
 - Thêm migration `014_admin_control_plane_foundation` cho admin operators, server-side

@@ -1,4 +1,4 @@
-"""Agent task runner built on AgentFactory and child harness sessions."""
+"""Agent task adapter built on AgentRuntime and child harness sessions."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from agent_smith.core.agent.harness.types import AgentHarnessSession
 from agent_smith.core.llm.types import AssistantMessage, JsonValue, TextContent
-from agent_smith.core.runtime import AgentFactory
+from agent_smith.core.runtime import AgentExecutionRequest, AgentExecutionResult, AgentRuntime
 from agent_smith.core.tasks.types import TaskContext
 
 
@@ -26,6 +26,8 @@ class AgentChildSessionRequest(BaseModel):
     principal_id: str | None = Field(default=None, alias="principalId")
     parent_session_id: str | None = Field(default=None, alias="parentSessionId")
     parent_tool_call_id: str | None = Field(default=None, alias="parentToolCallId")
+    parent_run_id: str | None = Field(default=None, alias="parentRunId")
+    trace_id: str | None = Field(default=None, alias="traceId")
     description: str | None = None
     mode: Literal["sync", "async"] | None = None
     provenance: dict[str, JsonValue] = Field(default_factory=dict)
@@ -45,6 +47,8 @@ class AgentTaskResult(BaseModel):
     final_text: str = Field(alias="finalText")
     message_id: str | None = Field(default=None, alias="messageId")
     usage: dict[str, Any] | None = None
+    run_id: str = Field(alias="runId")
+    recording_status: str = Field(alias="recordingStatus")
     turns: int
     session_id: str = Field(alias="sessionId")
 
@@ -55,7 +59,7 @@ class AgentTaskRunner:
     def __init__(
         self,
         *,
-        agent_factory: AgentFactory,
+        agent_runtime: AgentRuntime,
         session_factory: AgentSessionFactory,
         max_depth: int = 3,
         abort_poll_seconds: float = 0.05,
@@ -64,7 +68,7 @@ class AgentTaskRunner:
             raise ValueError("max_depth must be greater than or equal to 1")
         if abort_poll_seconds <= 0:
             raise ValueError("abort_poll_seconds must be greater than 0")
-        self.agent_factory = agent_factory
+        self.agent_runtime = agent_runtime
         self.session_factory = session_factory
         self.max_depth = max_depth
         self.abort_poll_seconds = abort_poll_seconds
@@ -100,28 +104,39 @@ class AgentTaskRunner:
         child_metadata = await child_session.get_metadata()
         await task_context.set_result_metadata({"sessionId": child_metadata.id})
         is_background = session_request.mode == "async"
-        harness = await self.agent_factory.create_harness(
-            agent_name,
-            session=child_session,
-            is_background=is_background,
-            permission_mode_override=None,
-        )
-
         await task_context.append_output(f"Started agent {agent_name}.\n")
-        response = await self._prompt_with_abort(
-            harness=harness,
-            prompt=prompt,
+        execution = await self._execute_with_abort(
+            execution=self.agent_runtime.execute(
+                AgentExecutionRequest(
+                    session=child_session,
+                    principal_id=child_metadata.principal_id,
+                    agent_name=agent_name,
+                    prompt=prompt,
+                    flow="agent_task",
+                    parent_run_id=session_request.parent_run_id,
+                    correlation_id=task_context.task_id,
+                    trace_id=session_request.trace_id,
+                    is_background=is_background,
+                    metadata={
+                        "taskId": task_context.task_id,
+                        "agentDepth": next_depth,
+                        "parentToolCallId": session_request.parent_tool_call_id,
+                        "mode": session_request.mode or "sync",
+                    },
+                )
+            ),
             task_context=task_context,
         )
+        response = execution.message
         final_text = _assistant_text(response)
         turns = await _count_assistant_turns(child_session)
         result = AgentTaskResult(
             agent_name=agent_name,
             final_text=final_text,
             message_id=None,
-            usage=response.usage.model_dump(mode="python", by_alias=True)
-            if response.usage
-            else None,
+            usage=execution.usage.model_dump(mode="python", by_alias=True),
+            runId=execution.run_id,
+            recordingStatus=execution.recording_status,
             turns=turns,
             session_id=child_metadata.id,
         )
@@ -132,6 +147,8 @@ class AgentTaskRunner:
                 "sessionId": child_metadata.id,
                 "stopReason": response.stop_reason,
                 "turns": turns,
+                "runId": execution.run_id,
+                "recordingStatus": execution.recording_status,
             }
         )
         await task_context.append_output(f"Completed agent {agent_name}.\n{final_text}\n")
@@ -168,6 +185,8 @@ class AgentTaskRunner:
                 "parentToolCallId",
                 "parent_tool_call_id",
             ),
+            parent_run_id=_string_value(parent_metadata, "parentRunId", "parent_run_id"),
+            trace_id=_string_value(parent_metadata, "traceId", "trace_id"),
             description=_string_value(parent_metadata, "description"),
             mode=mode,
             provenance=dict(provenance or {}),
@@ -179,28 +198,26 @@ class AgentTaskRunner:
             return await value
         return value
 
-    async def _prompt_with_abort(
+    async def _execute_with_abort(
         self,
         *,
-        harness: Any,
-        prompt: str,
+        execution: Awaitable[AgentExecutionResult],
         task_context: TaskContext,
-    ) -> AssistantMessage:
+    ) -> AgentExecutionResult:
         if task_context.abort_signal.is_set():
             raise asyncio.CancelledError
 
-        prompt_task = asyncio.create_task(harness.prompt(prompt))
+        execution_task = asyncio.create_task(execution)
         try:
             while True:
                 if task_context.abort_signal.is_set():
-                    await self._abort_harness(harness, prompt_task)
                     raise asyncio.CancelledError
 
-                done, _ = await asyncio.wait({prompt_task}, timeout=self.abort_poll_seconds)
+                done, _ = await asyncio.wait({execution_task}, timeout=self.abort_poll_seconds)
                 if done:
-                    return prompt_task.result()
+                    return execution_task.result()
         except asyncio.CancelledError:
-            await self._abort_harness(harness, prompt_task)
+            await self._cancel_execution(execution_task)
             raise
 
     def _resolve_depth(self, parent_metadata: Mapping[str, Any] | None) -> int:
@@ -215,17 +232,15 @@ class AgentTaskRunner:
             raise AgentTaskRunnerError("parent_metadata.agentDepth must be greater than or equal to 0")
         return depth
 
-    async def _abort_harness(self, harness: Any, prompt_task: asyncio.Task[Any]) -> None:
-        abort_task = asyncio.create_task(harness.abort())
-        prompt_task.cancel()
+    async def _cancel_execution(self, execution_task: asyncio.Task[Any]) -> None:
+        execution_task.cancel()
         try:
             await asyncio.wait_for(
-                asyncio.gather(prompt_task, abort_task, return_exceptions=True),
+                asyncio.gather(execution_task, return_exceptions=True),
                 timeout=1,
             )
         except TimeoutError:
-            abort_task.cancel()
-            await asyncio.gather(abort_task, return_exceptions=True)
+            return
 
 
 def _assistant_text(message: AssistantMessage) -> str:

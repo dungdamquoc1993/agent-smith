@@ -33,7 +33,7 @@ from agent_smith.infra.storage.postgres.database import Base
 from agent_smith.infra.storage.postgres.adapters import PostgresMcpCredentialStore
 from agent_smith.infra.storage.postgres.models.mcp_credentials import McpCredentialRecord
 from agent_smith.core.resources import ResourceResolver
-from agent_smith.core.runtime import AgentFactory, ToolRegistry
+from agent_smith.core.runtime import AgentRuntime, ToolRegistry
 from helpers.resource_stores import MemoryResourceStore
 from helpers.sessions import MemorySessionRepo
 
@@ -363,7 +363,7 @@ async def test_resource_resolver_keeps_mcp_config_as_pure_config() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_factory_materializes_mcp_tools_only_in_create_options() -> None:
+async def test_agent_runtime_materializes_mcp_tools_only_in_create_options() -> None:
     class FakeManager:
         def __init__(self) -> None:
             self.calls: list[dict[str, Any]] = []
@@ -396,16 +396,16 @@ async def test_agent_factory_materializes_mcp_tools_only_in_create_options() -> 
         ]
     )
     fake_manager = FakeManager()
-    factory = AgentFactory(
+    runtime = AgentRuntime(
         resource_resolver=ResourceResolver([store]),
         tool_registry=ToolRegistry([_native_tool("native")]),
         default_model=make_litellm_model(provider="openai", model_id="gpt-test"),
         mcp_manager=fake_manager,  # type: ignore[arg-type]
     )
 
-    spec = await factory.build_runtime_spec("reviewer")
+    spec = await runtime.build_spec("reviewer")
     session = await MemorySessionRepo().create(principal_id="principal-1")
-    options = await factory.create_options("reviewer", session=session)
+    options = await runtime.create_options("reviewer", session=session)
 
     assert fake_manager.calls == [
         {"server_configs": {"github": {"command": "github-mcp"}}, "principal_id": "principal-1"}

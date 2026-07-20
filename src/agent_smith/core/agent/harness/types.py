@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Literal, Protocol, TypedDict, runtime_checkable
 
 from pydantic import BaseModel, Field
 
 from agent_smith.core.llm.types import (
     CacheRetention,
+    AssistantMessage,
+    Context,
     HookPayload,
     ImageContent,
     JsonObject,
@@ -18,6 +22,7 @@ from agent_smith.core.llm.types import (
     ModelThinkingLevel,
     ProviderPayload,
     TextContent,
+    SimpleStreamOptions,
 )
 from agent_smith.core.agent.types import (
     AgentEvent,
@@ -52,6 +57,37 @@ class AgentHarnessError(Exception):
         super().__init__(message)
         self.code = code
         self.cause = cause
+
+
+@dataclass(frozen=True)
+class LlmCallHandle:
+    id: str
+    started_at: datetime
+    purpose: str
+
+
+@runtime_checkable
+class LlmCallObserver(Protocol):
+    async def start_call(
+        self,
+        *,
+        model: Model,
+        context: Context,
+        options: SimpleStreamOptions,
+        purpose: str,
+    ) -> LlmCallHandle: ...
+
+    async def finish_call(
+        self,
+        handle: LlmCallHandle,
+        *,
+        message: AssistantMessage | None,
+        first_token_at: datetime | None,
+        error: BaseException | None = None,
+        aborted: bool = False,
+    ) -> None: ...
+
+    async def link_session_entry(self, call_id: str, session_entry_id: str) -> None: ...
 
 
 class AgentHarnessStreamOptions(BaseModel):
@@ -416,6 +452,11 @@ class AgentHarnessOptions(BaseModel):
     recent_conversation_provider: RecentConversationProvider | None = Field(
         default=None,
         alias="recentConversationProvider",
+        exclude=True,
+    )
+    llm_call_observer: LlmCallObserver | None = Field(
+        default=None,
+        alias="llmCallObserver",
         exclude=True,
     )
     is_background: bool = Field(default=False, alias="isBackground")

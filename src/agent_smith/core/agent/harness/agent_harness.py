@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError
 
 from agent_smith.core.llm import complete_simple
-from agent_smith.core.llm.events import AssistantMessageEventStream
+from agent_smith.core.llm.events import (
+    AssistantMessageEventStream,
+    create_assistant_message_event_stream,
+)
 from agent_smith.core.llm.types import (
     AssistantMessage,
+    AssistantMessageEventError,
     Context,
     HookPayload,
     ImageContent,
@@ -73,6 +79,7 @@ from agent_smith.core.agent.harness.types import (
     ContextEvent,
     ContextResult,
     HarnessHandler,
+    LlmCallObserver,
     ModelUpdateEvent,
     QueueUpdateEvent,
     ResourcesUpdateEvent,
@@ -89,6 +96,7 @@ from agent_smith.core.agent.harness.types import (
     ToolsUpdateEvent,
     TurnState,
 )
+
 from agent_smith.core.agent.types import (
     AbortSignal,
     AfterToolCallContext,
@@ -110,6 +118,7 @@ from agent_smith.core.permissions.harness import (
 from agent_smith.core.tools.skill.constants import SKILL_TOOL_NAME
 from agent_smith.core.tools.task.constants import TASK_TOOL_NAME
 
+logger = logging.getLogger(__name__)
 SUBSCRIBER_EVENT_TYPE = "*"
 USER_MEMORY_SNAPSHOT_CUSTOM_TYPE = "user_memory_snapshot"
 RUNTIME_METADATA_SNAPSHOT_CUSTOM_TYPE = "runtime_metadata_snapshot"
@@ -328,6 +337,7 @@ class AgentHarness:
         self.permission_rule_store = resolved.permission_rule_store
         self.context_metadata = dict(resolved.context_metadata or {}) or None
         self.recent_conversation_provider = resolved.recent_conversation_provider
+        self.llm_call_observer: LlmCallObserver | None = resolved.llm_call_observer
         self.is_background = resolved.is_background
 
         self.phase = "idle"
@@ -622,7 +632,13 @@ class AgentHarness:
         try:
             new_messages = await self._run_task
         except Exception as exc:
-            await self._emit_run_failure(active_turn_state["model"], exc)
+            try:
+                await self._emit_run_failure(active_turn_state["model"], exc)
+            except Exception:
+                logger.warning(
+                    "Unable to persist agent failure message",
+                    exc_info=True,
+                )
             raise
         finally:
             self._run_task = None
@@ -895,14 +911,22 @@ class AgentHarness:
         if auth and auth.api_key:
             option_data["apiKey"] = auth.api_key
 
-        response = await complete_simple(
-            self.model,
-            Context(
-                system_prompt=SUMMARIZATION_SYSTEM_PROMPT,
-                messages=[UserMessage(content=prompt, timestamp=now_ms())],
-            ),
-            SimpleStreamOptions.model_validate(option_data),
+        context = Context(
+            system_prompt=SUMMARIZATION_SYSTEM_PROMPT,
+            messages=[UserMessage(content=prompt, timestamp=now_ms())],
         )
+        options = SimpleStreamOptions.model_validate(option_data)
+        if self.llm_call_observer is None:
+            response = await complete_simple(self.model, context, options)
+        else:
+            stream = await self._tracked_provider_stream(
+                self.model,
+                context,
+                options,
+                purpose="compaction",
+                provider=self.stream_fn or _default_stream_fn,
+            )
+            response = await stream.result()
         if response.stop_reason in ("error", "aborted"):
             raise AgentHarnessError(
                 "compaction",
@@ -1044,10 +1068,97 @@ class AgentHarness:
             option_data["sessionId"] = turn_state["session_id"]
             if auth and auth.api_key:
                 option_data["apiKey"] = auth.api_key
-            response = (self.stream_fn or _default_stream_fn)(model, context, SimpleStreamOptions(**option_data))
-            return await call(response)
+            return await self._tracked_provider_stream(
+                model,
+                context,
+                SimpleStreamOptions(**option_data),
+                purpose="agent_turn",
+                provider=self.stream_fn or _default_stream_fn,
+            )
 
         return stream_fn
+
+    async def _tracked_provider_stream(
+        self,
+        model: Model,
+        context: Context,
+        options: SimpleStreamOptions,
+        *,
+        purpose: str,
+        provider: StreamFn,
+    ) -> AssistantMessageEventStream:
+        observer = self.llm_call_observer
+        if observer is None:
+            return await call(provider(model, context, options))
+
+        handle = await observer.start_call(
+            model=model,
+            context=context,
+            options=options,
+            purpose=purpose,
+        )
+        try:
+            source = await call(provider(model, context, options))
+        except BaseException as exc:
+            await observer.finish_call(
+                handle,
+                message=None,
+                first_token_at=None,
+                error=exc,
+                aborted=isinstance(exc, asyncio.CancelledError),
+            )
+            raise
+
+        tracked = create_assistant_message_event_stream()
+
+        async def produce() -> None:
+            first_token_at: datetime | None = None
+            finalized = False
+            try:
+                async for event in source:
+                    if first_token_at is None and event.type in {
+                        "text_delta",
+                        "thinking_delta",
+                        "toolcall_delta",
+                    }:
+                        first_token_at = datetime.now(UTC)
+                    if event.type in {"done", "error"}:
+                        message = event.message if event.type == "done" else event.error
+                        message.llm_call_id = handle.id
+                        await observer.finish_call(
+                            handle,
+                            message=message,
+                            first_token_at=first_token_at,
+                        )
+                        finalized = True
+                    tracked.push(event)
+                if not finalized:
+                    raise RuntimeError("Provider stream ended without a terminal event")
+            except asyncio.CancelledError as exc:
+                await source.cancel()
+                if not finalized:
+                    await observer.finish_call(
+                        handle,
+                        message=None,
+                        first_token_at=first_token_at,
+                        error=exc,
+                        aborted=True,
+                    )
+                raise
+            except BaseException as exc:
+                if not finalized:
+                    await observer.finish_call(
+                        handle,
+                        message=None,
+                        first_token_at=first_token_at,
+                        error=exc,
+                    )
+                error_message = create_failure_message(model, Exception(str(exc)), aborted=False)
+                error_message.llm_call_id = handle.id
+                tracked.push(AssistantMessageEventError(reason="error", error=error_message))
+
+        tracked.set_producer(produce())
+        return tracked
 
     async def _emit_before_provider_request(
         self,
@@ -1095,7 +1206,23 @@ class AgentHarness:
     async def _handle_agent_event(self, event: AgentEvent) -> None:
         if isinstance(event, MessageEndEvent) or event.type == "message_end":
             self._remember_runtime_images(event.message)
-            await self.session.append_message(event.message)
+            try:
+                entry_id = await self.session.append_message(event.message)
+            except Exception as exc:
+                raise AgentHarnessError(
+                    "session_persistence",
+                    "Unable to persist the agent message",
+                    exc,
+                ) from exc
+            if (
+                isinstance(event.message, AssistantMessage)
+                and event.message.llm_call_id
+                and self.llm_call_observer is not None
+            ):
+                await self.llm_call_observer.link_session_entry(
+                    event.message.llm_call_id,
+                    entry_id,
+                )
             await self._emit_any(event)
             return
         if isinstance(event, TurnEndEvent) or event.type == "turn_end":

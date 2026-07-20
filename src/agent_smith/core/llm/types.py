@@ -121,6 +121,7 @@ class AssistantMessage(BaseModel):
     usage: Usage = Field(default_factory=Usage)
     stop_reason: StopReason = Field(default="stop", alias="stopReason")
     error_message: str | None = Field(default=None, alias="errorMessage")
+    llm_call_id: str | None = Field(default=None, alias="llmCallId", exclude=True)
     timestamp: int
 
     model_config = {"populate_by_name": True}

@@ -4,6 +4,9 @@ from importlib import import_module
 from typing import Any
 
 _EXPORTS = {
+    "PostgresAgentRunStore": (
+        "agent_smith.infra.storage.postgres.adapters.agent_runs"
+    ),
     "PostgresAdminAuditReader": (
         "agent_smith.infra.storage.postgres.adapters.admin.audit"
     ),

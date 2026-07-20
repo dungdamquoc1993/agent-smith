@@ -115,7 +115,7 @@ Nó có thể:
 
 Nếu không truyền `can_use_tool`, harness không có chỗ nào để hỏi user. Khi đó một decision `ask` sẽ thành deny với source `missing_can_use_tool`.
 
-App service hiện tạo `AgentFactory` chỉ với `default_permission_mode`, chưa truyền `can_use_tool`. Điều này làm agent chạy qua path đó bị hạn chế trong `default` mode:
+App service hiện tạo `AgentRuntime` chỉ với `default_permission_mode`, chưa truyền `can_use_tool`. Điều này làm agent chạy qua path đó bị hạn chế trong `default` mode:
 
 - read-only tools vẫn chạy;
 - `manage_resources list/read` vẫn chạy nhờ tool-specific check;

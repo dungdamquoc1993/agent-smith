@@ -211,4 +211,4 @@ def test_admin_metadata_contains_three_additive_tables() -> None:
         "admin_sessions",
         "admin_audit_events",
     }.issubset(Base.metadata.tables)
-    assert len(Base.metadata.tables) == 19
+    assert len(Base.metadata.tables) == 21

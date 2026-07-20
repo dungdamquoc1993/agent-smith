@@ -24,6 +24,7 @@ from agent_smith.infra.document_processing import inspect_image
 from agent_smith.infra.storage.postgres import PostgresRuntime
 from agent_smith.infra.storage.postgres.adapters import (
     PostgresFileAuditStore,
+    PostgresAgentRunStore,
     PostgresFileCatalog,
     PostgresFileDerivativeReader,
     PostgresFileProcessingRepository,
@@ -144,6 +145,7 @@ def build_runtime_http_container(settings: RuntimeSettings) -> RuntimeHttpContai
         recent_conversation_provider=PostgresRecentConversationProvider(session_factory),
         attachment_service=attachments,
         file_audit_store=audit_store,
+        run_store=PostgresAgentRunStore(session_factory),
     )
     runtime = RuntimeService(
         postgres,

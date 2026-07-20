@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from typing import Any
 
@@ -67,24 +68,31 @@ async def stream_assistant_response(
     partial_message: AssistantMessage | None = None
     added_partial = False
 
-    async for event in response:
-        if event.type == "start":
-            partial_message = event.partial
-            context.messages.append(partial_message)
-            added_partial = True
-            await emit(emit_event, MessageStartEvent(message=partial_message.model_copy(deep=True)))
-        elif event.type in UPDATE_EVENT_TYPES and partial_message is not None:
-            partial_message = event.partial
-            context.messages[-1] = partial_message
-            await emit(
-                emit_event,
-                MessageUpdateEvent(
-                    assistant_message_event=event,
-                    message=partial_message.model_copy(deep=True),
-                ),
-            )
-        elif event.type in ("done", "error"):
-            return await finish_assistant_response(response, context, added_partial, emit_event)
+    try:
+        async for event in response:
+            if event.type == "start":
+                partial_message = event.partial
+                context.messages.append(partial_message)
+                added_partial = True
+                await emit(
+                    emit_event,
+                    MessageStartEvent(message=partial_message.model_copy(deep=True)),
+                )
+            elif event.type in UPDATE_EVENT_TYPES and partial_message is not None:
+                partial_message = event.partial
+                context.messages[-1] = partial_message
+                await emit(
+                    emit_event,
+                    MessageUpdateEvent(
+                        assistant_message_event=event,
+                        message=partial_message.model_copy(deep=True),
+                    ),
+                )
+            elif event.type in ("done", "error"):
+                return await finish_assistant_response(response, context, added_partial, emit_event)
+    except asyncio.CancelledError:
+        await response.cancel()
+        raise
 
     return await finish_assistant_response(response, context, added_partial, emit_event)
 
