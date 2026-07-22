@@ -13,6 +13,29 @@ from agent_smith.infra.storage.s3 import S3BlobStore
 
 
 @pytest.mark.asyncio
+async def test_dependency_check_uses_configured_bucket() -> None:
+    client = MagicMock()
+    store = S3BlobStore(client, bucket="private")
+
+    await store.check()
+
+    client.head_bucket.assert_called_once_with(Bucket="private")
+
+
+@pytest.mark.asyncio
+async def test_dependency_check_maps_s3_errors() -> None:
+    client = MagicMock()
+    client.head_bucket.side_effect = ClientError(
+        {"Error": {"Code": "AccessDenied"}, "ResponseMetadata": {"HTTPStatusCode": 403}},
+        "HeadBucket",
+    )
+    store = S3BlobStore(client, bucket="private")
+
+    with pytest.raises(BlobStorageError, match="not accessible"):
+        await store.check()
+
+
+@pytest.mark.asyncio
 async def test_upload_presign_signs_content_type_and_optional_checksum() -> None:
     client = MagicMock()
     client.generate_presigned_url.return_value = "https://storage.test/signed"

@@ -21,6 +21,13 @@ class S3BlobStore:
         self._client = client
         self._bucket = bucket
 
+    async def check(self) -> None:
+        """Check that the configured private bucket exists and is accessible."""
+        try:
+            await asyncio.to_thread(self._client.head_bucket, Bucket=self._bucket)
+        except (BotoCoreError, ClientError, ValueError) as exc:
+            raise BlobStorageError("configured bucket is not accessible") from exc
+
     async def create_upload_url(
         self,
         *,

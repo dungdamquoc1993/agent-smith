@@ -1,13 +1,18 @@
 """Document-worker process composition root."""
 
 from agent_smith.app.services.file_maintenance import FileMaintenanceService
-from agent_smith.bootstrap.common import create_blob_store, create_postgres_runtime
+from agent_smith.bootstrap.common import (
+    check_startup_dependencies,
+    create_blob_store,
+    create_postgres_runtime,
+)
 from agent_smith.infra.config import RuntimeSettings
 from agent_smith.infra.document_processing import (
     SupportedFileTypeDetector,
     create_processor_registry,
 )
 from agent_smith.infra.storage.postgres import PostgresRuntime
+from agent_smith.infra.storage.s3 import S3BlobStore
 from agent_smith.infra.storage.postgres.adapters import (
     PostgresDocumentJobQueue,
     PostgresFileMaintenanceStore,
@@ -29,12 +34,21 @@ class DocumentWorkerContainer:
         maintenance: FileMaintenanceRunner,
         application: DocumentWorkerApplication,
         postgres_runtime: PostgresRuntime,
+        blob_store: S3BlobStore,
     ) -> None:
         self.settings = settings
         self.worker = worker
         self.maintenance = maintenance
         self.application = application
         self._postgres_runtime = postgres_runtime
+        self._blob_store = blob_store
+
+    async def check_dependencies(self) -> None:
+        await check_startup_dependencies(
+            postgres=self._postgres_runtime,
+            blobs=self._blob_store,
+            storage_provider=self.settings.s3_provider,
+        )
 
     async def close(self) -> None:
         await self.application.close()
@@ -76,4 +90,5 @@ def build_document_worker_container(settings: RuntimeSettings) -> DocumentWorker
         maintenance=maintenance,
         application=application,
         postgres_runtime=postgres,
+        blob_store=blobs,
     )

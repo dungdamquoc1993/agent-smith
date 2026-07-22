@@ -14,6 +14,7 @@ Cloudflare references:
 ## Runtime configuration
 
 ```dotenv
+AGENT_SMITH_S3_PROVIDER=r2
 AGENT_SMITH_S3_ENDPOINT_URL=https://<account-id>.r2.cloudflarestorage.com
 AGENT_SMITH_S3_REGION=auto
 AGENT_SMITH_S3_BUCKET=<agent-smith-private-bucket>

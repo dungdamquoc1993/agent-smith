@@ -15,7 +15,11 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
 from agent_smith.bootstrap.runtime_http import build_runtime_http_container
-from agent_smith.infra.config import get_runtime_settings, load_environment
+from agent_smith.infra.config import (
+    get_runtime_settings,
+    load_environment,
+    validate_runtime_startup,
+)
 from agent_smith.transports.runtime_http.file_routes import FILE_ROUTES, router as file_router
 from agent_smith.transports.runtime_http.runtime_routes import RUNTIME_ROUTES, router as runtime_router
 from agent_smith.transports.shared_http import AgentSmithHttpError, error_response, json_response
@@ -47,9 +51,11 @@ def create_app(
             yield
             return
 
+        validate_runtime_startup(settings)
         app_container = build_runtime_http_container(settings)
-        app.state.container = app_container
         try:
+            await app_container.check_dependencies()
+            app.state.container = app_container
             yield
         finally:
             await app_container.close()

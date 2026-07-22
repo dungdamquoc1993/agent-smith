@@ -17,11 +17,16 @@ from agent_smith.app.services.provider_auth import (
 from agent_smith.app.services.resources import ResourceService
 from agent_smith.app.services.runtime import RuntimeService
 from agent_smith.app.services.sessions import SessionService
-from agent_smith.bootstrap.common import create_blob_store, create_postgres_runtime
+from agent_smith.bootstrap.common import (
+    check_startup_dependencies,
+    create_blob_store,
+    create_postgres_runtime,
+)
 from agent_smith.core.llm import bootstrap_providers
 from agent_smith.infra.config import RuntimeSettings
 from agent_smith.infra.document_processing import inspect_image
 from agent_smith.infra.storage.postgres import PostgresRuntime
+from agent_smith.infra.storage.s3 import S3BlobStore
 from agent_smith.infra.storage.postgres.adapters import (
     PostgresFileAuditStore,
     PostgresAgentRunStore,
@@ -52,6 +57,7 @@ class RuntimeHttpContainer:
         files: FileService,
         agent_runs: AgentRunService,
         postgres_runtime: PostgresRuntime,
+        blob_store: S3BlobStore,
     ) -> None:
         self.settings = settings
         self.runtime = runtime
@@ -61,7 +67,15 @@ class RuntimeHttpContainer:
         self.files = files
         self.agent_runs = agent_runs
         self._postgres_runtime = postgres_runtime
+        self._blob_store = blob_store
         self._closed = False
+
+    async def check_dependencies(self) -> None:
+        await check_startup_dependencies(
+            postgres=self._postgres_runtime,
+            blobs=self._blob_store,
+            storage_provider=self.settings.s3_provider,
+        )
 
     async def close(self) -> None:
         if self._closed:
@@ -163,4 +177,5 @@ def build_runtime_http_container(settings: RuntimeSettings) -> RuntimeHttpContai
         files=files,
         agent_runs=agent_runs,
         postgres_runtime=postgres,
+        blob_store=blobs,
     )

@@ -91,6 +91,12 @@ private normalized derivatives, then resolved as bounded text context. Session
 history stores immutable file references, never binary/base64 or extracted
 document content.
 
+`AGENT_SMITH_S3_PROVIDER` makes the active backend explicit: `minio` for the
+local Compose stack, `r2` for Cloudflare R2, or `aws` for AWS S3. It selects
+provider-specific startup validation; all three still use the same S3 adapter.
+There is no automatic MinIO fallback—an unavailable or invalid selected backend
+stops startup with a clear dependency error.
+
 Run the durable document worker beside the HTTP service after migrations:
 
 ```bash

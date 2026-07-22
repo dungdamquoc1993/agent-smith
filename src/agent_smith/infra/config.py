@@ -1,8 +1,10 @@
 import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal, Mapping
+from urllib.parse import urlsplit
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,8 +23,14 @@ class RuntimeSettings(BaseSettings):
         default="gpt-5.5",
         validation_alias="AGENT_SMITH_DEFAULT_MODEL",
     )
-    openrouter_api_key: str | None = None
-    mcp_credentials_key: str | None = None
+    openrouter_api_key: str | None = Field(
+        default=None,
+        validation_alias="OPENROUTER_API_KEY",
+    )
+    mcp_credentials_key: str | None = Field(
+        default=None,
+        validation_alias="MCP_CREDENTIALS_KEY",
+    )
     identity_secrets_key: str | None = Field(
         default=None,
         validation_alias="AGENT_SMITH_IDENTITY_SECRETS_KEY",
@@ -31,7 +39,13 @@ class RuntimeSettings(BaseSettings):
         default=True,
         validation_alias="AGENT_SMITH_HTTP_DOCS_ENABLED",
     )
-    default_permission_mode: str = "default"
+    default_permission_mode: str = Field(
+        default="default",
+        validation_alias=AliasChoices(
+            "AGENT_SMITH_DEFAULT_PERMISSION_MODE",
+            "DEFAULT_PERMISSION_MODE",
+        ),
+    )
     assertion_audience: str = Field(
         default="agent-smith",
         validation_alias="AGENT_SMITH_ASSERTION_AUDIENCE",
@@ -43,6 +57,10 @@ class RuntimeSettings(BaseSettings):
     s3_endpoint_url: str | None = Field(
         default="http://localhost:9000",
         validation_alias="AGENT_SMITH_S3_ENDPOINT_URL",
+    )
+    s3_provider: Literal["minio", "r2", "aws"] = Field(
+        default="minio",
+        validation_alias="AGENT_SMITH_S3_PROVIDER",
     )
     s3_region: str = Field(
         default="us-east-1",
@@ -173,6 +191,84 @@ class RuntimeSettings(BaseSettings):
 @lru_cache
 def get_runtime_settings() -> RuntimeSettings:
     return RuntimeSettings()
+
+
+def validate_runtime_startup(
+    settings: RuntimeSettings,
+    *,
+    env: Mapping[str, str] | None = None,
+    require_llm: bool = True,
+) -> None:
+    """Fail fast on configuration required by a runtime process."""
+    source = os.environ if env is None else env
+    errors = _storage_configuration_errors(settings)
+
+    if require_llm:
+        if not _configured(settings.openrouter_api_key):
+            errors.append(
+                "OPENROUTER_API_KEY is required because the model catalog routes through OpenRouter"
+            )
+
+        search_provider = source.get("AGENT_SMITH_WEB_SEARCH_PROVIDER", "").strip().lower()
+        search_keys = {"tavily": "TAVILY_API_KEY", "brave": "BRAVE_SEARCH_API_KEY"}
+        if search_provider and search_provider not in search_keys:
+            errors.append(
+                "AGENT_SMITH_WEB_SEARCH_PROVIDER must be either 'tavily' or 'brave' when set"
+            )
+        elif search_provider:
+            required_key = search_keys[search_provider]
+            if not _configured(source.get(required_key)):
+                errors.append(
+                    f"{required_key} is required when AGENT_SMITH_WEB_SEARCH_PROVIDER="
+                    f"{search_provider}"
+                )
+
+    if errors:
+        details = "\n".join(f"- {error}" for error in errors)
+        raise RuntimeError(f"Invalid Agent Smith startup configuration:\n{details}")
+
+
+def _storage_configuration_errors(settings: RuntimeSettings) -> list[str]:
+    provider = settings.s3_provider
+    endpoint = (settings.s3_endpoint_url or "").strip()
+    access_key = settings.s3_access_key_id.strip()
+    secret_key = settings.s3_secret_access_key.strip()
+    errors: list[str] = []
+
+    if not endpoint and provider != "aws":
+        errors.append(f"AGENT_SMITH_S3_ENDPOINT_URL is required for provider '{provider}'")
+    if not access_key or not secret_key:
+        errors.append(
+            "AGENT_SMITH_S3_ACCESS_KEY_ID and AGENT_SMITH_S3_SECRET_ACCESS_KEY are required"
+        )
+
+    if provider == "r2":
+        hostname = (urlsplit(endpoint).hostname or "").lower()
+        if not hostname.endswith(".r2.cloudflarestorage.com"):
+            errors.append(
+                "Cloudflare R2 endpoint must end with '.r2.cloudflarestorage.com'"
+            )
+        if settings.s3_region != "auto":
+            errors.append("Cloudflare R2 requires AGENT_SMITH_S3_REGION=auto")
+        if settings.s3_path_style:
+            errors.append("Cloudflare R2 requires AGENT_SMITH_S3_PATH_STYLE=false")
+        if access_key == "smith" or secret_key == "smithsmith":
+            errors.append("Cloudflare R2 credentials must replace the local MinIO credentials")
+    elif provider == "aws":
+        if endpoint:
+            errors.append("AWS S3 uses its standard endpoint; leave AGENT_SMITH_S3_ENDPOINT_URL empty")
+        if settings.s3_region == "auto":
+            errors.append("AWS S3 requires an AWS region such as 'ap-southeast-1', not 'auto'")
+        if settings.s3_path_style:
+            errors.append("AWS S3 requires AGENT_SMITH_S3_PATH_STYLE=false")
+    elif provider == "minio" and not endpoint.startswith(("http://", "https://")):
+        errors.append("MinIO endpoint must be an http(s) URL")
+
+    return errors
+
+
+def _configured(value: str | None) -> bool:
+    return bool(value and value.strip())
 
 
 def load_environment(path: Path) -> None:

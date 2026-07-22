@@ -59,13 +59,19 @@ def test_app_owned_http_container_is_closed_on_shutdown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings = SimpleNamespace(http_docs_enabled=True)
-    container = SimpleNamespace(settings=settings, close=AsyncMock())
+    container = SimpleNamespace(
+        settings=settings,
+        check_dependencies=AsyncMock(),
+        close=AsyncMock(),
+    )
     monkeypatch.setattr(http_main, "get_runtime_settings", lambda: settings)
+    monkeypatch.setattr(http_main, "validate_runtime_startup", lambda _settings: None)
     monkeypatch.setattr(http_main, "build_runtime_http_container", lambda _settings: container)
 
     with TestClient(http_main.create_app()):
         pass
 
+    container.check_dependencies.assert_awaited_once()
     container.close.assert_awaited_once()
 
 
@@ -82,6 +88,7 @@ async def test_runtime_and_admin_http_containers_dispose_postgres_once() -> None
         files=MagicMock(),
         agent_runs=MagicMock(),
         postgres_runtime=runtime_postgres,  # type: ignore[arg-type]
+        blob_store=MagicMock(),
     )
     admin = AdminHttpContainer(
         settings=AdminHttpSettings(_env_file=None),
